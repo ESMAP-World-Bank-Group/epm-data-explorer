@@ -56,6 +56,21 @@ function downloadBlob(content, filename, type = 'application/octet-stream') {
 
 // ── Shared mini utilities ─────────────────────────────────────────────────────
 
+function NotAvailable({ t }) {
+  return (
+    <div style={{
+      border: `1px dashed ${t.panelBorder}`, borderRadius: 8,
+      padding: '20px 16px', textAlign: 'center',
+      color: t.lblMuted, fontSize: '0.58rem',
+    }}>
+      <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 4 }}>
+        Not available
+      </div>
+      No EPM input data configured for this region yet.
+    </div>
+  );
+}
+
 function SectionTitle({ t, children }) {
   return (
     <div style={{ fontSize: '0.47rem', letterSpacing: '2px', fontWeight: 700,
@@ -157,12 +172,13 @@ function EpmSupplyTab({ t, epmData }) {
 
 // ── Demand tab ────────────────────────────────────────────────────────────────
 
-function DemandTab({ t, epmData, epmLoading }) {
+function DemandTab({ t, epmData, epmLoading, hasEpm }) {
   const years = availableYears(epmData?.demand || []);
   const [yr,   setYr]   = useState(null);
 
   const refYr = yr || years.find(y => y === '2024') || years[0];
 
+  if (!hasEpm)   return <NotAvailable t={t} />;
   if (epmLoading) return <LoadingBox t={t} />;
   if (!epmData?.demand?.length) return (
     <div style={{ fontSize: '0.6rem', color: t.muted, padding: '12px 0' }}>
@@ -256,11 +272,12 @@ function DemandTab({ t, epmData, epmLoading }) {
 
 // ── Topology tab ──────────────────────────────────────────────────────────────
 
-function TopologyTab({ t, epmData, epmLoading, zonesAvailable, zoningConfigs }) {
+function TopologyTab({ t, epmData, epmLoading, hasEpm, zonesAvailable, zoningConfigs }) {
   const ntcYears = availableYears(epmData?.ntc || []);
   const [yr, setYr] = useState(null);
   const refYr = yr || ntcYears.find(y => y === '2024') || ntcYears[0];
 
+  if (!hasEpm && !zonesAvailable) return <NotAvailable t={t} />;
   if (epmLoading) return <LoadingBox t={t} />;
 
   // Zone → country from zcmap
@@ -1306,14 +1323,13 @@ export default function RegionPage() {
 
         {activeTab === 'overview'  && <CapacityChart capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} access={access} />}
         {activeTab === 'supply'    && (
-          epmData
-            ? <EpmSupplyTab t={t} epmData={epmData} />
-            : epmLoading
-              ? <LoadingBox t={t} />
-              : <StatsPanel capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} fleetAge={fleetAge} access={access} />
+          !region.epm  ? <NotAvailable t={t} /> :
+          epmLoading   ? <LoadingBox t={t} /> :
+          epmData      ? <EpmSupplyTab t={t} epmData={epmData} /> :
+                         <NotAvailable t={t} />
         )}
-        {activeTab === 'demand'    && <DemandTab   t={t} epmData={epmData} epmLoading={epmLoading} />}
-        {activeTab === 'topology'  && <TopologyTab t={t} epmData={epmData} epmLoading={epmLoading} zonesAvailable={zonesAvailable} zoningConfigs={zoningConfigs} />}
+        {activeTab === 'demand'    && <DemandTab   t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} />}
+        {activeTab === 'topology'  && <TopologyTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} zonesAvailable={zonesAvailable} zoningConfigs={zoningConfigs} />}
         {activeTab === 'about'     && <AboutTab    region={region} t={t} epmData={epmData} />}
 
         {/* Export section */}
