@@ -48,6 +48,91 @@ function downloadBlob(content, filename, type = 'application/octet-stream') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// ── Tab sub-components ────────────────────────────────────────────────────────
+
+function PlaceholderBox({ t, label, description }) {
+  return (
+    <div style={{
+      border: `1px dashed ${t.panelBorder}`, borderRadius: 8,
+      padding: '24px 16px', textAlign: 'center', color: t.lblMuted,
+    }}>
+      <div style={{ fontSize: '1.4rem', marginBottom: 6 }}>📊</div>
+      <div style={{ fontSize: '0.65rem', fontWeight: 700, color: t.lbl, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: '0.58rem', lineHeight: 1.5 }}>{description}</div>
+    </div>
+  );
+}
+
+function DemandTab({ t }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <PlaceholderBox t={t} label="Demand Profiles"
+        description="Annual demand, seasonal load curves and peak demand by country will appear here once EPM input data is connected." />
+      <PlaceholderBox t={t} label="Electricity Access"
+        description="Access rates (total / urban / rural) by country." />
+      <PlaceholderBox t={t} label="Tariffs"
+        description="Residential and industrial tariffs (USD/MWh) by country." />
+    </div>
+  );
+}
+
+function TopologyTab({ region, t, zonesAvailable, zoningConfigs }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {zonesAvailable ? (
+        <div style={{
+          border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
+        }}>
+          <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>
+            Zoning Configurations
+          </div>
+          {zoningConfigs.map(cfg => (
+            <div key={cfg.slug} style={{
+              fontSize: '0.58rem', color: t.muted, padding: '3px 0',
+              borderBottom: `1px solid ${t.panelBorder}`,
+            }}>
+              {cfg.name}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <PlaceholderBox t={t} label="Zoning Configurations"
+          description="No zone data available for this region yet." />
+      )}
+      <PlaceholderBox t={t} label="Transmission Corridors"
+        description="Existing, committed and candidate NTC values between zones will appear here once EPM topology data is loaded." />
+    </div>
+  );
+}
+
+function AboutTab({ region, t }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{
+        border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
+        fontSize: '0.58rem', color: t.muted, lineHeight: 1.6,
+      }}>
+        <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>
+          {region.name} — EPM Model Region
+        </div>
+        <div><b style={{ color: t.lbl }}>Countries:</b> {region.countries.map(c => c.name).join(', ')}</div>
+        {region.description && (
+          <div style={{ marginTop: 6 }}>{region.description}</div>
+        )}
+      </div>
+      <div style={{
+        border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
+        fontSize: '0.58rem', color: t.muted, lineHeight: 1.6,
+      }}>
+        <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>Data Sources</div>
+        <div>· Plant locations: OSM / GPPD / GEM</div>
+        <div>· Transmission lines: OpenStreetMap</div>
+        <div>· EPM inputs: World Bank ESMAP</div>
+      </div>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function RegionPage() {
@@ -906,14 +991,15 @@ export default function RegionPage() {
         <div style={{ height: 3, borderRadius: 2, backgroundColor: region.color, width: 36, marginBottom: 20 }} />
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: 2, marginBottom: 14 }}>
-          {['Overview', 'Countries'].map(tab => {
-            const active = activeTab === tab.toLowerCase();
+        <div style={{ display: 'flex', gap: 2, marginBottom: 14, flexWrap: 'wrap' }}>
+          {['Overview', 'Supply', 'Demand', 'Topology', 'About'].map(tab => {
+            const key    = tab.toLowerCase();
+            const active = activeTab === key;
             return (
-              <button key={tab} onClick={() => setActiveTab(tab.toLowerCase())} style={{
-                flex: 1, fontSize: '0.58rem', letterSpacing: '1px',
+              <button key={tab} onClick={() => setActiveTab(key)} style={{
+                flex: '1 1 auto', fontSize: '0.55rem', letterSpacing: '0.8px',
                 textTransform: 'uppercase', fontFamily: 'inherit',
-                padding: '4px 0', borderRadius: 4, cursor: 'pointer',
+                padding: '4px 6px', borderRadius: 4, cursor: 'pointer',
                 border: `1px solid ${active ? t.lbl : t.panelBorder}`,
                 backgroundColor: active ? 'rgba(128,160,192,0.12)' : 'transparent',
                 color: active ? t.lbl : t.lblMuted,
@@ -924,7 +1010,10 @@ export default function RegionPage() {
         </div>
 
         {activeTab === 'overview'  && <CapacityChart capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} access={access} />}
-        {activeTab === 'countries' && <StatsPanel    capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} fleetAge={fleetAge} access={access} />}
+        {activeTab === 'supply'    && <StatsPanel    capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} fleetAge={fleetAge} access={access} />}
+        {activeTab === 'demand'    && <DemandTab    t={t} />}
+        {activeTab === 'topology'  && <TopologyTab  region={region} theme={theme} t={t} zonesAvailable={zonesAvailable} zoningConfigs={zoningConfigs} />}
+        {activeTab === 'about'     && <AboutTab     region={region} theme={theme} t={t} />}
 
         {/* Export section */}
         <div style={{ marginTop: 20, borderTop: `1px solid ${t.panelBorder}`, paddingTop: 12 }}>
