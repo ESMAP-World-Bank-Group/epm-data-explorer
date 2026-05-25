@@ -8,6 +8,10 @@ import {
 } from '../constants';
 import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
+import {
+  fetchEpmCSV, processGenData, processDemand, processNTC,
+  genByFuel, availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
+} from '../utils/epmFetch';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,84 +54,351 @@ function downloadBlob(content, filename, type = 'application/octet-stream') {
 
 // ── Tab sub-components ────────────────────────────────────────────────────────
 
-function PlaceholderBox({ t, label, description }) {
+// ── Shared mini utilities ─────────────────────────────────────────────────────
+
+function SectionTitle({ t, children }) {
   return (
-    <div style={{
-      border: `1px dashed ${t.panelBorder}`, borderRadius: 8,
-      padding: '24px 16px', textAlign: 'center', color: t.lblMuted,
-    }}>
-      <div style={{ fontSize: '1.4rem', marginBottom: 6 }}>📊</div>
-      <div style={{ fontSize: '0.65rem', fontWeight: 700, color: t.lbl, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: '0.58rem', lineHeight: 1.5 }}>{description}</div>
+    <div style={{ fontSize: '0.47rem', letterSpacing: '2px', fontWeight: 700,
+      color: t.lblMuted, textTransform: 'uppercase', marginBottom: 6 }}>
+      {children}
     </div>
   );
 }
 
-function DemandTab({ t }) {
+function LoadingBox({ t }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <PlaceholderBox t={t} label="Demand Profiles"
-        description="Annual demand, seasonal load curves and peak demand by country will appear here once EPM input data is connected." />
-      <PlaceholderBox t={t} label="Electricity Access"
-        description="Access rates (total / urban / rural) by country." />
-      <PlaceholderBox t={t} label="Tariffs"
-        description="Residential and industrial tariffs (USD/MWh) by country." />
+    <div style={{ padding: '18px 0', textAlign: 'center', color: t.lblMuted, fontSize: '0.6rem' }}>
+      Loading EPM data…
     </div>
   );
 }
 
-function TopologyTab({ region, t, zonesAvailable, zoningConfigs }) {
+function fmt(n, digits = 0) {
+  if (n == null || isNaN(n)) return '—';
+  return n.toLocaleString('en-US', { maximumFractionDigits: digits });
+}
+
+// ── Supply tab ────────────────────────────────────────────────────────────────
+
+function EpmSupplyTab({ t, epmData }) {
+  const { gen } = epmData;
+
+  // Aggregate by fuel × status
+  const statuses = [1, 2, 3];
+  const fuels = [...new Set(gen.map(r => r.fuel))].sort();
+  const byFuelStatus = {};
+  for (const r of gen) {
+    if (!byFuelStatus[r.fuel]) byFuelStatus[r.fuel] = {};
+    byFuelStatus[r.fuel][r.status] = (byFuelStatus[r.fuel][r.status] || 0) + r.capacity;
+  }
+
+  const totalExisting = gen.filter(r => r.status === 1).reduce((s, r) => s + r.capacity, 0);
+  const maxFuelTotal  = Math.max(...fuels.map(f =>
+    statuses.reduce((s, st) => s + (byFuelStatus[f]?.[st] || 0), 0)));
+
+  const statusColors = { 1: 1.0, 2: 0.45, 3: 0.18 };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {zonesAvailable ? (
-        <div style={{
-          border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
-        }}>
-          <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>
-            Zoning Configurations
+    <div>
+      <SectionTitle t={t}>Installed capacity (MW)</SectionTitle>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+        {statuses.map(st => (
+          <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.52rem', color: t.muted }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: '#888', opacity: statusColors[st] }} />
+            {STATUS_LABEL[st]}
           </div>
+        ))}
+      </div>
+
+      {/* One row per fuel */}
+      {fuels.map(fuel => {
+        const color = EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other;
+        const total = statuses.reduce((s, st) => s + (byFuelStatus[fuel]?.[st] || 0), 0);
+        const barW  = maxFuelTotal > 0 ? (total / maxFuelTotal) * 100 : 0;
+        return (
+          <div key={fuel} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between',
+              fontSize: '0.55rem', color: t.lbl, marginBottom: 2 }}>
+              <span style={{ textTransform: 'capitalize' }}>{fuel}</span>
+              <span style={{ color: t.muted, fontSize: '0.5rem' }}>
+                {statuses.map(st => byFuelStatus[fuel]?.[st]
+                  ? `${fmt(byFuelStatus[fuel][st])} ${STATUS_LABEL[st].toLowerCase()}`
+                  : null).filter(Boolean).join(' · ')}
+              </span>
+            </div>
+            {/* Stacked bar */}
+            <div style={{ display: 'flex', height: 7, borderRadius: 3, overflow: 'hidden',
+              width: `${barW}%`, minWidth: 4, backgroundColor: color, opacity: 0.18 }}>
+              {statuses.map(st => {
+                const mw = byFuelStatus[fuel]?.[st] || 0;
+                const pct = total > 0 ? (mw / total) * 100 : 0;
+                return pct > 0 ? (
+                  <div key={st} style={{
+                    width: `${pct}%`, height: '100%',
+                    backgroundColor: color, opacity: statusColors[st],
+                  }} />
+                ) : null;
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${t.panelBorder}`,
+        fontSize: '0.55rem', color: t.muted }}>
+        Total existing: <b style={{ color: t.lbl }}>{fmt(totalExisting / 1000, 1)} GW</b>
+        {' '}across {gen.filter(r => r.status === 1).length} units
+      </div>
+    </div>
+  );
+}
+
+// ── Demand tab ────────────────────────────────────────────────────────────────
+
+function DemandTab({ t, epmData, epmLoading }) {
+  const years = availableYears(epmData?.demand || []);
+  const [yr,   setYr]   = useState(null);
+
+  const refYr = yr || years.find(y => y === '2024') || years[0];
+
+  if (epmLoading) return <LoadingBox t={t} />;
+  if (!epmData?.demand?.length) return (
+    <div style={{ fontSize: '0.6rem', color: t.muted, padding: '12px 0' }}>
+      No demand data available for this region.
+    </div>
+  );
+
+  const peakRows   = epmData.demand.filter(r => r.type === 'peak');
+  const energyRows = epmData.demand.filter(r => r.type === 'energy');
+  const zones      = [...new Set(epmData.demand.map(r => r.zone))].sort();
+
+  const totalEnergy = energyRows.reduce((s, r) => s + (r.years[refYr] || 0), 0);
+  const totalPeak   = peakRows.reduce((s, r)   => s + (r.years[refYr] || 0), 0);
+
+  // Mini sparkline years (5 pts)
+  const sparkYrs = years.filter((_, i) => i % Math.max(1, Math.floor(years.length / 5)) === 0).slice(0, 5);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <SectionTitle t={t}>Demand forecast</SectionTitle>
+        <select value={refYr} onChange={e => setYr(e.target.value)} style={{
+          fontSize: '0.52rem', fontFamily: 'inherit', padding: '2px 6px',
+          borderRadius: 4, border: `1px solid ${t.panelBorder}`,
+          backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
+        }}>
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </div>
+
+      {/* Totals */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+        {[
+          { label: 'Total Energy', value: `${fmt(totalEnergy / 1000, 1)} TWh` },
+          { label: 'Total Peak',   value: `${fmt(totalPeak, 0)} MW`  },
+        ].map(({ label, value }) => (
+          <div key={label} style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 6,
+            padding: '8px 10px', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.47rem', color: t.lblMuted, marginBottom: 2 }}>{label}</div>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: t.lbl }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Zone table */}
+      <SectionTitle t={t}>By zone — {refYr}</SectionTitle>
+      <div style={{ fontSize: '0.52rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 70px',
+          color: t.lblMuted, borderBottom: `1px solid ${t.panelBorder}`, paddingBottom: 3, marginBottom: 4 }}>
+          <span>Zone</span><span style={{ textAlign: 'right' }}>Energy (GWh)</span>
+          <span style={{ textAlign: 'right' }}>Peak (MW)</span>
+        </div>
+        {zones.map(z => {
+          const e = energyRows.find(r => r.zone === z);
+          const p = peakRows.find(r => r.zone === z);
+          const eMW = e?.years[refYr] || 0;
+          const pMW = p?.years[refYr] || 0;
+          const maxE = Math.max(...energyRows.map(r => r.years[refYr] || 0));
+          return (
+            <div key={z} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 70px',
+              padding: '3px 0', borderBottom: `1px solid ${t.panelBorder}`,
+              color: t.muted, alignItems: 'center' }}>
+              <div>
+                <div style={{ color: t.lbl, marginBottom: 1 }}>{z}</div>
+                <div style={{ height: 3, borderRadius: 2,
+                  width: `${maxE > 0 ? (eMW / maxE) * 100 : 0}%`,
+                  backgroundColor: '#1AA8B0', opacity: 0.6 }} />
+              </div>
+              <span style={{ textAlign: 'right' }}>{fmt(eMW)}</span>
+              <span style={{ textAlign: 'right' }}>{fmt(pMW)}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Growth indicator */}
+      {sparkYrs.length >= 2 && (() => {
+        const y0 = sparkYrs[0], yn = sparkYrs[sparkYrs.length - 1];
+        const e0 = energyRows.reduce((s, r) => s + (r.years[y0] || 0), 0);
+        const en = energyRows.reduce((s, r) => s + (r.years[yn] || 0), 0);
+        const pct = e0 > 0 ? ((en - e0) / e0 * 100).toFixed(0) : null;
+        return pct ? (
+          <div style={{ marginTop: 10, fontSize: '0.52rem', color: t.muted }}>
+            Energy growth {y0}→{yn}: <b style={{ color: t.lbl }}>+{pct}%</b>
+          </div>
+        ) : null;
+      })()}
+    </div>
+  );
+}
+
+// ── Topology tab ──────────────────────────────────────────────────────────────
+
+function TopologyTab({ t, epmData, epmLoading, zonesAvailable, zoningConfigs }) {
+  const ntcYears = availableYears(epmData?.ntc || []);
+  const [yr, setYr] = useState(null);
+  const refYr = yr || ntcYears.find(y => y === '2024') || ntcYears[0];
+
+  if (epmLoading) return <LoadingBox t={t} />;
+
+  // Zone → country from zcmap
+  const zcmap = epmData?.zcmap || [];
+  const countries = [...new Set(zcmap.map(r => r.c))].sort();
+
+  // NTC corridors for refYr, sorted desc
+  const corridors = (epmData?.ntc || [])
+    .map(r => ({ ...r, mw: r.years[refYr] || 0 }))
+    .filter(r => r.mw > 0)
+    .sort((a, b) => b.mw - a.mw);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+      {/* Zones */}
+      {zcmap.length > 0 && (
+        <div>
+          <SectionTitle t={t}>Zones ({zcmap.length})</SectionTitle>
+          {countries.map(c => {
+            const czones = zcmap.filter(r => r.c === c).map(r => r.z);
+            return (
+              <div key={c} style={{ display: 'flex', gap: 6, alignItems: 'baseline',
+                fontSize: '0.52rem', padding: '3px 0', borderBottom: `1px solid ${t.panelBorder}` }}>
+                <span style={{ color: t.lbl, minWidth: 80 }}>{c}</span>
+                <span style={{ color: t.muted }}>{czones.join(', ')}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Zoning configs (from map layers) */}
+      {zonesAvailable && (
+        <div>
+          <SectionTitle t={t}>Zoning configurations</SectionTitle>
           {zoningConfigs.map(cfg => (
-            <div key={cfg.slug} style={{
-              fontSize: '0.58rem', color: t.muted, padding: '3px 0',
-              borderBottom: `1px solid ${t.panelBorder}`,
-            }}>
+            <div key={cfg.slug} style={{ fontSize: '0.52rem', color: t.muted,
+              padding: '3px 0', borderBottom: `1px solid ${t.panelBorder}` }}>
               {cfg.name}
             </div>
           ))}
         </div>
-      ) : (
-        <PlaceholderBox t={t} label="Zoning Configurations"
-          description="No zone data available for this region yet." />
       )}
-      <PlaceholderBox t={t} label="Transmission Corridors"
-        description="Existing, committed and candidate NTC values between zones will appear here once EPM topology data is loaded." />
+
+      {/* NTC corridors */}
+      {corridors.length > 0 && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <SectionTitle t={t}>Internal NTC (MW)</SectionTitle>
+            <select value={refYr} onChange={e => setYr(e.target.value)} style={{
+              fontSize: '0.52rem', fontFamily: 'inherit', padding: '2px 6px',
+              borderRadius: 4, border: `1px solid ${t.panelBorder}`,
+              backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
+            }}>
+              {ntcYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <div style={{ fontSize: '0.52rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px',
+              color: t.lblMuted, borderBottom: `1px solid ${t.panelBorder}`, paddingBottom: 3, marginBottom: 4 }}>
+              <span>Corridor</span><span style={{ textAlign: 'right' }}>MW</span>
+            </div>
+            {corridors.map(r => {
+              const maxMW = corridors[0]?.mw || 1;
+              return (
+                <div key={`${r.z}-${r.z2}`} style={{ display: 'grid', gridTemplateColumns: '1fr 64px',
+                  padding: '3px 0', borderBottom: `1px solid ${t.panelBorder}`,
+                  color: t.muted, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ color: t.lbl, marginBottom: 1 }}>{r.z} ↔ {r.z2}</div>
+                    <div style={{ height: 3, borderRadius: 2,
+                      width: `${(r.mw / maxMW) * 100}%`,
+                      backgroundColor: '#1a5fa8', opacity: 0.55 }} />
+                  </div>
+                  <span style={{ textAlign: 'right' }}>{fmt(r.mw)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function AboutTab({ region, t }) {
+// ── About tab ─────────────────────────────────────────────────────────────────
+
+function AboutTab({ region, t, epmData }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{
-        border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
-        fontSize: '0.58rem', color: t.muted, lineHeight: 1.6,
-      }}>
+      <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
+        fontSize: '0.58rem', color: t.muted, lineHeight: 1.6 }}>
         <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>
-          {region.name} — EPM Model Region
+          {region.name} — EPM Study
         </div>
         <div><b style={{ color: t.lbl }}>Countries:</b> {region.countries.map(c => c.name).join(', ')}</div>
-        {region.description && (
-          <div style={{ marginTop: 6 }}>{region.description}</div>
+        {region.epm && (
+          <>
+            <div style={{ marginTop: 4 }}>
+              <b style={{ color: t.lbl }}>Branch:</b>{' '}
+              <code style={{ fontSize: '0.52rem' }}>{region.epm.branch}</code>
+            </div>
+            <div>
+              <b style={{ color: t.lbl }}>Data folder:</b>{' '}
+              <code style={{ fontSize: '0.52rem' }}>{region.epm.dataFolder}</code>
+            </div>
+            <div>
+              <b style={{ color: t.lbl }}>Source:</b>{' '}
+              <a href={`https://github.com/ESMAP-World-Bank-Group/EPM/tree/${region.epm.branch}`}
+                target="_blank" rel="noreferrer"
+                style={{ color: t.lbl, fontSize: '0.52rem' }}>
+                ESMAP-World-Bank-Group/EPM
+              </a>
+            </div>
+          </>
         )}
       </div>
-      <div style={{
-        border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
-        fontSize: '0.58rem', color: t.muted, lineHeight: 1.6,
-      }}>
-        <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>Data Sources</div>
+      <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
+        fontSize: '0.58rem', color: t.muted, lineHeight: 1.7 }}>
+        <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>Data loaded</div>
+        {epmData ? (
+          <>
+            <div>Generation units: <b style={{ color: t.lbl }}>{epmData.gen.length}</b></div>
+            <div>Demand zones: <b style={{ color: t.lbl }}>{[...new Set(epmData.demand.map(r => r.zone))].length}</b></div>
+            <div>NTC corridors: <b style={{ color: t.lbl }}>{epmData.ntc.length}</b></div>
+            <div>Zones mapped: <b style={{ color: t.lbl }}>{epmData.zcmap.length}</b></div>
+          </>
+        ) : (
+          <div style={{ color: t.lblMuted }}>No EPM data configured for this region.</div>
+        )}
+      </div>
+      <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
+        fontSize: '0.58rem', color: t.muted, lineHeight: 1.7 }}>
+        <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>Map data sources</div>
         <div>· Plant locations: OSM / GPPD / GEM</div>
         <div>· Transmission lines: OpenStreetMap</div>
-        <div>· EPM inputs: World Bank ESMAP</div>
+        <div>· EPM inputs: World Bank ESMAP (live from GitHub)</div>
       </div>
     </div>
   );
@@ -174,6 +445,8 @@ export default function RegionPage() {
   const [corrCandOn,      setCorrCandOn]      = useState(false);
   const [zoningConfigs,   setZoningConfigs]   = useState([]);
   const [selectedSlug,    setSelectedSlug]    = useState(null);
+  const [epmData,         setEpmData]         = useState(null);
+  const [epmLoading,      setEpmLoading]      = useState(false);
 
   // Static data
   useEffect(() => {
@@ -217,6 +490,28 @@ export default function RegionPage() {
     fetch(`/data/cache/region_plants_${regionId}_gem.geojson`, { method: 'HEAD' })
       .then(r => setGemAvailable(r.ok)).catch(() => setGemAvailable(false));
   }, [regionId]);
+
+  // EPM data — fetched from GitHub raw when region has epm config
+  useEffect(() => {
+    setEpmData(null);
+    if (!region?.epm) return;
+    const { branch, dataFolder } = region.epm;
+    setEpmLoading(true);
+    Promise.all([
+      fetchEpmCSV(branch, dataFolder, 'supply/pGenDataInput.csv'),
+      fetchEpmCSV(branch, dataFolder, 'load/pDemandForecast.csv'),
+      fetchEpmCSV(branch, dataFolder, 'trade/pTransferLimit.csv'),
+      fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
+    ]).then(([gen, demand, ntc, zcmap]) => {
+      setEpmData({
+        gen:    gen    ? processGenData(gen)    : [],
+        demand: demand ? processDemand(demand)  : [],
+        ntc:    ntc    ? processNTC(ntc)        : [],
+        zcmap:  zcmap  || [],
+        branch,
+      });
+    }).finally(() => setEpmLoading(false));
+  }, [region]);
 
   // Fleet age — GPPD only
   useEffect(() => {
@@ -1010,10 +1305,16 @@ export default function RegionPage() {
         </div>
 
         {activeTab === 'overview'  && <CapacityChart capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} access={access} />}
-        {activeTab === 'supply'    && <StatsPanel    capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} fleetAge={fleetAge} access={access} />}
-        {activeTab === 'demand'    && <DemandTab    t={t} />}
-        {activeTab === 'topology'  && <TopologyTab  region={region} theme={theme} t={t} zonesAvailable={zonesAvailable} zoningConfigs={zoningConfigs} />}
-        {activeTab === 'about'     && <AboutTab     region={region} theme={theme} t={t} />}
+        {activeTab === 'supply'    && (
+          epmData
+            ? <EpmSupplyTab t={t} epmData={epmData} />
+            : epmLoading
+              ? <LoadingBox t={t} />
+              : <StatsPanel capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} fleetAge={fleetAge} access={access} />
+        )}
+        {activeTab === 'demand'    && <DemandTab   t={t} epmData={epmData} epmLoading={epmLoading} />}
+        {activeTab === 'topology'  && <TopologyTab t={t} epmData={epmData} epmLoading={epmLoading} zonesAvailable={zonesAvailable} zoningConfigs={zoningConfigs} />}
+        {activeTab === 'about'     && <AboutTab    region={region} t={t} epmData={epmData} />}
 
         {/* Export section */}
         <div style={{ marginTop: 20, borderTop: `1px solid ${t.panelBorder}`, paddingTop: 12 }}>
