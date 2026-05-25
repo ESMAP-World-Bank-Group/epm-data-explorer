@@ -1,0 +1,9 @@
+{
+"type": "FeatureCollection",
+"name": "NAM_4z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 14.877913297057038, -25.536152500553818 ], [ 19.895647807255973, -23.647159516142025 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 19.134874539663635, -17.804887366292512 ], [ 20.180700038544202, -21.83907665892146 ] ] } }
+]
+}

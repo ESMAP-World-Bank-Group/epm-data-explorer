@@ -1,0 +1,12 @@
+{
+"type": "FeatureCollection",
+"name": "UGA_4z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 30.474071404301572, 1.23578434433851 ], [ 31.392562835902151, 0.86752301187361 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 31.392562835902151, 0.86752301187361 ], [ 32.385649001775462, -1.002572343999927 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 31.392562835902151, 0.86752301187361 ], [ 34.283785254071333, 2.370095947555372 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 34.283785254071333, 2.370095947555372 ], [ 33.403238941276797, -0.969000594813283 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 34.283785254071333, 2.370095947555372 ], [ 34.671050667053834, 2.858087297187128 ] ] } }
+]
+}

@@ -1,0 +1,21 @@
+{
+"type": "FeatureCollection",
+"name": "ZAF_6z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 28.011688279090841, -30.650316137491252 ], [ 29.013912705267902, -32.091372278931836 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 22.71600458346985, -33.882016030709281 ], [ 22.344577379856172, -31.53828370022654 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 22.344577379856172, -31.53828370022654 ], [ 25.667388570804764, -29.073961019107749 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 25.667388570804764, -29.073961019107749 ], [ 27.226398282312832, -29.521180842929123 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 27.226398282312832, -29.521180842929123 ], [ 27.240940938000254, -29.542091112868516 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 16.810776186236929, -28.224338353523411 ], [ 17.277152787297467, -28.503630383146358 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 17.896492645765466, -28.874525247306707 ], [ 22.344577379856172, -31.53828370022654 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 27.226398282312832, -29.521180842929123 ], [ 27.451535471924647, -29.30114714606594 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 27.466917692687804, -29.286113615149439 ], [ 27.523827348726496, -29.230494008157827 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 29.414192242248795, -27.382980602401691 ], [ 31.228165494013425, -27.236285226304393 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 31.944756974609913, -27.178334726399303 ], [ 32.701426998561047, -27.117143088850579 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 27.847060757775886, -28.914587773095299 ], [ 29.414192242248795, -27.382980602401691 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 24.658071926274918, -25.820667555458183 ], [ 25.667388570804764, -29.073961019107749 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 27.776735190361229, -23.18385846185701 ], [ 29.414192242248795, -27.382980602401691 ] ] } }
+]
+}

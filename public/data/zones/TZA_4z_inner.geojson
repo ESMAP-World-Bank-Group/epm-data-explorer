@@ -1,0 +1,12 @@
+{
+"type": "FeatureCollection",
+"name": "TZA_4z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 29.913602537862204, -6.774811494610701 ], [ 33.442850086800249, -5.807678159747477 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 33.442850086800249, -5.807678159747477 ], [ 37.370898498376761, -11.572476413180462 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 33.442850086800249, -5.807678159747477 ], [ 34.175220622391699, -4.672352318145538 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 34.175220622391699, -4.672352318145538 ], [ 38.926064103552541, -4.48443832987963 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 34.066065574313164, -1.055559679960611 ], [ 34.175220622391699, -4.672352318145538 ] ] } }
+]
+}

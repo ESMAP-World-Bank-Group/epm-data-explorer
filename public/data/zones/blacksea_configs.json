@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Recommended",
+    "slug": "recommended",
+    "zones": {
+      "TUR": 3,
+      "ROU": 2,
+      "ARM": 1,
+      "AZE": 2,
+      "BGR": 1,
+      "GEO": 1
+    }
+  },
+  {
+    "name": "Turkey 9z",
+    "slug": "turkey9z",
+    "zones": {
+      "TUR": 9,
+      "ROU": 1,
+      "ARM": 1,
+      "AZE": 1,
+      "BGR": 1,
+      "GEO": 1
+    }
+  }
+]

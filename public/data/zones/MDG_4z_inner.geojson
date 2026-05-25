@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"name": "MDG_4z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 44.23048420305269, -18.731314652471386 ], [ 48.619535101856165, -20.29853274265259 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 44.022672051474707, -18.075971885513638 ], [ 49.827734393292964, -16.312730297212667 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 49.17015938396365, -12.073642405338548 ], [ 49.180163734499082, -12.06747077624666 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 49.200314567006025, -12.055039837957848 ], [ 49.204381399087154, -12.052531031504614 ] ] } }
+]
+}

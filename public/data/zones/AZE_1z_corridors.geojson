@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[47.54211,40.28912],[47.54211,40.28912]]},"properties":{"zone_a":"AZE_1","zone_b":"AZE_1","mw":1000,"status":"under_construction","label":"1000 MW"}}]}

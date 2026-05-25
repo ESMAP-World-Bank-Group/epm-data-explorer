@@ -1,0 +1,12 @@
+{
+"type": "FeatureCollection",
+"name": "NAM_6z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 18.891305332227482, -28.858556816954156 ], [ 19.895662437255112, -25.140932510278191 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 14.834999521568404, -25.172152791007488 ], [ 19.895745221112254, -24.564132380946901 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 13.276660977563081, -20.510751524215934 ], [ 19.44520626845841, -19.868172934464639 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 19.44520626845841, -19.868172934464639 ], [ 20.397292721680412, -21.831423126970439 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 19.44520626845841, -19.868172934464639 ], [ 19.707171557508552, -17.869745693655119 ] ] } }
+]
+}

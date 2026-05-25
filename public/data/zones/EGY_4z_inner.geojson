@@ -1,0 +1,13 @@
+{
+"type": "FeatureCollection",
+"name": "EGY_4z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 25.000001, 26.480853138622159 ], [ 32.286615447818562, 27.833454934100509 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 32.286615447818562, 27.833454934100509 ], [ 34.013891412880483, 26.329107477565767 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 32.98456410230942, 29.176070259614669 ], [ 33.272168395149563, 29.729322893266534 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 33.272168395149563, 29.729322893266534 ], [ 34.841779902672528, 29.631247828745146 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 32.286615447818562, 27.833454934100509 ], [ 32.737510218082285, 28.700822791112678 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 33.064886617327339, 31.018915022656316 ], [ 33.272168395149563, 29.729322893266534 ] ] } }
+]
+}

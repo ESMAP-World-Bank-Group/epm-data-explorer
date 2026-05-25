@@ -1,0 +1,19 @@
+{
+"type": "FeatureCollection",
+"name": "AGO_8z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 11.809858249229983, -16.371959314191812 ], [ 18.767771618687743, -14.452675091282142 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 18.767771618687743, -14.452675091282142 ], [ 20.247677632135623, -17.864600002257387 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 18.874041657377322, -13.406857901432241 ], [ 24.012414521249688, -11.230158418329196 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 18.767771618687743, -14.452675091282142 ], [ 18.874041657377322, -13.406857901432241 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 13.784233555614847, -11.550642797168202 ], [ 18.201392634977509, -12.171722842975873 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 18.201392634977509, -12.171722842975873 ], [ 18.874041657377322, -13.406857901432241 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 18.201392634977509, -12.171722842975873 ], [ 18.024149596959322, -8.106772750493928 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 13.480902805753258, -10.23571558625747 ], [ 15.608838114848769, -7.570475425971725 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 15.608838114848769, -7.570475425971725 ], [ 16.985538837707246, -7.398694369535176 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 12.835669474955258, -7.043266226175058 ], [ 13.251542869215161, -6.896864683292433 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 13.251542869215161, -6.896864683292433 ], [ 15.608838114848769, -7.570475425971725 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 13.251542869215161, -6.896864683292433 ], [ 13.281771411005781, -5.896383926606041 ] ] } }
+]
+}

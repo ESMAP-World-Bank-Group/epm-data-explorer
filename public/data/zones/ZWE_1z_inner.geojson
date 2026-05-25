@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "ZWE_1z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+
+]
+}

@@ -1,0 +1,16 @@
+{
+"type": "FeatureCollection",
+"name": "COD_6z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 27.110077456519942, -11.581248765391299 ], [ 29.464690284038095, -7.11485199694754 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 29.464690284038095, -7.11485199694754 ], [ 30.268595619787245, -7.240045282898699 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 23.599435870154789, -10.886330396722792 ], [ 24.666732105175075, -4.949202710525351 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 24.666732105175075, -4.949202710525351 ], [ 29.464690284038095, -7.11485199694754 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 16.968849987574899, -7.006750071734267 ], [ 17.911836051860107, -7.048540690496992 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 17.911836051860107, -7.048540690496992 ], [ 17.87751574790547, -8.019072613369612 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 22.109745300044544, -2.257082581817532 ], [ 24.666732105175075, -4.949202710525351 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 17.911836051860107, -7.048540690496992 ], [ 22.109745300044544, -2.257082581817532 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 21.268231209058548, 4.276943959985381 ], [ 22.109745300044544, -2.257082581817532 ] ] } }
+]
+}

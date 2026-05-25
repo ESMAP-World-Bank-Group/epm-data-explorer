@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"name": "KEN_4z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 37.025091867361795, -2.699949578568578 ], [ 40.976728006347798, -0.095537433531172 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 37.025162169195369, 1.463862674607474 ], [ 40.974635986134594, 0.441073283044601 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 35.222644453831855, -1.69366348451263 ], [ 37.025162169195369, 1.463862674607474 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 34.043776011033337, 4.193105667318903 ], [ 37.025162169195369, 1.463862674607474 ] ] } }
+]
+}

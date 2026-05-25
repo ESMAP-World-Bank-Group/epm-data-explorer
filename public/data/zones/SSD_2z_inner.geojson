@@ -1,0 +1,9 @@
+{
+"type": "FeatureCollection",
+"name": "SSD_2z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 29.688564493930837, 10.122885284996919 ], [ 30.365949536881669, 10.034670172879379 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 31.413619711081928, 9.8982332337396 ], [ 33.828400347587227, 9.583758996663709 ] ] } }
+]
+}

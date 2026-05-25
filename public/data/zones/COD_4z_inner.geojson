@@ -1,0 +1,12 @@
+{
+"type": "FeatureCollection",
+"name": "COD_4z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 22.435439984790229, -4.785973942577719 ], [ 30.29149525247135, -7.293477028710802 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 21.237532969578634, -7.284675231473846 ], [ 21.321811173284992, -6.646325128919131 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 21.321811173284992, -6.646325128919131 ], [ 22.435439984790229, -4.785973942577719 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 16.828346630761189, -6.807978206686845 ], [ 21.321811173284992, -6.646325128919131 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 22.435439984790229, -4.785973942577719 ], [ 21.268231209058548, 4.276943959985381 ] ] } }
+]
+}

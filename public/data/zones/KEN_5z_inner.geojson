@@ -1,0 +1,14 @@
+{
+"type": "FeatureCollection",
+"name": "KEN_5z_inner",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 36.165462545944138, -2.220028208495849 ], [ 38.284910138405834, -2.299225111190858 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 38.284910138405834, -2.299225111190858 ], [ 38.379125609186254, -4.093283228815507 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 38.284910138405834, -2.299225111190858 ], [ 40.663116391663138, 0.52605856640613 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 40.663116391663138, 0.52605856640613 ], [ 40.974010883527299, 0.601414352368919 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 35.226292562165526, -1.695700182314867 ], [ 37.019407454101973, 1.469130699281396 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 37.019407454101973, 1.469130699281396 ], [ 40.663116391663138, 0.52605856640613 ] ] } },
+{ "type": "Feature", "properties": { }, "geometry": { "type": "LineString", "coordinates": [ [ 34.043776011033344, 4.193105667318892 ], [ 37.019407454101973, 1.469130699281396 ] ] } }
+]
+}
