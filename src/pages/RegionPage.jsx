@@ -6,7 +6,6 @@ import {
   getT, mapStyle, swapBasemap, toggleSatLabels, FUEL_COLORS, VOLTAGE_BRACKETS,
   plantRadiusExpr, lcRadiusExpr, fuelColorExpr, PLANT_STATUSES, zoneColorExpr,
 } from '../constants';
-import LayerPanel from '../components/LayerPanel';
 import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
 
@@ -772,28 +771,6 @@ export default function RegionPage() {
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 46px)' }}>
-      <LayerPanel
-        theme={theme}
-        fuelsOff={fuelsOff} statusOff={statusOff}
-        kvsOff={kvsOff}
-        linesOn={linesOn} plantsOn={plantsOn} subsOn={subsOn}
-        minMw={minMw} circleScale={circleScale}
-        plantSource={plantSource}
-        gppdAvailable={gppdAvailable} gemAvailable={gemAvailable}
-        presentFuels={presentFuels}
-        basemap={basemap} onBasemap={setBasemap} satLabels={satLabels} onSatLabels={setSatLabels}
-        onToggleFuel={toggleFuel} onToggleStatus={toggleStatus}
-        onToggleKv={toggleKv}
-        onToggleLines={toggleLines} onTogglePlants={togglePlants}
-        onToggleSubs={toggleSubs}
-        loadCentersOn={loadCentersOn} lcMinPop={lcMinPop} lcCircleScale={lcCircleScale}
-        onToggleLoadCenters={toggleLoadCenters} onLcMinPopChange={handleLcMinPop}
-        onLcCircleScaleChange={handleLcCircleScale}
-        onMinMwChange={handleMinMw} onCircleScaleChange={handleCircleScale}
-        onSourceChange={setPlantSource}
-        onDownloadPlants={handleDownloadPlants}
-        onDownloadLines={handleDownloadLines}
-      />
 
       <div style={{ position: 'relative', flex: 1 }}>
         <div ref={containerRef}
@@ -869,11 +846,48 @@ export default function RegionPage() {
             ))}
           </div>
         )}
+
+        {/* Top-right: basemap + layer toggles */}
+        <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, display: 'flex', gap: 4, alignItems: 'center' }}>
+          {[
+            { id: 'minimal',   label: 'Map'    },
+            { id: 'labeled',   label: 'Labels' },
+            { id: 'satellite', label: 'Sat'    },
+          ].map(({ id, label }) => {
+            const active = (basemap || 'minimal') === id;
+            return (
+              <button key={id} onClick={() => setBasemap(id)} style={{
+                fontSize: '0.52rem', letterSpacing: '0.5px', fontFamily: 'inherit',
+                padding: '4px 8px', borderRadius: 5, cursor: 'pointer',
+                border: `1px solid ${active ? 'rgba(74,143,204,0.6)' : t.panelBorder}`,
+                backgroundColor: active ? 'rgba(74,143,204,0.14)' : t.panel,
+                color: active ? t.lbl : t.lblMuted,
+                boxShadow: '0 1px 4px rgba(0,0,0,.18)',
+                transition: 'all 0.15s',
+              }}>{label}</button>
+            );
+          })}
+          <div style={{ width: 1, height: 16, backgroundColor: t.panelBorder, margin: '0 2px' }} />
+          {[
+            { label: 'Plants', on: plantsOn, toggle: togglePlants },
+            { label: 'Lines',  on: linesOn,  toggle: toggleLines  },
+          ].map(({ label, on, toggle }) => (
+            <button key={label} onClick={toggle} style={{
+              fontSize: '0.52rem', letterSpacing: '0.5px', fontFamily: 'inherit',
+              padding: '4px 8px', borderRadius: 5, cursor: 'pointer',
+              border: `1px solid ${on ? 'rgba(128,160,192,0.55)' : t.panelBorder}`,
+              backgroundColor: on ? 'rgba(128,160,192,0.12)' : t.panel,
+              color: on ? t.lbl : t.lblMuted,
+              boxShadow: '0 1px 4px rgba(0,0,0,.18)',
+              transition: 'all 0.15s',
+            }}>{label}</button>
+          ))}
+        </div>
       </div>
 
       {/* Right panel */}
       <div style={{
-        width: 260, height: 'calc(100vh - 46px)', overflowY: 'auto',
+        width: 360, height: 'calc(100vh - 46px)', overflowY: 'auto',
         padding: '18px 16px',
         backgroundColor: t.panel, borderLeft: `1px solid ${t.panelBorder}`,
         flexShrink: 0,
