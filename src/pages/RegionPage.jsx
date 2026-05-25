@@ -10,8 +10,18 @@ import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
 import {
   fetchEpmCSV, processGenData, processDemand, processNTC,
-  genByFuel, availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
+  availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
 } from '../utils/epmFetch';
+import {
+  ComposedChart, BarChart, Bar, Line, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+} from 'recharts';
+
+const ZONE_PALETTE = [
+  '#1E9AF5','#FF6B6B','#52C860','#FFD700','#C8A8F0',
+  '#FF8C42','#44DAEC','#E74C3C','#9B59B6','#2ECC71',
+  '#F39C12','#1ABC9C','#E67E22','#8E44AD','#16A085','#D35400',
+];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -58,14 +68,9 @@ function downloadBlob(content, filename, type = 'application/octet-stream') {
 
 function NotAvailable({ t }) {
   return (
-    <div style={{
-      border: `1px dashed ${t.panelBorder}`, borderRadius: 8,
-      padding: '20px 16px', textAlign: 'center',
-      color: t.lblMuted, fontSize: '0.58rem',
-    }}>
-      <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 4 }}>
-        Not available
-      </div>
+    <div style={{ border: `1px dashed ${t.panelBorder}`, borderRadius: 8,
+      padding: '24px 16px', textAlign: 'center', color: t.lblMuted, fontSize: '0.58rem' }}>
+      <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 4 }}>Not available</div>
       No EPM input data configured for this region yet.
     </div>
   );
@@ -82,7 +87,7 @@ function SectionTitle({ t, children }) {
 
 function LoadingBox({ t }) {
   return (
-    <div style={{ padding: '18px 0', textAlign: 'center', color: t.lblMuted, fontSize: '0.6rem' }}>
+    <div style={{ padding: '24px 0', textAlign: 'center', color: t.lblMuted, fontSize: '0.6rem' }}>
       Loading EPM data…
     </div>
   );
@@ -93,78 +98,132 @@ function fmt(n, digits = 0) {
   return n.toLocaleString('en-US', { maximumFractionDigits: digits });
 }
 
-// ── Supply tab ────────────────────────────────────────────────────────────────
+const ttStyle = (t) => ({
+  contentStyle: { fontSize: 9, backgroundColor: t.panel, border: `1px solid ${t.panelBorder}`,
+    borderRadius: 4, padding: '4px 8px' },
+  labelStyle: { color: t.lbl, fontWeight: 700 },
+});
+const tickS  = (t) => ({ fontSize: 8, fill: t.muted });
+const gridS  = (t) => ({ stroke: t.panelBorder, strokeDasharray: '2 3' });
 
-function EpmSupplyTab({ t, epmData }) {
-  const { gen } = epmData;
+// ── Overview tab (EPM) ────────────────────────────────────────────────────────
 
-  // Aggregate by fuel × status
-  const statuses = [1, 2, 3];
-  const fuels = [...new Set(gen.map(r => r.fuel))].sort();
-  const byFuelStatus = {};
-  for (const r of gen) {
-    if (!byFuelStatus[r.fuel]) byFuelStatus[r.fuel] = {};
-    byFuelStatus[r.fuel][r.status] = (byFuelStatus[r.fuel][r.status] || 0) + r.capacity;
-  }
+function EpmOverviewTab({ t, epmData, region }) {
+  const { gen, demand, ntc, zcmap } = epmData;
+  const allYears  = availableYears(demand);
+  const refYr     = allYears.find(y => y === '2024') || allYears[0];
+  const peakRows  = demand.filter(r => r.type === 'peak');
+  const energyRows= demand.filter(r => r.type === 'energy');
 
-  const totalExisting = gen.filter(r => r.status === 1).reduce((s, r) => s + r.capacity, 0);
-  const maxFuelTotal  = Math.max(...fuels.map(f =>
-    statuses.reduce((s, st) => s + (byFuelStatus[f]?.[st] || 0), 0)));
+  const totalGW   = gen.filter(r => r.status === 1).reduce((s, r) => s + r.capacity, 0) / 1000;
+  const totalTWh  = energyRows.reduce((s, r) => s + (r.years[refYr] || 0), 0) / 1000;
+  const peakGW    = peakRows.reduce((s, r)   => s + (r.years[refYr] || 0), 0) / 1000;
 
-  const statusColors = { 1: 1.0, 2: 0.45, 3: 0.18 };
+  // Capacity by fuel (existing) for bar chart
+  const fuelAgg = {};
+  for (const r of gen.filter(g => g.status === 1))
+    fuelAgg[r.fuel] = (fuelAgg[r.fuel] || 0) + r.capacity;
+  const fuelData = Object.entries(fuelAgg)
+    .map(([fuel, mw]) => ({ fuel, mw: Math.round(mw) }))
+    .sort((a, b) => b.mw - a.mw);
 
   return (
-    <div>
-      <SectionTitle t={t}>Installed capacity (MW)</SectionTitle>
-
-      {/* Legend */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-        {statuses.map(st => (
-          <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.52rem', color: t.muted }}>
-            <div style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: '#888', opacity: statusColors[st] }} />
-            {STATUS_LABEL[st]}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        {[
+          { label: 'Installed Capacity', value: `${totalGW.toFixed(1)} GW`, sub: 'existing fleet' },
+          { label: `Energy — ${refYr}`,  value: `${totalTWh.toFixed(0)} TWh`, sub: 'total demand' },
+          { label: `Peak — ${refYr}`,    value: `${peakGW.toFixed(1)} GW`,   sub: 'system peak' },
+          { label: 'Corridors',          value: ntc.length,                   sub: `${zcmap.length} zones` },
+        ].map(({ label, value, sub }) => (
+          <div key={label} style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 6,
+            padding: '10px 12px', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.44rem', color: t.lblMuted, textTransform: 'uppercase',
+              letterSpacing: '1px', marginBottom: 4 }}>{label}</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: t.lbl, lineHeight: 1 }}>{value}</div>
+            <div style={{ fontSize: '0.44rem', color: t.lblMuted, marginTop: 3 }}>{sub}</div>
           </div>
         ))}
       </div>
 
-      {/* One row per fuel */}
-      {fuels.map(fuel => {
-        const color = EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other;
-        const total = statuses.reduce((s, st) => s + (byFuelStatus[fuel]?.[st] || 0), 0);
-        const barW  = maxFuelTotal > 0 ? (total / maxFuelTotal) * 100 : 0;
-        return (
-          <div key={fuel} style={{ marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between',
-              fontSize: '0.55rem', color: t.lbl, marginBottom: 2 }}>
-              <span style={{ textTransform: 'capitalize' }}>{fuel}</span>
-              <span style={{ color: t.muted, fontSize: '0.5rem' }}>
-                {statuses.map(st => byFuelStatus[fuel]?.[st]
-                  ? `${fmt(byFuelStatus[fuel][st])} ${STATUS_LABEL[st].toLowerCase()}`
-                  : null).filter(Boolean).join(' · ')}
-              </span>
-            </div>
-            {/* Stacked bar */}
-            <div style={{ display: 'flex', height: 7, borderRadius: 3, overflow: 'hidden',
-              width: `${barW}%`, minWidth: 4, backgroundColor: color, opacity: 0.18 }}>
-              {statuses.map(st => {
-                const mw = byFuelStatus[fuel]?.[st] || 0;
-                const pct = total > 0 ? (mw / total) * 100 : 0;
-                return pct > 0 ? (
-                  <div key={st} style={{
-                    width: `${pct}%`, height: '100%',
-                    backgroundColor: color, opacity: statusColors[st],
-                  }} />
-                ) : null;
-              })}
-            </div>
-          </div>
-        );
-      })}
+      {/* Capacity by fuel — horizontal bar chart */}
+      <div>
+        <SectionTitle t={t}>Existing capacity by fuel (MW)</SectionTitle>
+        <ResponsiveContainer width="100%" height={Math.min(fuelData.length * 22 + 24, 240)}>
+          <BarChart data={fuelData} layout="vertical"
+            margin={{ top: 0, right: 48, left: 56, bottom: 0 }}>
+            <CartesianGrid horizontal={false} {...gridS(t)} />
+            <XAxis type="number" tick={tickS(t)} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+            <YAxis type="category" dataKey="fuel" tick={{ ...tickS(t), fontSize: 9 }} width={56} />
+            <Tooltip {...ttStyle(t)} formatter={v => [`${v.toLocaleString()} MW`, 'Capacity']} />
+            <Bar dataKey="mw" maxBarSize={14}>
+              {fuelData.map(({ fuel }) => (
+                <Cell key={fuel} fill={EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
 
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${t.panelBorder}`,
+// ── Supply tab ────────────────────────────────────────────────────────────────
+
+function EpmSupplyTab({ t, epmData }) {
+  const { gen } = epmData;
+  const statuses = [1, 2, 3];
+  const fuels = [...new Set(gen.map(r => r.fuel))].sort();
+  const byFS = {};
+  for (const r of gen) {
+    if (!byFS[r.fuel]) byFS[r.fuel] = {};
+    byFS[r.fuel][r.status] = (byFS[r.fuel][r.status] || 0) + r.capacity;
+  }
+  const totalExisting = gen.filter(r => r.status === 1).reduce((s, r) => s + r.capacity, 0);
+
+  // Recharts data: one row per fuel
+  const chartData = fuels.map(fuel => ({
+    fuel,
+    Existing:  Math.round(byFS[fuel]?.[1] || 0),
+    Committed: Math.round(byFS[fuel]?.[2] || 0),
+    Candidate: Math.round(byFS[fuel]?.[3] || 0),
+  })).sort((a, b) => b.Existing - a.Existing);
+
+  return (
+    <div>
+      <SectionTitle t={t}>Installed capacity by fuel (MW)</SectionTitle>
+      <ResponsiveContainer width="100%" height={Math.min(fuels.length * 22 + 24, 280)}>
+        <BarChart data={chartData} layout="vertical"
+          margin={{ top: 0, right: 8, left: 64, bottom: 0 }}>
+          <CartesianGrid horizontal={false} {...gridS(t)} />
+          <XAxis type="number" tick={tickS(t)} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+          <YAxis type="category" dataKey="fuel" tick={{ ...tickS(t), fontSize: 9 }} width={64} />
+          <Tooltip {...ttStyle(t)} formatter={(v, name) => [`${v.toLocaleString()} MW`, name]} />
+          <Bar dataKey="Existing"  stackId="s" maxBarSize={14}>
+            {chartData.map(({ fuel }) => <Cell key={fuel} fill={EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other} fillOpacity={1} />)}
+          </Bar>
+          <Bar dataKey="Committed" stackId="s" maxBarSize={14}>
+            {chartData.map(({ fuel }) => <Cell key={fuel} fill={EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other} fillOpacity={0.5} />)}
+          </Bar>
+          <Bar dataKey="Candidate" stackId="s" maxBarSize={14}>
+            {chartData.map(({ fuel }) => <Cell key={fuel} fill={EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other} fillOpacity={0.22} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+        {[['Existing', 1.0], ['Committed', 0.5], ['Candidate', 0.22]].map(([lbl, op]) => (
+          <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 4,
+            fontSize: '0.5rem', color: t.muted }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2,
+              backgroundColor: '#888', opacity: op }} />{lbl}
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${t.panelBorder}`,
         fontSize: '0.55rem', color: t.muted }}>
         Total existing: <b style={{ color: t.lbl }}>{fmt(totalExisting / 1000, 1)} GW</b>
-        {' '}across {gen.filter(r => r.status === 1).length} units
+        {' '}· {gen.filter(r => r.status === 1).length} units
       </div>
     </div>
   );
@@ -173,99 +232,194 @@ function EpmSupplyTab({ t, epmData }) {
 // ── Demand tab ────────────────────────────────────────────────────────────────
 
 function DemandTab({ t, epmData, epmLoading, hasEpm }) {
-  const years = availableYears(epmData?.demand || []);
-  const [yr,   setYr]   = useState(null);
+  const allYears   = availableYears(epmData?.demand || []);
+  const allZones   = [...new Set((epmData?.demand || []).map(r => r.zone))].sort();
 
-  const refYr = yr || years.find(y => y === '2024') || years[0];
+  const [selZones,  setSelZones]  = useState(null);   // null = all
+  const [chartType, setChartType] = useState('area'); // area | bar | line
+  const [snapYear,  setSnapYear]  = useState(null);
 
-  if (!hasEpm)   return <NotAvailable t={t} />;
-  if (epmLoading) return <LoadingBox t={t} />;
-  if (!epmData?.demand?.length) return (
-    <div style={{ fontSize: '0.6rem', color: t.muted, padding: '12px 0' }}>
-      No demand data available for this region.
-    </div>
-  );
+  if (!hasEpm)             return <NotAvailable t={t} />;
+  if (epmLoading)          return <LoadingBox t={t} />;
+  if (!epmData?.demand?.length) return <NotAvailable t={t} />;
 
+  const activeZones = selZones || allZones;
+  const refSnap = snapYear || allYears.find(y => y === '2030') || allYears[Math.floor(allYears.length / 2)];
   const peakRows   = epmData.demand.filter(r => r.type === 'peak');
   const energyRows = epmData.demand.filter(r => r.type === 'energy');
-  const zones      = [...new Set(epmData.demand.map(r => r.zone))].sort();
+  const xInterval  = Math.max(0, Math.floor(allYears.length / 6) - 1);
 
-  const totalEnergy = energyRows.reduce((s, r) => s + (r.years[refYr] || 0), 0);
-  const totalPeak   = peakRows.reduce((s, r)   => s + (r.years[refYr] || 0), 0);
+  // Chart 1 — total dual-axis
+  const totalByYear = allYears.map(y => ({
+    year: y,
+    'Peak (GW)':    +(peakRows.reduce((s, r)   => s + (r.years[y] || 0), 0) / 1000).toFixed(2),
+    'Energy (TWh)': +(energyRows.reduce((s, r) => s + (r.years[y] || 0), 0) / 1000).toFixed(1),
+  }));
 
-  // Mini sparkline years (5 pts)
-  const sparkYrs = years.filter((_, i) => i % Math.max(1, Math.floor(years.length / 5)) === 0).slice(0, 5);
+  // Chart 2 — stacked by zone
+  const byZoneYear = allYears.map(y => {
+    const row = { year: y };
+    for (const z of activeZones) {
+      const p = peakRows.find(r => r.zone === z);
+      row[z] = Math.round(p?.years[y] || 0);
+    }
+    row['Energy (TWh)'] = +(energyRows
+      .filter(r => activeZones.includes(r.zone))
+      .reduce((s, r) => s + (r.years[y] || 0), 0) / 1000).toFixed(1);
+    return row;
+  });
+
+  // Chart 3 — snapshot bar by zone
+  const byZoneSnap = [...activeZones]
+    .map(z => ({
+      zone: z,
+      'Energy (GWh)': Math.round(energyRows.find(r => r.zone === z)?.years[refSnap] || 0),
+      'Peak (MW)':    Math.round(peakRows.find(r => r.zone === z)?.years[refSnap] || 0),
+    }))
+    .sort((a, b) => b['Energy (GWh)'] - a['Energy (GWh)']);
+
+  const toggleZone = z => {
+    if (!selZones) { setSelZones([z]); return; }
+    const next = selZones.includes(z) ? selZones.filter(s => s !== z) : [...selZones, z];
+    setSelZones(next.length === 0 || next.length === allZones.length ? null : next);
+  };
+
+  const chipBtn = (label, active, color, onClick) => (
+    <button key={label} onClick={onClick} style={{
+      fontSize: '0.44rem', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 3,
+      cursor: 'pointer', border: `1px solid ${active ? color : t.panelBorder}`,
+      backgroundColor: active ? color + '28' : 'transparent',
+      color: active ? t.lbl : t.lblMuted,
+    }}>{label}</button>
+  );
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <SectionTitle t={t}>Demand forecast</SectionTitle>
-        <select value={refYr} onChange={e => setYr(e.target.value)} style={{
-          fontSize: '0.52rem', fontFamily: 'inherit', padding: '2px 6px',
-          borderRadius: 4, border: `1px solid ${t.panelBorder}`,
-          backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
-        }}>
-          {years.map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
 
-      {/* Totals */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-        {[
-          { label: 'Total Energy', value: `${fmt(totalEnergy / 1000, 1)} TWh` },
-          { label: 'Total Peak',   value: `${fmt(totalPeak, 0)} MW`  },
-        ].map(({ label, value }) => (
-          <div key={label} style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 6,
-            padding: '8px 10px', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.47rem', color: t.lblMuted, marginBottom: 2 }}>{label}</div>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: t.lbl }}>{value}</div>
+      {/* ── Chart 1: dual-axis total ── */}
+      <div>
+        <SectionTitle t={t}>Total demand forecast</SectionTitle>
+        <ResponsiveContainer width="100%" height={190}>
+          <ComposedChart data={totalByYear} margin={{ top: 4, right: 48, left: 4, bottom: 0 }}>
+            <CartesianGrid {...gridS(t)} />
+            <XAxis dataKey="year" tick={tickS(t)} interval={xInterval} />
+            <YAxis yAxisId="L" tick={tickS(t)} width={38}
+              label={{ value: 'GW', angle: -90, position: 'insideLeft', fontSize: 8, fill: t.muted, dx: 10 }} />
+            <YAxis yAxisId="R" orientation="right" tick={tickS(t)} width={38}
+              label={{ value: 'TWh', angle: 90, position: 'insideRight', fontSize: 8, fill: t.muted, dx: -4 }} />
+            <Tooltip {...ttStyle(t)} formatter={(v, name) => [v, name]} />
+            <Bar     yAxisId="L" dataKey="Peak (GW)"    fill="#1a5fa8" fillOpacity={0.75} maxBarSize={18} />
+            <Line    yAxisId="R" dataKey="Energy (TWh)" stroke="#FF6B6B" strokeWidth={2.5} dot={false} type="monotone" />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.48rem', color: t.muted }}>
+            <div style={{ width: 12, height: 10, backgroundColor: '#1a5fa8', opacity: 0.75, borderRadius: 1 }} />
+            Peak GW (left)
           </div>
-        ))}
-      </div>
-
-      {/* Zone table */}
-      <SectionTitle t={t}>By zone — {refYr}</SectionTitle>
-      <div style={{ fontSize: '0.52rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 70px',
-          color: t.lblMuted, borderBottom: `1px solid ${t.panelBorder}`, paddingBottom: 3, marginBottom: 4 }}>
-          <span>Zone</span><span style={{ textAlign: 'right' }}>Energy (GWh)</span>
-          <span style={{ textAlign: 'right' }}>Peak (MW)</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.48rem', color: t.muted }}>
+            <div style={{ width: 18, height: 2.5, backgroundColor: '#FF6B6B', borderRadius: 1 }} />
+            Energy TWh (right)
+          </div>
         </div>
-        {zones.map(z => {
-          const e = energyRows.find(r => r.zone === z);
-          const p = peakRows.find(r => r.zone === z);
-          const eMW = e?.years[refYr] || 0;
-          const pMW = p?.years[refYr] || 0;
-          const maxE = Math.max(...energyRows.map(r => r.years[refYr] || 0));
-          return (
-            <div key={z} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 70px',
-              padding: '3px 0', borderBottom: `1px solid ${t.panelBorder}`,
-              color: t.muted, alignItems: 'center' }}>
-              <div>
-                <div style={{ color: t.lbl, marginBottom: 1 }}>{z}</div>
-                <div style={{ height: 3, borderRadius: 2,
-                  width: `${maxE > 0 ? (eMW / maxE) * 100 : 0}%`,
-                  backgroundColor: '#1AA8B0', opacity: 0.6 }} />
-              </div>
-              <span style={{ textAlign: 'right' }}>{fmt(eMW)}</span>
-              <span style={{ textAlign: 'right' }}>{fmt(pMW)}</span>
-            </div>
-          );
-        })}
       </div>
 
-      {/* Growth indicator */}
-      {sparkYrs.length >= 2 && (() => {
-        const y0 = sparkYrs[0], yn = sparkYrs[sparkYrs.length - 1];
-        const e0 = energyRows.reduce((s, r) => s + (r.years[y0] || 0), 0);
-        const en = energyRows.reduce((s, r) => s + (r.years[yn] || 0), 0);
-        const pct = e0 > 0 ? ((en - e0) / e0 * 100).toFixed(0) : null;
-        return pct ? (
-          <div style={{ marginTop: 10, fontSize: '0.52rem', color: t.muted }}>
-            Energy growth {y0}→{yn}: <b style={{ color: t.lbl }}>+{pct}%</b>
+      {/* ── Chart 2: stacked by zone ── */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <SectionTitle t={t}>Peak by zone (MW)</SectionTitle>
+          <div style={{ display: 'flex', gap: 3 }}>
+            {['area', 'bar', 'line'].map(type =>
+              chipBtn(type, chartType === type, t.lbl, () => setChartType(type))
+            )}
           </div>
-        ) : null;
-      })()}
+        </div>
+
+        {/* Zone chips */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 4px', marginBottom: 10 }}>
+          {chipBtn('All', !selZones, t.lbl, () => setSelZones(null))}
+          {allZones.map((z, i) => chipBtn(
+            z,
+            !selZones || selZones.includes(z),
+            ZONE_PALETTE[i % ZONE_PALETTE.length],
+            () => toggleZone(z),
+          ))}
+        </div>
+
+        <ResponsiveContainer width="100%" height={210}>
+          <ComposedChart data={byZoneYear} margin={{ top: 4, right: 52, left: 4, bottom: 0 }}>
+            <CartesianGrid {...gridS(t)} />
+            <XAxis dataKey="year" tick={tickS(t)} interval={xInterval} />
+            <YAxis yAxisId="L" tick={tickS(t)} width={42}
+              tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
+              label={{ value: 'MW', angle: -90, position: 'insideLeft', fontSize: 8, fill: t.muted, dx: 12 }} />
+            <YAxis yAxisId="R" orientation="right" tick={tickS(t)} width={40}
+              label={{ value: 'TWh', angle: 90, position: 'insideRight', fontSize: 8, fill: t.muted, dx: -4 }} />
+            <Tooltip {...ttStyle(t)}
+              formatter={(v, name) => name === 'Energy (TWh)'
+                ? [`${v} TWh`, 'Energy']
+                : [`${v.toLocaleString()} MW`, name]} />
+            {activeZones.map((z, i) => {
+              const color = ZONE_PALETTE[i % ZONE_PALETTE.length];
+              const common = { key: z, yAxisId: 'L', dataKey: z, name: z,
+                fill: color, stroke: color };
+              if (chartType === 'area')
+                return <Area {...common} stackId="s" type="monotone" fillOpacity={0.65} strokeWidth={0} />;
+              if (chartType === 'bar')
+                return <Bar  {...common} stackId="s" maxBarSize={18} />;
+              return <Line {...common} type="monotone" strokeWidth={1.5} dot={false} />;
+            })}
+            <Line yAxisId="R" dataKey="Energy (TWh)" stroke="#FF6B6B"
+              strokeWidth={2} dot={false} strokeDasharray="5 3" type="monotone" />
+          </ComposedChart>
+        </ResponsiveContainer>
+
+        {/* Zone legend */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 10px', marginTop: 6 }}>
+          {activeZones.map((z, i) => (
+            <div key={z} style={{ display: 'flex', alignItems: 'center', gap: 3,
+              fontSize: '0.44rem', color: t.muted }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2,
+                backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length] }} />
+              {z}
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.44rem', color: t.muted }}>
+            <div style={{ width: 14, height: 2, backgroundColor: '#FF6B6B' }} />
+            Energy TWh (right)
+          </div>
+        </div>
+      </div>
+
+      {/* ── Chart 3: bar by zone for selected year ── */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <SectionTitle t={t}>Energy by zone (GWh)</SectionTitle>
+          <select value={refSnap} onChange={e => setSnapYear(e.target.value)} style={{
+            fontSize: '0.5rem', fontFamily: 'inherit', padding: '2px 6px',
+            borderRadius: 4, border: `1px solid ${t.panelBorder}`,
+            backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
+          }}>
+            {allYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <ResponsiveContainer width="100%" height={170}>
+          <BarChart data={byZoneSnap} margin={{ top: 4, right: 8, left: 4, bottom: 36 }}>
+            <CartesianGrid vertical={false} {...gridS(t)} />
+            <XAxis dataKey="zone" tick={{ ...tickS(t), angle: -35, textAnchor: 'end' }} interval={0} />
+            <YAxis tick={tickS(t)} tickFormatter={v => `${(v/1000).toFixed(0)}k`} width={34} />
+            <Tooltip {...ttStyle(t)} formatter={v => [`${v.toLocaleString()} GWh`]} />
+            <Bar dataKey="Energy (GWh)" maxBarSize={22}>
+              {byZoneSnap.map((entry) => {
+                const zi = allZones.indexOf(entry.zone);
+                return <Cell key={entry.zone}
+                  fill={ZONE_PALETTE[(zi >= 0 ? zi : 0) % ZONE_PALETTE.length]} />;
+              })}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
     </div>
   );
 }
@@ -1284,7 +1438,7 @@ export default function RegionPage() {
 
       {/* Right panel */}
       <div style={{
-        width: 360, height: 'calc(100vh - 46px)', overflowY: 'auto',
+        width: 480, height: 'calc(100vh - 46px)', overflowY: 'auto',
         padding: '18px 16px',
         backgroundColor: t.panel, borderLeft: `1px solid ${t.panelBorder}`,
         flexShrink: 0,
@@ -1321,7 +1475,12 @@ export default function RegionPage() {
           })}
         </div>
 
-        {activeTab === 'overview'  && <CapacityChart capacity={capacity} region={region} theme={theme} source={plantSource} tariffs={tariffs} access={access} />}
+        {activeTab === 'overview'  && (
+          !region.epm  ? <NotAvailable t={t} /> :
+          epmLoading   ? <LoadingBox t={t} /> :
+          epmData      ? <EpmOverviewTab t={t} epmData={epmData} region={region} /> :
+                         <NotAvailable t={t} />
+        )}
         {activeTab === 'supply'    && (
           !region.epm  ? <NotAvailable t={t} /> :
           epmLoading   ? <LoadingBox t={t} /> :
