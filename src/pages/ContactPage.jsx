@@ -62,7 +62,7 @@ export default function ContactPage() {
           About
         </h1>
         <p style={{ fontSize: '0.75rem', color: t.muted, lineHeight: 1.65, marginBottom: 32 }}>
-          The Regional Power Explorer is developed by the{' '}
+          The EPM Data Explorer is developed by the{' '}
           <ExternalLink href="https://www.worldbank.org">World Bank</ExternalLink>{' '}
           through the{' '}
           <ExternalLink href="https://esmap.org">Energy Sector Management Assistance Program (ESMAP)</ExternalLink>,
@@ -83,9 +83,9 @@ export default function ContactPage() {
             }
           />
           <LinkCard
-            href="https://github.com/ESMAP-World-Bank-Group/epm-explorer"
-            label="Regional Power Explorer"
-            sub="Source code · epm-explorer"
+            href="https://github.com/ESMAP-World-Bank-Group/epm-data-explorer"
+            label="EPM Data Explorer"
+            sub="Source code · epm-data-explorer"
             icon={
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">

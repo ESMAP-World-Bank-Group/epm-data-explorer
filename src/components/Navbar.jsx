@@ -90,7 +90,7 @@ export default function Navbar() {
             <line x1="2.5" y1="9" x2="21.5" y2="9"/>
             <line x1="2.5" y1="15" x2="21.5" y2="15"/>
           </svg>
-          Regional Power <span style={{ fontWeight: 400 }}>Explorer</span>
+          EPM <span style={{ fontWeight: 400 }}>Data Explorer</span>
         </Link>
         <span style={{
           fontSize: '0.48rem', fontWeight: 700, letterSpacing: '1.5px',

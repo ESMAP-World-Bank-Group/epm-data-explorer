@@ -250,7 +250,7 @@ export default function AboutPage() {
             Data Sources
           </h1>
           <p style={{ fontSize: '0.75rem', color: t.muted, maxWidth: 620, lineHeight: 1.65 }}>
-            The EPM Regional Power Explorer aggregates open-access data from multiple sources.
+            The EPM Data Explorer aggregates open-access data from multiple sources.
             Coverage and accuracy vary by region. All data should be treated as indicative
             and cross-checked against national statistics for planning purposes.
           </p>
@@ -388,7 +388,7 @@ export default function AboutPage() {
 
         {/* Footer */}
         <p style={{ fontSize: '0.55rem', color: t.lblMuted, marginTop: 32, lineHeight: 1.7 }}>
-          EPM Regional Power Explorer · World Bank ESMAP ·{' '}
+          EPM Data Explorer · World Bank ESMAP ·{' '}
           <a href="https://github.com/ESMAP-World-Bank-Group/epm-explorer"
             target="_blank" rel="noopener noreferrer"
             style={{ color: 'rgba(74,143,204,0.7)', textDecoration: 'none' }}>
