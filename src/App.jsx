@@ -17,8 +17,9 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div style={{ padding: 32, fontFamily: 'monospace', fontSize: 13, color: '#c00' }}>
-          <b>Runtime error — open browser console for full stack trace.</b>
+        <div style={{ padding: 32, fontFamily: 'monospace', fontSize: 13, color: '#c00',
+          position: 'fixed', inset: 0, backgroundColor: '#fff', overflow: 'auto', zIndex: 9999 }}>
+          <b>Runtime error — open browser DevTools (F12) for full stack trace.</b>
           <pre style={{ marginTop: 12, whiteSpace: 'pre-wrap', color: '#333' }}>
             {this.state.error?.message}
           </pre>
@@ -34,15 +35,15 @@ export default function App() {
   const t = getT(theme);
 
   return (
-    <ThemeCtx.Provider value={{ theme, setTheme }}>
-      <BrowserRouter>
-        <div style={{
-          display: 'flex', flexDirection: 'column', height: '100vh',
-          overflow: 'hidden', backgroundColor: t.bg,
-        }}>
-          <Navbar />
-          <div style={{ flex: 1, overflow: 'hidden', height: 'calc(100vh - 46px)' }}>
-            <ErrorBoundary>
+    <ErrorBoundary>
+      <ThemeCtx.Provider value={{ theme, setTheme }}>
+        <BrowserRouter>
+          <div style={{
+            display: 'flex', flexDirection: 'column', height: '100vh',
+            overflow: 'hidden', backgroundColor: t.bg,
+          }}>
+            <Navbar />
+            <div style={{ flex: 1, overflow: 'hidden', height: 'calc(100vh - 46px)' }}>
               <Routes>
                 <Route path="/"                    element={<WorldPage />} />
                 <Route path="/region/:regionId"    element={<RegionPage />} />
@@ -50,10 +51,10 @@ export default function App() {
                 <Route path="/about"               element={<AboutPage />} />
                 <Route path="/contact"             element={<ContactPage />} />
               </Routes>
-            </ErrorBoundary>
+            </div>
           </div>
-        </div>
-      </BrowserRouter>
-    </ThemeCtx.Provider>
+        </BrowserRouter>
+      </ThemeCtx.Provider>
+    </ErrorBoundary>
   );
 }
