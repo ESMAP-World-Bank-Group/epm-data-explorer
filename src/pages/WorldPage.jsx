@@ -20,16 +20,20 @@ export default function WorldPage() {
   useEffect(() => {
     if (!containerRef.current || !regions) return;
 
-    // iso → array of available regions (can be 2+ for overlapping pools)
+    // Clickable = regions with EPM data; others are shown dimly but not interactive
     const isoToRegions = {};
-    const available = regions.filter(r => r.status === 'available');
-    for (const r of available) {
+    const clickable = regions.filter(r => r.epm);
+    const dimmed = regions.filter(r => r.status === 'available' && !r.epm);
+    for (const r of clickable) {
       for (const c of r.countries) {
         if (!isoToRegions[c.iso]) isoToRegions[c.iso] = [];
         isoToRegions[c.iso].push({ id: r.id, name: r.name, color: r.color, countryName: c.name });
       }
     }
-    const availableIsos = Object.keys(isoToRegions);
+    const clickableIsos = Object.keys(isoToRegions);
+    const dimmedIsos = [...new Set(
+      dimmed.flatMap(r => r.countries.map(c => c.iso)).filter(iso => !clickableIsos.includes(iso))
+    )];
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -64,10 +68,35 @@ export default function WorldPage() {
       map.addLayer({ id: 'borders', type: 'line', source: 'countries',
         paint: { 'line-color': t.worldBdr, 'line-width': t.worldBdrW } });
 
-      if (availableIsos.length) {
-        // For countries in multiple pools, use the first pool's color; ambiguous ones get a stripe via opacity trick
+      // Dimmed layer — available but no EPM data, non-interactive
+      if (dimmedIsos.length) {
+        const dimColorExpr = ['match', ['get', 'ISO_A3'],
+          ...dimmedIsos.flatMap(iso => {
+            const r = dimmed.find(r => r.countries.some(c => c.iso === iso));
+            return [iso, r?.color || '#888'];
+          }),
+          'transparent',
+        ];
+        map.addLayer({
+          id: 'region-fill-dim',
+          type: 'fill',
+          source: 'countries',
+          filter: ['in', ['get', 'ISO_A3'], ['literal', dimmedIsos]],
+          paint: { 'fill-color': dimColorExpr, 'fill-opacity': 0.10 },
+        });
+        map.addLayer({
+          id: 'region-border-dim',
+          type: 'line',
+          source: 'countries',
+          filter: ['in', ['get', 'ISO_A3'], ['literal', dimmedIsos]],
+          paint: { 'line-color': dimColorExpr, 'line-width': 0.6, 'line-opacity': 0.3 },
+        });
+      }
+
+      // Clickable layer — regions with EPM data
+      if (clickableIsos.length) {
         const colorExpr = ['match', ['get', 'ISO_A3'],
-          ...availableIsos.flatMap(iso => [iso, isoToRegions[iso][0].color]),
+          ...clickableIsos.flatMap(iso => [iso, isoToRegions[iso][0].color]),
           'transparent',
         ];
 
@@ -75,7 +104,7 @@ export default function WorldPage() {
           id: 'region-fill',
           type: 'fill',
           source: 'countries',
-          filter: ['in', ['get', 'ISO_A3'], ['literal', availableIsos]],
+          filter: ['in', ['get', 'ISO_A3'], ['literal', clickableIsos]],
           paint: {
             'fill-color': colorExpr,
             'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.55, 0.28],
@@ -86,7 +115,7 @@ export default function WorldPage() {
           id: 'region-border',
           type: 'line',
           source: 'countries',
-          filter: ['in', ['get', 'ISO_A3'], ['literal', availableIsos]],
+          filter: ['in', ['get', 'ISO_A3'], ['literal', clickableIsos]],
           paint: { 'line-color': colorExpr, 'line-width': 0.9, 'line-opacity': 0.7 },
         });
       }
@@ -208,19 +237,16 @@ export default function WorldPage() {
           {regions.map(r => (
             <div
               key={r.id}
-              onClick={() => r.status === 'available' && navigate(`/region/${r.id}`)}
+              onClick={() => r.epm && navigate(`/region/${r.id}`)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                cursor: r.status === 'available' ? 'pointer' : 'default',
-                opacity: r.status === 'available' ? 1 : 0.38,
+                cursor: r.epm ? 'pointer' : 'default',
+                opacity: r.epm ? 1 : 0.32,
               }}
             >
               <span style={{ width: 9, height: 9, borderRadius: 2,
                 backgroundColor: r.color, flexShrink: 0 }} />
               <span style={{ fontSize: '0.75rem', color: t.text }}>{r.name}</span>
-              {r.status !== 'available' && (
-                <span style={{ fontSize: '0.58rem', color: t.lblMuted }}>soon</span>
-              )}
             </div>
           ))}
         </div>
