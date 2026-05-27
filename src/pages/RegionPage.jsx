@@ -9,16 +9,16 @@ import {
 import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
 import {
-  fetchEpmCSV, processGenData, processDemand, processNTC,
-  availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
+  fetchEpmCSV, fetchLinestringGeoJSON, processGenData, processDemand,
+  processNTC, processDemandProfile, availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
 } from '../utils/epmFetch';
-// chart.js loaded via CDN script in index.html — no npm dep needed
+
+// chart.js via CDN — no npm dep
 function CJChart({ type, data, options, height }) {
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
   const sig = JSON.stringify({ type, labels: data.labels,
     ds: data.datasets?.map(d => ({ l: d.label, n: d.data?.length, t: d.type, f: d.fill })) });
-
   useEffect(() => {
     const CJ = window.Chart;
     if (!CJ || !canvasRef.current) return;
@@ -26,7 +26,6 @@ function CJChart({ type, data, options, height }) {
     chartRef.current = new CJ(canvasRef.current, { type, data, options });
     return () => { chartRef.current?.destroy(); chartRef.current = null; };
   }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
-
   return (
     <div style={{ height, width: '100%', position: 'relative' }}>
       <canvas ref={canvasRef} />
@@ -40,16 +39,14 @@ const ZONE_PALETTE = [
   '#F39C12','#1ABC9C','#E67E22','#8E44AD','#16A085','#D35400',
 ];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fitBounds(isos, countries) {
   let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
   for (const f of countries.features) {
     if (!isos.includes(f.properties.ISO_A3)) continue;
     const geom = f.geometry;
-    const rings = geom.type === 'Polygon'
-      ? geom.coordinates
-      : geom.coordinates.flatMap(p => p);
+    const rings = geom.type === 'Polygon' ? geom.coordinates : geom.coordinates.flatMap(p => p);
     for (const ring of rings)
       for (const [lon, lat] of ring) {
         if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
@@ -60,12 +57,8 @@ function fitBounds(isos, countries) {
   return [[minLon - 0.5, minLat - 0.5], [maxLon + 0.5, maxLat + 0.5]];
 }
 
-/** Build the MapLibre filter for a status layer, respecting fuel visibility and minMw. */
 function makeLayerFilter(status, fuelsOff, minMw) {
-  const clauses = [
-    ['==', ['get', 'status'], status],
-    ['>=', ['get', 'mw'], minMw],
-  ];
+  const clauses = [['==', ['get', 'status'], status], ['>=', ['get', 'mw'], minMw]];
   if (fuelsOff.size > 0)
     clauses.push(['!', ['in', ['get', 'fuel'], ['literal', [...fuelsOff]]]]);
   return ['all', ...clauses];
@@ -74,12 +67,43 @@ function makeLayerFilter(status, fuelsOff, minMw) {
 function downloadBlob(content, filename, type = 'application/octet-stream') {
   const blob = new Blob([content], { type });
   const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// ── Tab sub-components ────────────────────────────────────────────────────────
+function makeDonutSVG(fuelMix, tv, size = 52) {
+  const cx = size / 2, cy = size / 2;
+  const r  = size / 2 - 10;
+  const sw = 8;
+  const circum = 2 * Math.PI * r;
+  const entries = Object.entries(fuelMix).filter(([, v]) => v > 0);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  if (total === 0 || r <= 0) return '';
+  let cumDeg = -90;
+  const arcs = entries.map(([fuel, mw]) => {
+    const angle = (mw / total) * 360;
+    const start = (cumDeg * Math.PI) / 180;
+    const end   = ((cumDeg + angle) * Math.PI) / 180;
+    cumDeg += angle;
+    const x1 = cx + r * Math.cos(start), y1 = cy + r * Math.sin(start);
+    const x2 = cx + r * Math.cos(end),   y2 = cy + r * Math.sin(end);
+    const large = angle > 180 ? 1 : 0;
+    const color = EPM_FUEL_COLORS[fuel] || '#AAAAAA';
+    return `<path d="M${x1} ${y1} A${r} ${r} 0 ${large} 1 ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="butt"/>`;
+  });
+  const totalGW   = total / 1000;
+  const label = totalGW >= 1 ? totalGW.toFixed(1) : total.toFixed(0);
+  const unit  = totalGW >= 1 ? 'GW' : 'MW';
+  const bg    = tv.isDark ? 'rgba(20,20,20,0.82)' : 'rgba(255,255,255,0.88)';
+  const tc    = tv.isDark ? '#fff' : '#111';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
+    <circle cx="${cx}" cy="${cy}" r="${r + sw / 2 + 1}" fill="${bg}" stroke="rgba(0,0,0,0.18)" stroke-width="0.5"/>
+    ${arcs.join('')}
+    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="9" font-weight="700" fill="${tc}" font-family="system-ui,sans-serif">${label}</text>
+    <text x="${cx}" y="${cy + 9}" text-anchor="middle" font-size="7" fill="${tc}" font-family="system-ui,sans-serif" opacity="0.65">${unit}</text>
+  </svg>`;
+}
 
 // ── Shared mini utilities ─────────────────────────────────────────────────────
 
@@ -92,7 +116,6 @@ function NotAvailable({ t }) {
     </div>
   );
 }
-
 function SectionTitle({ t, children }) {
   return (
     <div style={{ fontSize: '0.47rem', letterSpacing: '2px', fontWeight: 700,
@@ -101,7 +124,6 @@ function SectionTitle({ t, children }) {
     </div>
   );
 }
-
 function LoadingBox({ t }) {
   return (
     <div style={{ padding: '24px 0', textAlign: 'center', color: t.lblMuted, fontSize: '0.6rem' }}>
@@ -109,12 +131,10 @@ function LoadingBox({ t }) {
     </div>
   );
 }
-
 function fmt(n, digits = 0) {
   if (n == null || isNaN(n)) return '—';
   return n.toLocaleString('en-US', { maximumFractionDigits: digits });
 }
-
 function cjDefaults(t) {
   return {
     responsive: true, maintainAspectRatio: false,
@@ -133,138 +153,378 @@ function cjDefaults(t) {
   };
 }
 function hexA(hex, a) {
+  if (!hex || hex.length < 7) return `rgba(128,128,128,${a})`;
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// ── Overview tab (EPM) ────────────────────────────────────────────────────────
+// ── Overview tab ──────────────────────────────────────────────────────────────
 
 function EpmOverviewTab({ t, epmData, region }) {
   const { gen, demand, ntc, zcmap } = epmData;
-  const allYears  = availableYears(demand);
-  const refYr     = allYears.find(y => y === '2024') || allYears[0];
-  const peakRows  = demand.filter(r => r.type === 'peak');
-  const energyRows= demand.filter(r => r.type === 'energy');
+  const allYears = availableYears(demand);
+  const refYr    = allYears.find(y => y === '2024') || allYears[0];
 
-  const totalGW   = gen.filter(r => r.status === 1).reduce((s, r) => s + r.capacity, 0) / 1000;
-  const totalTWh  = energyRows.reduce((s, r) => s + (r.years[refYr] || 0), 0) / 1000;
-  const peakGW    = peakRows.reduce((s, r)   => s + (r.years[refYr] || 0), 0) / 1000;
+  const existing    = gen.filter(r => r.status === 1);
+  const totalGW     = existing.reduce((s, r) => s + r.capacity, 0) / 1000;
+  const peakRows    = demand.filter(r => r.type === 'peak');
+  const energyRows  = demand.filter(r => r.type === 'energy');
+  const peakGW      = peakRows.reduce((s, r) => s + (r.years[refYr] || 0), 0) / 1000;
+  const energyTWh   = energyRows.reduce((s, r) => s + (r.years[refYr] || 0), 0) / 1000;
+  const ntcTotal    = ntc.reduce((s, r) => s + (r.years[refYr] || r.years[allYears[0]] || 0), 0);
+  const nZones      = zcmap.length;
+  const nCountries  = region.countries.length;
 
-  // Capacity by fuel (existing) for bar chart
+  // Capacity by fuel
   const fuelAgg = {};
-  for (const r of gen.filter(g => g.status === 1))
-    fuelAgg[r.fuel] = (fuelAgg[r.fuel] || 0) + r.capacity;
+  for (const r of existing) fuelAgg[r.fuel] = (fuelAgg[r.fuel] || 0) + r.capacity;
   const fuelData = Object.entries(fuelAgg)
     .map(([fuel, mw]) => ({ fuel, mw: Math.round(mw) }))
     .sort((a, b) => b.mw - a.mw);
 
+  // Capacity by country (via zcmap zone→country)
+  const zoneToCountry = Object.fromEntries(zcmap.map(r => [r.z, r.c]));
+  const countryFuelAgg = {};
+  for (const r of existing) {
+    const country = zoneToCountry[r.zone] || r.zone;
+    if (!countryFuelAgg[country]) countryFuelAgg[country] = {};
+    countryFuelAgg[country][r.fuel] = (countryFuelAgg[country][r.fuel] || 0) + r.capacity;
+  }
+  const countries = Object.entries(countryFuelAgg)
+    .map(([c, fuels]) => ({ c, total: Object.values(fuels).reduce((s, v) => s + v, 0), fuels }))
+    .sort((a, b) => b.total - a.total);
+  const allFuels = [...new Set(fuelData.map(d => d.fuel))];
+
+  const kpis = [
+    { label: 'Installed Capacity', value: `${totalGW.toFixed(1)} GW`, sub: 'existing fleet' },
+    { label: `Peak — ${refYr}`,    value: `${peakGW.toFixed(1)} GW`,  sub: 'system peak demand' },
+    { label: `Energy — ${refYr}`,  value: `${energyTWh.toFixed(0)} TWh`, sub: 'total energy demand' },
+    { label: 'Total NTC',          value: `${fmt(Math.round(ntcTotal / nZones))} MW`, sub: 'avg per corridor' },
+    { label: 'Countries',          value: nCountries,                   sub: `${nZones} zones` },
+    { label: 'NTC Corridors',      value: ntc.length,                   sub: `${refYr}` },
+  ];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        {[
-          { label: 'Installed Capacity', value: `${totalGW.toFixed(1)} GW`, sub: 'existing fleet' },
-          { label: `Energy — ${refYr}`,  value: `${totalTWh.toFixed(0)} TWh`, sub: 'total demand' },
-          { label: `Peak — ${refYr}`,    value: `${peakGW.toFixed(1)} GW`,   sub: 'system peak' },
-          { label: 'Corridors',          value: ntc.length,                   sub: `${zcmap.length} zones` },
-        ].map(({ label, value, sub }) => (
+        {kpis.map(({ label, value, sub }) => (
           <div key={label} style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 6,
             padding: '10px 12px', textAlign: 'center' }}>
             <div style={{ fontSize: '0.44rem', color: t.lblMuted, textTransform: 'uppercase',
               letterSpacing: '1px', marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: t.lbl, lineHeight: 1 }}>{value}</div>
+            <div style={{ fontSize: '1rem', fontWeight: 700, color: t.lbl, lineHeight: 1 }}>{value}</div>
             <div style={{ fontSize: '0.44rem', color: t.lblMuted, marginTop: 3 }}>{sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Capacity by fuel — horizontal bar chart */}
       <div>
         <SectionTitle t={t}>Existing capacity by fuel (MW)</SectionTitle>
         <CJChart type="bar" height={Math.min(fuelData.length * 22 + 24, 240)}
+          data={{
+            labels: fuelData.map(d => d.fuel),
+            datasets: [{ data: fuelData.map(d => d.mw),
+              backgroundColor: fuelData.map(d => EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other),
+              borderWidth: 0, barThickness: 12 }],
+          }}
+          options={{ ...cjDefaults(t), indexAxis: 'y',
+            scales: {
+              x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
+              y: { grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+            },
+            plugins: { ...cjDefaults(t).plugins,
+              tooltip: { ...cjDefaults(t).plugins.tooltip,
+                callbacks: { label: ctx => `${ctx.raw.toLocaleString()} MW` } } },
+          }}
+        />
+      </div>
+
+      {countries.length > 0 && (
+        <div>
+          <SectionTitle t={t}>Capacity mix by country (MW)</SectionTitle>
+          <CJChart type="bar" height={Math.min(countries.length * 24 + 24, 280)}
             data={{
-              labels: fuelData.map(d => d.fuel),
-              datasets: [{ data: fuelData.map(d => d.mw),
-                backgroundColor: fuelData.map(d => EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other),
-                borderWidth: 0, barThickness: 12 }],
+              labels: countries.map(d => d.c),
+              datasets: allFuels.map(fuel => ({
+                label: fuel,
+                data: countries.map(d => Math.round(d.fuels[fuel] || 0)),
+                backgroundColor: EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other,
+                borderWidth: 0, barThickness: 14,
+              })),
             }}
             options={{ ...cjDefaults(t), indexAxis: 'y',
               scales: {
-                x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
-                  callback: v => `${(v/1000).toFixed(0)}k` } },
-                y: { grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+                x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                  callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
+                y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
               },
               plugins: { ...cjDefaults(t).plugins,
+                legend: { display: false },
                 tooltip: { ...cjDefaults(t).plugins.tooltip,
-                  callbacks: { label: ctx => `${ctx.raw.toLocaleString()} MW` } } },
+                  callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW` } },
+              },
             }}
           />
-      </div>
+          {/* Fuel legend */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 8px', marginTop: 6 }}>
+            {allFuels.map(f => (
+              <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.44rem', color: t.muted }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: EPM_FUEL_COLORS[f] || '#aaa' }} />{f}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {region.epm && (
+        <a href={`https://github.com/ESMAP-World-Bank-Group/EPM/tree/${region.epm.branch}`}
+          target="_blank" rel="noreferrer"
+          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.52rem',
+            color: t.lblMuted, textDecoration: 'none', marginTop: 2 }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          View on GitHub · {region.epm.branch}
+        </a>
+      )}
     </div>
   );
 }
 
 // ── Supply tab ────────────────────────────────────────────────────────────────
 
-function EpmSupplyTab({ t, epmData }) {
-  const { gen } = epmData;
-  const statuses = [1, 2, 3];
+function EpmSupplyTab({ t, epmData, region }) {
+  const { gen, zcmap } = epmData;
+  const [visStatuses, setVisStatuses] = useState(new Set([1, 2, 3]));
+  const [selectedPlant, setSelectedPlant] = useState(null);
+  const [search, setSearch] = useState('');
+  const [sortCol, setSortCol] = useState('capacity');
+
+  const zoneToCountry = Object.fromEntries(zcmap.map(r => [r.z, r.c]));
+  const filtered = gen.filter(r => visStatuses.has(r.status));
+  const searched = search
+    ? filtered.filter(r => r.g.toLowerCase().includes(search.toLowerCase()) ||
+        r.zone.toLowerCase().includes(search.toLowerCase()) ||
+        r.fuel.toLowerCase().includes(search.toLowerCase()))
+    : filtered;
+  const sorted = [...searched].sort((a, b) => {
+    if (sortCol === 'capacity') return b.capacity - a.capacity;
+    if (sortCol === 'name') return a.g.localeCompare(b.g);
+    if (sortCol === 'fuel') return a.fuel.localeCompare(b.fuel);
+    return 0;
+  });
+
+  // Chart by fuel
   const fuels = [...new Set(gen.map(r => r.fuel))].sort();
   const byFS = {};
-  for (const r of gen) {
-    if (!byFS[r.fuel]) byFS[r.fuel] = {};
+  for (const r of filtered) {
+    if (!byFS[r.fuel]) byFS[r.fuel] = { 1: 0, 2: 0, 3: 0 };
     byFS[r.fuel][r.status] = (byFS[r.fuel][r.status] || 0) + r.capacity;
   }
-  const totalExisting = gen.filter(r => r.status === 1).reduce((s, r) => s + r.capacity, 0);
+  const fuelChartData = fuels
+    .filter(f => byFS[f])
+    .map(f => ({ fuel: f, ex: Math.round(byFS[f]?.[1] || 0), co: Math.round(byFS[f]?.[2] || 0), ca: Math.round(byFS[f]?.[3] || 0) }))
+    .sort((a, b) => (b.ex + b.co + b.ca) - (a.ex + a.co + a.ca));
 
-  // Recharts data: one row per fuel
-  const chartData = fuels.map(fuel => ({
-    fuel,
-    Existing:  Math.round(byFS[fuel]?.[1] || 0),
-    Committed: Math.round(byFS[fuel]?.[2] || 0),
-    Candidate: Math.round(byFS[fuel]?.[3] || 0),
-  })).sort((a, b) => b.Existing - a.Existing);
+  // Chart by country
+  const byCountryFuel = {};
+  for (const r of filtered) {
+    const country = zoneToCountry[r.zone] || r.zone;
+    if (!byCountryFuel[country]) byCountryFuel[country] = {};
+    byCountryFuel[country][r.fuel] = (byCountryFuel[country][r.fuel] || 0) + r.capacity;
+  }
+  const ctryData = Object.entries(byCountryFuel)
+    .map(([c, fuelMap]) => ({ c, total: Object.values(fuelMap).reduce((s, v) => s + v, 0), fuelMap }))
+    .sort((a, b) => b.total - a.total);
+  const allFuels = [...new Set(filtered.map(r => r.fuel))];
+
+  const toggleStatus = s => setVisStatuses(prev => {
+    const next = new Set(prev);
+    if (next.has(s)) { if (next.size > 1) next.delete(s); } else next.add(s);
+    return next;
+  });
+
+  const statusConfig = [
+    { s: 1, label: 'Existing',  color: '#1a5fa8' },
+    { s: 2, label: 'Committed', color: '#e07b00' },
+    { s: 3, label: 'Candidate', color: '#888' },
+  ];
+
+  const handleDownload = async () => {
+    const { branch, dataFolder } = region.epm;
+    const url = `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${branch}/epm/input/${dataFolder}/supply/pGenDataInput.csv`;
+    try {
+      const res = await fetch(url);
+      const text = await res.text();
+      downloadBlob(text, `pGenDataInput_${region.id}.csv`, 'text/csv');
+    } catch { alert('Download failed'); }
+  };
 
   return (
-    <div>
-      <SectionTitle t={t}>Installed capacity by fuel (MW)</SectionTitle>
-      <CJChart type="bar" height={Math.min(fuels.length * 22 + 24, 280)}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Status toggles */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: '0.48rem', color: t.lblMuted }}>Show:</span>
+        {statusConfig.map(({ s, label, color }) => (
+          <button key={s} onClick={() => toggleStatus(s)} style={{
+            fontSize: '0.48rem', fontFamily: 'inherit', padding: '3px 8px', borderRadius: 4,
+            cursor: 'pointer', border: `1px solid ${visStatuses.has(s) ? color : t.panelBorder}`,
+            backgroundColor: visStatuses.has(s) ? hexA(color, 0.15) : 'transparent',
+            color: visStatuses.has(s) ? t.lbl : t.lblMuted, fontWeight: visStatuses.has(s) ? 600 : 400,
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Chart by fuel */}
+      <div>
+        <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
+        <CJChart type="bar" height={Math.min(fuelChartData.length * 22 + 24, 260)}
           data={{
-            labels: chartData.map(d => d.fuel),
+            labels: fuelChartData.map(d => d.fuel),
             datasets: [
-              { label: 'Existing',  data: chartData.map(d => d.Existing),
-                backgroundColor: chartData.map(d => EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other),
-                borderWidth: 0, barThickness: 12 },
-              { label: 'Committed', data: chartData.map(d => d.Committed),
-                backgroundColor: chartData.map(d => hexA(EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other, 0.5)),
-                borderWidth: 0, barThickness: 12 },
-              { label: 'Candidate', data: chartData.map(d => d.Candidate),
-                backgroundColor: chartData.map(d => hexA(EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other, 0.22)),
-                borderWidth: 0, barThickness: 12 },
+              { label: 'Existing',  data: fuelChartData.map(d => d.ex),
+                backgroundColor: fuelChartData.map(d => EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other),
+                borderWidth: 0, barThickness: 12, stack: 'a' },
+              { label: 'Committed', data: fuelChartData.map(d => d.co),
+                backgroundColor: fuelChartData.map(d => hexA(EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other, 0.5)),
+                borderWidth: 0, barThickness: 12, stack: 'a' },
+              { label: 'Candidate', data: fuelChartData.map(d => d.ca),
+                backgroundColor: fuelChartData.map(d => hexA(EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other, 0.22)),
+                borderWidth: 0, barThickness: 12, stack: 'a' },
             ],
           }}
           options={{ ...cjDefaults(t), indexAxis: 'y',
             scales: {
               x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
-                callback: v => `${(v/1000).toFixed(0)}k` } },
+                callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
               y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
             },
           }}
         />
-      <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
-        {[['Existing', 1.0], ['Committed', 0.5], ['Candidate', 0.22]].map(([lbl, op]) => (
-          <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 4,
-            fontSize: '0.5rem', color: t.muted }}>
-            <div style={{ width: 10, height: 10, borderRadius: 2,
-              backgroundColor: '#888', opacity: op }} />{lbl}
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          {[['Existing', 1.0, '#1a5fa8'], ['Committed', 0.5, '#e07b00'], ['Candidate', 0.22, '#888']].map(([lbl, op, c]) => (
+            <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 3,
+              fontSize: '0.44rem', color: t.muted }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: c, opacity: op }} />{lbl}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Chart by country */}
+      {ctryData.length > 0 && (
+        <div>
+          <SectionTitle t={t}>Capacity by country (MW)</SectionTitle>
+          <CJChart type="bar" height={Math.min(ctryData.length * 24 + 24, 260)}
+            data={{
+              labels: ctryData.map(d => d.c),
+              datasets: allFuels.map(fuel => ({
+                label: fuel,
+                data: ctryData.map(d => Math.round(d.fuelMap[fuel] || 0)),
+                backgroundColor: EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other,
+                borderWidth: 0, barThickness: 14, stack: 'a',
+              })),
+            }}
+            options={{ ...cjDefaults(t), indexAxis: 'y',
+              scales: {
+                x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                  callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
+                y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+              },
+              plugins: { ...cjDefaults(t).plugins, legend: { display: false },
+                tooltip: { ...cjDefaults(t).plugins.tooltip,
+                  callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW` } } },
+            }}
+          />
+        </div>
+      )}
+
+      {/* Plant database */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <SectionTitle t={t}>Plant database ({sorted.length})</SectionTitle>
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search…"
+            style={{ fontSize: '0.48rem', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 4,
+              border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.lbl,
+              width: 90, outline: 'none' }} />
+        </div>
+        {/* Sort chips */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+          {['capacity', 'name', 'fuel'].map(col => (
+            <button key={col} onClick={() => setSortCol(col)} style={{
+              fontSize: '0.44rem', fontFamily: 'inherit', padding: '1px 5px', borderRadius: 3,
+              cursor: 'pointer', border: `1px solid ${sortCol === col ? t.lbl : t.panelBorder}`,
+              backgroundColor: sortCol === col ? hexA('#1a5fa8', 0.12) : 'transparent',
+              color: sortCol === col ? t.lbl : t.lblMuted,
+            }}>Sort: {col}</button>
+          ))}
+        </div>
+        <div style={{ maxHeight: 260, overflowY: 'auto', border: `1px solid ${t.panelBorder}`, borderRadius: 6 }}>
+          {sorted.slice(0, 200).map(r => (
+            <div key={`${r.g}-${r.zone}`}
+              onClick={() => setSelectedPlant(selectedPlant?.g === r.g ? null : r)}
+              style={{ display: 'grid', gridTemplateColumns: '1fr 60px 50px 36px',
+                padding: '4px 8px', borderBottom: `1px solid ${t.panelBorder}`,
+                cursor: 'pointer', fontSize: '0.5rem', alignItems: 'center',
+                backgroundColor: selectedPlant?.g === r.g ? hexA('#1a5fa8', 0.08) : 'transparent',
+              }}>
+              <span style={{ color: t.lbl, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.g}</span>
+              <span style={{ color: t.muted, fontSize: '0.44rem' }}>{r.zone}</span>
+              <span>
+                <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 1, marginRight: 3,
+                  backgroundColor: EPM_FUEL_COLORS[r.fuel] || '#aaa' }} />
+                <span style={{ color: t.muted, fontSize: '0.44rem' }}>{r.fuel}</span>
+              </span>
+              <span style={{ color: t.lbl, textAlign: 'right', fontWeight: 600 }}>{fmt(r.capacity)}</span>
+            </div>
+          ))}
+        </div>
+        {sorted.length > 200 && (
+          <div style={{ fontSize: '0.44rem', color: t.lblMuted, marginTop: 3 }}>
+            Showing 200 of {sorted.length} — use search to filter
           </div>
-        ))}
+        )}
+        {/* Detail panel */}
+        {selectedPlant && (
+          <div style={{ marginTop: 8, border: `1px solid ${t.panelBorder}`, borderRadius: 6,
+            padding: '10px 12px', fontSize: '0.52rem', lineHeight: 1.7 }}>
+            <div style={{ fontWeight: 700, color: t.lbl, marginBottom: 6, fontSize: '0.58rem' }}>{selectedPlant.g}</div>
+            {[
+              ['Zone', selectedPlant.zone],
+              ['Country', zoneToCountry[selectedPlant.zone] || '—'],
+              ['Fuel', selectedPlant.fuel],
+              ['Tech', selectedPlant.tech],
+              ['Status', STATUS_LABEL[selectedPlant.status]],
+              ['Capacity', `${fmt(selectedPlant.capacity)} MW`],
+              ['Comm. year', selectedPlant.stYr || '—'],
+              ['Retire year', selectedPlant.retrYr || '—'],
+              ['Heat rate', selectedPlant.heatRate ? `${selectedPlant.heatRate.toFixed(2)} GJ/MWh` : '—'],
+              ['Capex', selectedPlant.capex != null && selectedPlant.capex > 0 ? `${fmt(selectedPlant.capex)} USD/kW` : '—'],
+              ['FOM', selectedPlant.fom != null && selectedPlant.fom > 0 ? `${fmt(selectedPlant.fom)} USD/MW/yr` : '—'],
+              ['VOM', selectedPlant.vom != null && selectedPlant.vom > 0 ? `${selectedPlant.vom.toFixed(2)} USD/MWh` : '—'],
+            ].map(([label, value]) => (
+              <div key={label} style={{ display: 'grid', gridTemplateColumns: '90px 1fr', borderBottom: `1px solid ${t.panelBorder}`, padding: '2px 0' }}>
+                <span style={{ color: t.lblMuted }}>{label}</span>
+                <span style={{ color: t.lbl }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-      <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${t.panelBorder}`,
-        fontSize: '0.55rem', color: t.muted }}>
-        Total existing: <b style={{ color: t.lbl }}>{fmt(totalExisting / 1000, 1)} GW</b>
-        {' '}· {gen.filter(r => r.status === 1).length} units
-      </div>
+
+      {/* Export */}
+      <button onClick={handleDownload} style={{
+        fontSize: '0.52rem', fontFamily: 'inherit', padding: '5px 10px', borderRadius: 4,
+        border: `1px solid ${t.panelBorder}`, backgroundColor: 'transparent', color: t.muted,
+        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+      }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download pGenDataInput.csv
+      </button>
     </div>
   );
 }
@@ -272,22 +532,20 @@ function EpmSupplyTab({ t, epmData }) {
 // ── Demand tab ────────────────────────────────────────────────────────────────
 
 function DemandTab({ t, epmData, epmLoading, hasEpm }) {
-  const allYears   = availableYears(epmData?.demand || []);
-  const allZones   = [...new Set((epmData?.demand || []).map(r => r.zone))].sort();
+  const allYears  = availableYears(epmData?.demand || []);
+  const allZones  = [...new Set((epmData?.demand || []).map(r => r.zone))].sort();
+  const [selZones, setSelZones]   = useState(null);
+  const [snapYear, setSnapYear]   = useState(null);
+  const [profZone, setProfZone]   = useState(null);
 
-  const [selZones,  setSelZones]  = useState(null);   // null = all
-  const [chartType, setChartType] = useState('area'); // area | bar | line
-  const [snapYear,  setSnapYear]  = useState(null);
-
-  if (!hasEpm)             return <NotAvailable t={t} />;
-  if (epmLoading)          return <LoadingBox t={t} />;
-  if (!epmData?.demand?.length) return <NotAvailable t={t} />;
+  if (!hasEpm)                         return <NotAvailable t={t} />;
+  if (epmLoading)                      return <LoadingBox t={t} />;
+  if (!epmData?.demand?.length)        return <NotAvailable t={t} />;
 
   const activeZones = selZones || allZones;
   const refSnap = snapYear || allYears.find(y => y === '2030') || allYears[Math.floor(allYears.length / 2)];
   const peakRows   = epmData.demand.filter(r => r.type === 'peak');
   const energyRows = epmData.demand.filter(r => r.type === 'energy');
-  const xInterval  = Math.max(0, Math.floor(allYears.length / 6) - 1);
 
   // Chart 1 — total dual-axis
   const totalByYear = allYears.map(y => ({
@@ -296,27 +554,21 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
     'Energy (TWh)': +(energyRows.reduce((s, r) => s + (r.years[y] || 0), 0) / 1000).toFixed(1),
   }));
 
-  // Chart 2 — stacked by zone
-  const byZoneYear = allYears.map(y => {
-    const row = { year: y };
-    for (const z of activeZones) {
-      const p = peakRows.find(r => r.zone === z);
-      row[z] = Math.round(p?.years[y] || 0);
-    }
-    row['Energy (TWh)'] = +(energyRows
-      .filter(r => activeZones.includes(r.zone))
-      .reduce((s, r) => s + (r.years[y] || 0), 0) / 1000).toFixed(1);
-    return row;
-  });
-
-  // Chart 3 — snapshot bar by zone
-  const byZoneSnap = [...activeZones]
-    .map(z => ({
+  // Chart 2 — demand by zone (horizontal bars, selected year)
+  const byZoneSnap = [...allZones]
+    .map((z, i) => ({
       zone: z,
-      'Energy (GWh)': Math.round(energyRows.find(r => r.zone === z)?.years[refSnap] || 0),
-      'Peak (MW)':    Math.round(peakRows.find(r => r.zone === z)?.years[refSnap] || 0),
+      color: ZONE_PALETTE[i % ZONE_PALETTE.length],
+      energy: +(energyRows.find(r => r.zone === z)?.years[refSnap] || 0) / 1000, // TWh
+      peak:   Math.round(peakRows.find(r => r.zone === z)?.years[refSnap] || 0),   // MW
     }))
-    .sort((a, b) => b['Energy (GWh)'] - a['Energy (GWh)']);
+    .sort((a, b) => b.energy - a.energy);
+
+  // Chart 3 — demand profile (average hourly)
+  const demandProfile = epmData?.demandProfile;
+  const profZones = demandProfile ? Object.keys(demandProfile).sort() : [];
+  const profZoneActive = profZone || profZones[0];
+  const profData = demandProfile?.[profZoneActive];
 
   const toggleZone = z => {
     if (!selZones) { setSelZones([z]); return; }
@@ -324,43 +576,42 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
     setSelZones(next.length === 0 || next.length === allZones.length ? null : next);
   };
 
-  const chipBtn = (label, active, color, onClick) => (
-    <button key={label} onClick={onClick} style={{
-      fontSize: '0.44rem', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 3,
-      cursor: 'pointer', border: `1px solid ${active ? color : t.panelBorder}`,
-      backgroundColor: active ? color + '28' : 'transparent',
-      color: active ? t.lbl : t.lblMuted,
-    }}>{label}</button>
-  );
+  const handleDownload = () => {
+    const header = 'zone,type,' + allYears.join(',');
+    const rows = epmData.demand.map(r => `${r.zone},${r.type},${allYears.map(y => r.years[y] ?? '').join(',')}`);
+    downloadBlob([header, ...rows].join('\n'), `pDemandForecast_${epmData.branch || ''}.csv`, 'text/csv');
+  };
+
+  const ntcTotal = epmData?.ntc?.reduce((s, r) => s + (r.years[refSnap] || 0), 0) || 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
 
-      {/* ── Chart 1: dual-axis total ── */}
+      {/* Chart 1: dual-axis total */}
       <div>
         <SectionTitle t={t}>Total demand forecast</SectionTitle>
-        <CJChart type="bar" height={190}
-            data={{
-              labels: totalByYear.map(d => d.year),
-              datasets: [
-                { type: 'bar',  label: 'Peak (GW)',    yAxisID: 'yL',
-                  data: totalByYear.map(d => d['Peak (GW)']),
-                  backgroundColor: hexA('#1a5fa8', 0.75), borderWidth: 0 },
-                { type: 'line', label: 'Energy (TWh)', yAxisID: 'yR',
-                  data: totalByYear.map(d => d['Energy (TWh)']),
-                  borderColor: '#FF6B6B', borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
-              ],
-            }}
-            options={{ ...cjDefaults(t),
-              scales: {
-                x:  { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 }, maxTicksLimit: 7 } },
-                yL: { type: 'linear', position: 'left',  title: { display: true, text: 'GW',  color: t.muted, font: { size: 7 } },
-                  grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
-                yR: { type: 'linear', position: 'right', title: { display: true, text: 'TWh', color: t.muted, font: { size: 7 } },
-                  grid: { drawOnChartArea: false }, ticks: { color: t.muted, font: { size: 8 } } },
-              },
-            }}
-          />
+        <CJChart type="bar" height={180}
+          data={{
+            labels: totalByYear.map(d => d.year),
+            datasets: [
+              { type: 'bar',  label: 'Peak (GW)',    yAxisID: 'yL',
+                data: totalByYear.map(d => d['Peak (GW)']),
+                backgroundColor: hexA('#1a5fa8', 0.75), borderWidth: 0 },
+              { type: 'line', label: 'Energy (TWh)', yAxisID: 'yR',
+                data: totalByYear.map(d => d['Energy (TWh)']),
+                borderColor: '#FF6B6B', borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
+            ],
+          }}
+          options={{ ...cjDefaults(t),
+            scales: {
+              x:  { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 }, maxTicksLimit: 7 } },
+              yL: { type: 'linear', position: 'left',  title: { display: true, text: 'GW',  color: t.muted, font: { size: 7 } },
+                grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
+              yR: { type: 'linear', position: 'right', title: { display: true, text: 'TWh', color: t.muted, font: { size: 7 } },
+                grid: { drawOnChartArea: false }, ticks: { color: t.muted, font: { size: 8 } } },
+            },
+          }}
+        />
         <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.48rem', color: t.muted }}>
             <div style={{ width: 12, height: 10, backgroundColor: '#1a5fa8', opacity: 0.75, borderRadius: 1 }} />Peak GW (left)
@@ -371,149 +622,250 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
         </div>
       </div>
 
-      {/* ── Chart 2: stacked by zone ── */}
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <SectionTitle t={t}>Peak by zone (MW)</SectionTitle>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {['area', 'bar', 'line'].map(type =>
-              chipBtn(type, chartType === type, t.lbl, () => setChartType(type))
-            )}
-          </div>
-        </div>
-
-        {/* Zone chips */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 4px', marginBottom: 10 }}>
-          {chipBtn('All', !selZones, t.lbl, () => setSelZones(null))}
-          {allZones.map((z, i) => chipBtn(
-            z,
-            !selZones || selZones.includes(z),
-            ZONE_PALETTE[i % ZONE_PALETTE.length],
-            () => toggleZone(z),
-          ))}
-        </div>
-
-        <CJChart type={chartType === 'bar' ? 'bar' : 'line'} height={210}
-            data={{
-              labels: byZoneYear.map(d => d.year),
-              datasets: [
-                ...activeZones.map((z, i) => {
-                  const color = ZONE_PALETTE[i % ZONE_PALETTE.length];
-                  return {
-                    type: chartType === 'bar' ? 'bar' : 'line',
-                    label: z, yAxisID: 'yL',
-                    data: byZoneYear.map(d => d[z]),
-                    backgroundColor: chartType === 'area' ? hexA(color, 0.65) : color,
-                    borderColor: color, borderWidth: chartType === 'line' ? 1.5 : 0,
-                    fill: chartType === 'area' ? true : false,
-                    pointRadius: 0, tension: 0.3,
-                    stack: chartType !== 'line' ? 'zones' : undefined,
-                  };
-                }),
-                { type: 'line', label: 'Energy (TWh)', yAxisID: 'yR',
-                  data: byZoneYear.map(d => d['Energy (TWh)']),
-                  borderColor: '#FF6B6B', borderWidth: 2, borderDash: [5,3],
-                  pointRadius: 0, tension: 0.3 },
-              ],
-            }}
-            options={{ ...cjDefaults(t),
-              scales: {
-                x:  { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 }, maxTicksLimit: 7 } },
-                yL: { type: 'linear', position: 'left', stacked: chartType !== 'line',
-                  title: { display: true, text: 'MW', color: t.muted, font: { size: 7 } },
-                  grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
-                  callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
-                yR: { type: 'linear', position: 'right',
-                  title: { display: true, text: 'TWh', color: t.muted, font: { size: 7 } },
-                  grid: { drawOnChartArea: false }, ticks: { color: t.muted, font: { size: 8 } } },
-              },
-              plugins: { ...cjDefaults(t).plugins, legend: { display: false } },
-            }}
-          />
-
-        {/* Zone legend */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 10px', marginTop: 6 }}>
-          {activeZones.map((z, i) => (
-            <div key={z} style={{ display: 'flex', alignItems: 'center', gap: 3,
-              fontSize: '0.44rem', color: t.muted }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2,
-                backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length] }} />
-              {z}
-            </div>
-          ))}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.44rem', color: t.muted }}>
-            <div style={{ width: 14, height: 2, backgroundColor: '#FF6B6B' }} />
-            Energy TWh (right)
-          </div>
-        </div>
-      </div>
-
-      {/* ── Chart 3: bar by zone for selected year ── */}
+      {/* Chart 2: demand by zone (horizontal bar, energy TWh + peak MW) */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <SectionTitle t={t}>Energy by zone (GWh)</SectionTitle>
+          <SectionTitle t={t}>Demand by zone</SectionTitle>
           <select value={refSnap} onChange={e => setSnapYear(e.target.value)} style={{
-            fontSize: '0.5rem', fontFamily: 'inherit', padding: '2px 6px',
-            borderRadius: 4, border: `1px solid ${t.panelBorder}`,
-            backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
+            fontSize: '0.5rem', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 4,
+            border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
           }}>
             {allYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
-        <CJChart type="bar" height={170}
-            data={{
-              labels: byZoneSnap.map(d => d.zone),
-              datasets: [{
-                data: byZoneSnap.map(d => d['Energy (GWh)']),
-                backgroundColor: byZoneSnap.map(d => {
-                  const zi = allZones.indexOf(d.zone);
-                  return ZONE_PALETTE[(zi >= 0 ? zi : 0) % ZONE_PALETTE.length];
-                }),
-                borderWidth: 0,
-              }],
-            }}
-            options={{ ...cjDefaults(t),
-              scales: {
-                x: { grid: { display: false }, ticks: { color: t.muted, font: { size: 8 },
-                  maxRotation: 35, minRotation: 35 } },
-                y: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
-                  callback: v => `${(v/1000).toFixed(0)}k` } },
-              },
-              plugins: { ...cjDefaults(t).plugins,
-                tooltip: { ...cjDefaults(t).plugins.tooltip,
-                  callbacks: { label: ctx => `${ctx.raw.toLocaleString()} GWh` } } },
-            }}
-          />
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          {/* Chart */}
+          <div style={{ flex: 1 }}>
+            <CJChart type="bar" height={Math.min(allZones.length * 22 + 24, 240)}
+              data={{
+                labels: byZoneSnap.map(d => d.zone),
+                datasets: [
+                  { label: 'Energy (TWh)', data: byZoneSnap.map(d => +d.energy.toFixed(2)),
+                    backgroundColor: byZoneSnap.map(d => hexA(d.color, 0.75)),
+                    borderWidth: 0, barThickness: 12, yAxisID: 'y' },
+                ],
+              }}
+              options={{ ...cjDefaults(t), indexAxis: 'y',
+                scales: {
+                  x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } },
+                    title: { display: true, text: 'TWh', color: t.muted, font: { size: 7 } } },
+                  y: { grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+                },
+                plugins: { ...cjDefaults(t).plugins,
+                  tooltip: { ...cjDefaults(t).plugins.tooltip,
+                    callbacks: {
+                      label: ctx => {
+                        const d = byZoneSnap[ctx.dataIndex];
+                        return [`Energy: ${ctx.raw} TWh`, `Peak: ${d.peak.toLocaleString()} MW`];
+                      }
+                    }
+                  }
+                },
+              }}
+            />
+          </div>
+          {/* Compact zone legend (right) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 2,
+            justifyContent: 'center', minWidth: 90, maxHeight: 240, overflowY: 'auto' }}>
+            <div onClick={() => setSelZones(null)}
+              style={{ fontSize: '0.44rem', color: !selZones ? t.lbl : t.lblMuted, cursor: 'pointer',
+                fontWeight: !selZones ? 700 : 400, paddingBottom: 2, borderBottom: `1px solid ${t.panelBorder}`, marginBottom: 2 }}>
+              All zones
+            </div>
+            {allZones.map((z, i) => {
+              const active = !selZones || selZones.includes(z);
+              return (
+                <div key={z} onClick={() => toggleZone(z)} style={{
+                  display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                  fontSize: '0.44rem', color: active ? t.lbl : t.lblMuted, opacity: active ? 1 : 0.45,
+                }}>
+                  <div style={{ width: 7, height: 7, borderRadius: 1, flexShrink: 0,
+                    backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length] }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{z}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
+      {/* Chart 3: demand profile */}
+      {demandProfile && profZones.length > 0 && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <SectionTitle t={t}>Average daily demand profile</SectionTitle>
+            <select value={profZoneActive} onChange={e => setProfZone(e.target.value)} style={{
+              fontSize: '0.5rem', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 4,
+              border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
+            }}>
+              {profZones.map(z => <option key={z} value={z}>{z}</option>)}
+            </select>
+          </div>
+          {profData && (
+            <CJChart type="line" height={140}
+              data={{
+                labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2,'0')}:00`),
+                datasets: [{
+                  label: profZoneActive,
+                  data: profData.map(v => +v.toFixed(3)),
+                  borderColor: '#1E9AF5', backgroundColor: hexA('#1E9AF5', 0.12),
+                  borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true,
+                }],
+              }}
+              options={{ ...cjDefaults(t),
+                scales: {
+                  x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 7 },
+                    maxTicksLimit: 12 } },
+                  y: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } },
+                    title: { display: true, text: 'Fraction of peak', color: t.muted, font: { size: 7 } },
+                    min: 0, max: 1 },
+                },
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Download */}
+      <button onClick={handleDownload} style={{
+        fontSize: '0.52rem', fontFamily: 'inherit', padding: '5px 10px', borderRadius: 4,
+        border: `1px solid ${t.panelBorder}`, backgroundColor: 'transparent', color: t.muted,
+        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+      }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download pDemandForecast.csv
+      </button>
     </div>
   );
 }
 
-// ── Topology tab ──────────────────────────────────────────────────────────────
+// ── Trade / Transmission tab ──────────────────────────────────────────────────
 
-function TopologyTab({ t, epmData, epmLoading, hasEpm, zonesAvailable, zoningConfigs }) {
+function TradeTab({ t, epmData, epmLoading, hasEpm }) {
   const ntcYears = availableYears(epmData?.ntc || []);
-  const [yr, setYr] = useState(null);
+  const [yr, setYr]       = useState(null);
+  const [chartType, setChartType] = useState('bar'); // bar | line
+
+  if (!hasEpm)              return <NotAvailable t={t} />;
+  if (epmLoading)           return <LoadingBox t={t} />;
+  if (!epmData?.ntc?.length) return <NotAvailable t={t} />;
+
   const refYr = yr || ntcYears.find(y => y === '2024') || ntcYears[0];
-
-  if (!hasEpm && !zonesAvailable) return <NotAvailable t={t} />;
-  if (epmLoading) return <LoadingBox t={t} />;
-
-  // Zone → country from zcmap
-  const zcmap = epmData?.zcmap || [];
-  const countries = [...new Set(zcmap.map(r => r.c))].sort();
-
-  // NTC corridors for refYr, sorted desc
-  const corridors = (epmData?.ntc || [])
-    .map(r => ({ ...r, mw: r.years[refYr] || 0 }))
+  const corridors = epmData.ntc
+    .map(r => ({ ...r, label: `${r.z} ↔ ${r.z2}`, mw: r.years[refYr] || 0 }))
     .filter(r => r.mw > 0)
     .sort((a, b) => b.mw - a.mw);
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+  // NTC evolution chart — top N corridors by max capacity
+  const topN = 10;
+  const topCorridors = [...epmData.ntc]
+    .sort((a, b) => {
+      const maxA = Math.max(...Object.values(a.years));
+      const maxB = Math.max(...Object.values(b.years));
+      return maxB - maxA;
+    })
+    .slice(0, topN);
 
-      {/* Zones */}
+  const handleDownload = () => {
+    const header = 'z,z2,' + ntcYears.join(',');
+    const rows = epmData.ntc.map(r => `${r.z},${r.z2},${ntcYears.map(y => r.years[y] ?? '').join(',')}`);
+    downloadBlob([header, ...rows].join('\n'), `pTransferLimit_${epmData.branch || ''}.csv`, 'text/csv');
+  };
+
+  const zcmap  = epmData?.zcmap || [];
+  const countries = [...new Set(zcmap.map(r => r.c))].sort();
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+      {/* NTC Evolution chart */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <SectionTitle t={t}>NTC evolution — top {topN} corridors (MW)</SectionTitle>
+          <div style={{ display: 'flex', gap: 3 }}>
+            {['bar', 'line'].map(type => (
+              <button key={type} onClick={() => setChartType(type)} style={{
+                fontSize: '0.44rem', fontFamily: 'inherit', padding: '2px 5px', borderRadius: 3,
+                cursor: 'pointer', border: `1px solid ${chartType === type ? t.lbl : t.panelBorder}`,
+                backgroundColor: chartType === type ? hexA('#1a5fa8', 0.1) : 'transparent',
+                color: chartType === type ? t.lbl : t.lblMuted,
+              }}>{type}</button>
+            ))}
+          </div>
+        </div>
+        <CJChart type={chartType} height={200}
+          data={{
+            labels: ntcYears,
+            datasets: topCorridors.map((r, i) => ({
+              label: `${r.z} ↔ ${r.z2}`,
+              data: ntcYears.map(y => r.years[y] || 0),
+              backgroundColor: hexA(ZONE_PALETTE[i % ZONE_PALETTE.length], 0.6),
+              borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+              borderWidth: 2, pointRadius: 0, tension: 0.3,
+              fill: false,
+              stack: chartType === 'bar' ? 'a' : undefined,
+            })),
+          }}
+          options={{ ...cjDefaults(t),
+            scales: {
+              x: { stacked: chartType === 'bar', grid: { color: t.panelBorder },
+                ticks: { color: t.muted, font: { size: 8 }, maxTicksLimit: 7 } },
+              y: { stacked: chartType === 'bar', grid: { color: t.panelBorder },
+                ticks: { color: t.muted, font: { size: 8 },
+                  callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
+            },
+            plugins: { ...cjDefaults(t).plugins,
+              legend: { display: false },
+              tooltip: { ...cjDefaults(t).plugins.tooltip,
+                callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW` } } },
+          }}
+        />
+        {/* Legend */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 8px', marginTop: 4 }}>
+          {topCorridors.map((r, i) => (
+            <div key={`${r.z}-${r.z2}`} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.44rem', color: t.muted }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length] }} />
+              {r.z} ↔ {r.z2}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* NTC by corridor — selected year */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <SectionTitle t={t}>Capacity by corridor (MW)</SectionTitle>
+          <select value={refYr} onChange={e => setYr(e.target.value)} style={{
+            fontSize: '0.52rem', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 4,
+            border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
+          }}>
+            {ntcYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <CJChart type="bar" height={Math.min(corridors.length * 22 + 24, 260)}
+          data={{
+            labels: corridors.map(r => r.label),
+            datasets: [{ data: corridors.map(r => r.mw),
+              backgroundColor: corridors.map((_, i) => ZONE_PALETTE[i % ZONE_PALETTE.length]),
+              borderWidth: 0, barThickness: 12 }],
+          }}
+          options={{ ...cjDefaults(t), indexAxis: 'y',
+            scales: {
+              x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
+              y: { grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+            },
+            plugins: { ...cjDefaults(t).plugins,
+              tooltip: { ...cjDefaults(t).plugins.tooltip,
+                callbacks: { label: ctx => `${ctx.raw.toLocaleString()} MW` } } },
+          }}
+        />
+      </div>
+
+      {/* Zones + countries */}
       {zcmap.length > 0 && (
         <div>
           <SectionTitle t={t}>Zones ({zcmap.length})</SectionTitle>
@@ -530,56 +882,17 @@ function TopologyTab({ t, epmData, epmLoading, hasEpm, zonesAvailable, zoningCon
         </div>
       )}
 
-      {/* Zoning configs (from map layers) */}
-      {zonesAvailable && (
-        <div>
-          <SectionTitle t={t}>Zoning configurations</SectionTitle>
-          {zoningConfigs.map(cfg => (
-            <div key={cfg.slug} style={{ fontSize: '0.52rem', color: t.muted,
-              padding: '3px 0', borderBottom: `1px solid ${t.panelBorder}` }}>
-              {cfg.name}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* NTC corridors */}
-      {corridors.length > 0 && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <SectionTitle t={t}>Internal NTC (MW)</SectionTitle>
-            <select value={refYr} onChange={e => setYr(e.target.value)} style={{
-              fontSize: '0.52rem', fontFamily: 'inherit', padding: '2px 6px',
-              borderRadius: 4, border: `1px solid ${t.panelBorder}`,
-              backgroundColor: t.panel, color: t.lbl, cursor: 'pointer',
-            }}>
-              {ntcYears.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
-          <div style={{ fontSize: '0.52rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px',
-              color: t.lblMuted, borderBottom: `1px solid ${t.panelBorder}`, paddingBottom: 3, marginBottom: 4 }}>
-              <span>Corridor</span><span style={{ textAlign: 'right' }}>MW</span>
-            </div>
-            {corridors.map(r => {
-              const maxMW = corridors[0]?.mw || 1;
-              return (
-                <div key={`${r.z}-${r.z2}`} style={{ display: 'grid', gridTemplateColumns: '1fr 64px',
-                  padding: '3px 0', borderBottom: `1px solid ${t.panelBorder}`,
-                  color: t.muted, alignItems: 'center' }}>
-                  <div>
-                    <div style={{ color: t.lbl, marginBottom: 1 }}>{r.z} ↔ {r.z2}</div>
-                    <div style={{ height: 3, borderRadius: 2,
-                      width: `${(r.mw / maxMW) * 100}%`,
-                      backgroundColor: '#1a5fa8', opacity: 0.55 }} />
-                  </div>
-                  <span style={{ textAlign: 'right' }}>{fmt(r.mw)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Download */}
+      <button onClick={handleDownload} style={{
+        fontSize: '0.52rem', fontFamily: 'inherit', padding: '5px 10px', borderRadius: 4,
+        border: `1px solid ${t.panelBorder}`, backgroundColor: 'transparent', color: t.muted,
+        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+      }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download pTransferLimit.csv
+      </button>
     </div>
   );
 }
@@ -625,23 +938,17 @@ function AboutTab({ region, t, epmData }) {
             <div>Demand zones: <b style={{ color: t.lbl }}>{[...new Set(epmData.demand.map(r => r.zone))].length}</b></div>
             <div>NTC corridors: <b style={{ color: t.lbl }}>{epmData.ntc.length}</b></div>
             <div>Zones mapped: <b style={{ color: t.lbl }}>{epmData.zcmap.length}</b></div>
+            <div>Demand profiles: <b style={{ color: t.lbl }}>{epmData.demandProfile ? Object.keys(epmData.demandProfile).length + ' zones' : 'n/a'}</b></div>
           </>
         ) : (
           <div style={{ color: t.lblMuted }}>No EPM data configured for this region.</div>
         )}
       </div>
-      <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
-        fontSize: '0.58rem', color: t.muted, lineHeight: 1.7 }}>
-        <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>Map data sources</div>
-        <div>· Plant locations: OSM / GPPD / GEM</div>
-        <div>· Transmission lines: OpenStreetMap</div>
-        <div>· EPM inputs: World Bank ESMAP (live from GitHub)</div>
-      </div>
     </div>
   );
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RegionPage() {
   const { regionId } = useParams();
@@ -649,13 +956,13 @@ export default function RegionPage() {
   const t            = getT(theme);
   const navigate     = useNavigate();
 
-  const containerRef = useRef(null);
-  const mapRef       = useRef(null);
+  const containerRef     = useRef(null);
+  const mapRef           = useRef(null);
+  const donutMarkersRef  = useRef([]);
 
   const [region,        setRegion]        = useState(null);
   const [capacity,      setCapacity]      = useState(null);
   const [tariffs,       setTariffs]       = useState(null);
-  const [fleetAge,      setFleetAge]      = useState(null);
   const [access,        setAccess]        = useState(null);
   const [gppdAvailable, setGppdAvailable] = useState(null);
   const [gemAvailable,  setGemAvailable]  = useState(null);
@@ -675,13 +982,6 @@ export default function RegionPage() {
   const [activeTab,       setActiveTab]       = useState('overview');
   const [basemap,         setBasemap]         = useState('minimal');
   const [satLabels,       setSatLabels]       = useState(false);
-  const [mapMode,         setMapMode]         = useState('countries');
-  const [zonesAvailable,  setZonesAvailable]  = useState(false);
-  const [corrExistOn,     setCorrExistOn]     = useState(false);
-  const [corrCommOn,      setCorrCommOn]      = useState(false);
-  const [corrCandOn,      setCorrCandOn]      = useState(false);
-  const [zoningConfigs,   setZoningConfigs]   = useState([]);
-  const [selectedSlug,    setSelectedSlug]    = useState(null);
   const [epmData,         setEpmData]         = useState(null);
   const [epmLoading,      setEpmLoading]      = useState(false);
 
@@ -691,44 +991,28 @@ export default function RegionPage() {
     fetch('/data/access.json').then(r => r.json()).then(setAccess).catch(() => {});
   }, []);
 
-  // Region metadata + availability checks
+  // Region metadata
   useEffect(() => {
     fetch('/data/regions.json').then(r => r.json()).then(d => {
       const r = (d.regions || []).find(r => r.id === regionId);
       setRegion(r || null);
     });
-    setCapacity(null); setFleetAge(null);
+    setCapacity(null);
     fetch(`/data/cache/region_capacity_${regionId}.json`).then(r => r.json()).then(setCapacity).catch(() => {});
     setFuelsOff(new Set()); setStatusOff(new Set()); setKvsOff(new Set());
     setLinesOn(true); setPlantsOn(true); setSubsOn(false);
     setLoadCentersOn(false); setLcMinPop(300_000); setLcCircleScale(1.0);
     setMinMw(100); setCircleScale(1.0);
     setPlantSource('osm'); setActiveTab('overview');
-
-    setMapMode('countries'); setZonesAvailable(false);
-    setCorrExistOn(false); setCorrCommOn(false); setCorrCandOn(false);
-    setZoningConfigs([]); setSelectedSlug(null);
-    fetch(`/data/zones/${regionId}_configs.json`)
-      .then(r => r.ok ? r.json() : null)
-      .then(cfgs => {
-        if (cfgs?.length) {
-          setZoningConfigs(cfgs);
-          setSelectedSlug(cfgs[0].slug);
-          setZonesAvailable(true);
-        }
-      })
-      .catch(() => {});
-
     setGppdAvailable(null);
     fetch(`/data/cache/region_plants_${regionId}_gppd.geojson`, { method: 'HEAD' })
       .then(r => setGppdAvailable(r.ok)).catch(() => setGppdAvailable(false));
-
     setGemAvailable(null);
     fetch(`/data/cache/region_plants_${regionId}_gem.geojson`, { method: 'HEAD' })
       .then(r => setGemAvailable(r.ok)).catch(() => setGemAvailable(false));
   }, [regionId]);
 
-  // EPM data — fetched from GitHub raw when region has epm config
+  // EPM data — also fetches linestring + demand profile
   useEffect(() => {
     setEpmData(null);
     if (!region?.epm) return;
@@ -739,12 +1023,16 @@ export default function RegionPage() {
       fetchEpmCSV(branch, dataFolder, 'load/pDemandForecast.csv'),
       fetchEpmCSV(branch, dataFolder, 'trade/pTransferLimit.csv'),
       fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
-    ]).then(([gen, demand, ntc, zcmap]) => {
+      fetchLinestringGeoJSON(branch, dataFolder),
+      fetchEpmCSV(branch, dataFolder, 'load/pDemandProfile.csv'),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw]) => {
       setEpmData({
-        gen:    gen    ? processGenData(gen)    : [],
-        demand: demand ? processDemand(demand)  : [],
-        ntc:    ntc    ? processNTC(ntc)        : [],
-        zcmap:  zcmap  || [],
+        gen:           genRaw    ? processGenData(genRaw)       : [],
+        demand:        demandRaw ? processDemand(demandRaw)     : [],
+        ntc:           ntcRaw    ? processNTC(ntcRaw)           : [],
+        zcmap:         zcmapRaw  || [],
+        demandProfile: profileRaw ? processDemandProfile(profileRaw) : null,
+        linestringGJ,
         branch,
       });
     }).finally(() => setEpmLoading(false));
@@ -752,19 +1040,24 @@ export default function RegionPage() {
 
   // Fleet age — GPPD only
   useEffect(() => {
-    setFleetAge(null);
     if (plantSource !== 'gppd') return;
     fetch(`/data/cache/region_age_${regionId}_gppd.json`)
-      .then(r => r.ok ? r.json() : null).then(setFleetAge).catch(() => {});
+      .then(r => r.ok ? r.json() : null).catch(() => {});
   }, [plantSource, regionId]);
 
-  // Map initialisation
+  // ── Map initialisation ────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !region) return;
+    // EPM region: wait for data; skip map if no linestring
+    if (region.epm) {
+      if (!epmData) return;
+      if (!epmData.linestringGJ) return;
+    }
 
     const isos = region.countries.map(c => c.iso);
     const TERRITORY_ALIASES = { SOM: ['SOL'], SDN: ['SDS'] };
     const expandedIsos = isos.flatMap(iso => [iso, ...(TERRITORY_ALIASES[iso] || [])]);
+    const isEpm = !!(region.epm && epmData?.linestringGJ);
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -780,16 +1073,7 @@ export default function RegionPage() {
     });
 
     map.on('load', async () => {
-      const [countries, plantsGJ, linesGJ, subsGJ, lcGJ] = await Promise.all([
-        fetch('/data/countries_10m.geojson').then(r => r.json()),
-        fetch(`/data/cache/region_plants_${regionId}.geojson`).then(r => r.json()),
-        fetch(`/data/cache/region_lines_${regionId}.geojson`).then(r => r.json()),
-        fetch(`/data/cache/region_substations_${regionId}.geojson`)
-          .then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
-        fetch(`/data/region_load_centers_${regionId}.geojson`)
-          .then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
-      ]);
-
+      const countries = await fetch('/data/countries_10m.geojson').then(r => r.json());
       countries.features.forEach((f, i) => {
         const p = f.properties;
         let iso = p.ISO_A3 || '-99';
@@ -801,265 +1085,267 @@ export default function RegionPage() {
       const bounds = fitBounds(expandedIsos, countries);
       if (bounds) map.fitBounds(bounds, { padding: 40, duration: 0 });
 
-      map.addSource('countries',    { type: 'geojson', data: countries, generateId: false });
-      map.addSource('plants',       { type: 'geojson', data: plantsGJ });
-      map.addSource('lines',        { type: 'geojson', data: linesGJ  });
-      map.addSource('substations',  { type: 'geojson', data: subsGJ   });
-      map.addSource('load-centers', { type: 'geojson', data: lcGJ     });
-
+      map.addSource('countries', { type: 'geojson', data: countries, generateId: false });
       const tv = getT(theme);
       map.addLayer({ id: 'land',    type: 'fill', source: 'countries',
         paint: { 'fill-color': tv.land, 'fill-opacity': 1 } });
       map.addLayer({ id: 'borders', type: 'line', source: 'countries',
         paint: { 'line-color': tv.worldBdr, 'line-width': tv.worldBdrW } });
 
+      if (isEpm) {
+        // ── EPM map: zone colors + NTC lines + donut markers ────────────────
+        const lsgj = epmData.linestringGJ;
+        const allZones = [...new Set(lsgj.features.map(f => f.properties.z))].sort();
+        const zoneColorMap = {};
+        allZones.forEach((z, i) => { zoneColorMap[z] = ZONE_PALETTE[i % ZONE_PALETTE.length]; });
 
-      // Transmission lines
-      const kvFilters = {
-        '500': ['>=', ['get', 'v'], 500_000],
-        '330': ['all', ['>=', ['get', 'v'], 330_000], ['<', ['get', 'v'], 500_000]],
-        '220': ['all', ['>=', ['get', 'v'], 220_000], ['<', ['get', 'v'], 330_000]],
-        '110': ['<', ['get', 'v'], 220_000],
-      };
-      for (const { colors, width, key } of VOLTAGE_BRACKETS) {
-        map.addLayer({ id: `lines-${key}`, type: 'line', source: 'lines',
-          filter: kvFilters[key],
-          paint: { 'line-color': colors[theme] ?? colors.fog, 'line-width': width,
-            'line-opacity': tv.isDark ? 0.92 : 0.65 } });
-      }
+        const isoZoneMap = {};
+        for (const f of lsgj.features) {
+          if (f.properties.ISO_A3 && f.properties.ISO_A3 !== '-99')
+            isoZoneMap[f.properties.ISO_A3] = f.properties.z;
+        }
+        const coloredIsos = Object.keys(isoZoneMap);
 
-      // Region highlight
-      const hl = tv.highlight;
-      map.addLayer({ id: 'region-fill', type: 'fill', source: 'countries',
-        filter: ['in', ['get', 'ISO_A3'], ['literal', expandedIsos]],
-        paint: { 'fill-color': hl.fill,
-          'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.18, 0.08] } });
-      map.addLayer({ id: 'region-border', type: 'line', source: 'countries',
-        filter: ['in', ['get', 'ISO_A3'], ['literal', expandedIsos]],
-        paint: { 'line-color': hl.border, 'line-width': hl.borderW, 'line-opacity': 0.9 } });
+        const zoneFillExpr = ['match', ['get', 'ISO_A3'],
+          ...coloredIsos.flatMap(iso => [iso, zoneColorMap[isoZoneMap[iso]] || '#888888']),
+          'transparent',
+        ];
+        map.addLayer({ id: 'zone-fill', type: 'fill', source: 'countries',
+          filter: ['in', ['get', 'ISO_A3'], ['literal', coloredIsos]],
+          paint: { 'fill-color': zoneFillExpr,
+            'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.55, 0.30] },
+        });
+        map.addLayer({ id: 'zone-border', type: 'line', source: 'countries',
+          filter: ['in', ['get', 'ISO_A3'], ['literal', coloredIsos]],
+          paint: { 'line-color': zoneFillExpr, 'line-width': 1.4, 'line-opacity': 0.85 },
+        });
 
+        // NTC transmission lines
+        const ntcYrs = availableYears(epmData.ntc);
+        const ntcYr  = ntcYrs[0] || '2024';
+        const seenPairs = new Set();
+        const ntcFeatures = lsgj.features
+          .filter(f => {
+            const { z, z_other } = f.properties;
+            if (!z || !z_other) return false;
+            const key = [z, z_other].sort().join('||');
+            if (seenPairs.has(key)) return false;
+            seenPairs.add(key);
+            const entry = epmData.ntc.find(r =>
+              (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+            return (entry?.years[ntcYr] || 0) > 0;
+          })
+          .map(f => {
+            const { z, z_other } = f.properties;
+            const entry = epmData.ntc.find(r =>
+              (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+            const mw = entry?.years[ntcYr] || 0;
+            return { ...f, properties: { ...f.properties, ntc_mw: mw } };
+          });
 
-      // Preferred zones overlay (hidden until mapMode === 'zones')
-      const emptyGJ = { type: 'FeatureCollection', features: [] };
-      map.addSource('region-zones',         { type: 'geojson', data: emptyGJ });
-      map.addSource('region-zones-inner',   { type: 'geojson', data: emptyGJ });
-      map.addSource('region-corridors-src', { type: 'geojson', data: emptyGJ });
-      map.addSource('region-centroids-src', { type: 'geojson', data: emptyGJ });
+        map.addSource('ntc-lines', { type: 'geojson',
+          data: { type: 'FeatureCollection', features: ntcFeatures } });
+        map.addLayer({ id: 'ntc-lines-layer', type: 'line', source: 'ntc-lines',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#f0b030',
+            'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'],
+              0, 1, 500, 2, 2000, 3.5, 8000, 6],
+            'line-opacity': 0.88,
+          },
+        });
+        map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
+          layout: {
+            'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
+            'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false,
+          },
+          paint: { 'text-color': '#b07800',
+            'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 },
+        });
 
-      const zoneLayerPaint = {
-        fill:   { 'fill-color': zoneColorExpr(), 'fill-opacity': 0.35 },
-        border: { 'line-color': tv.isDark ? '#bbb' : '#444', 'line-width': 1.2, 'line-opacity': 0.7 },
-      };
-      map.addLayer({ id: 'region-zones-fill',   type: 'fill', source: 'region-zones',
-        layout: { visibility: 'none' }, paint: zoneLayerPaint.fill });
-      map.addLayer({ id: 'region-zones-border', type: 'line', source: 'region-zones-inner',
-        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-        paint: zoneLayerPaint.border });
+        // Donut markers at zone centroids
+        const centroids = {};
+        for (const f of lsgj.features) {
+          const z = f.properties.z;
+          if (!centroids[z] && f.properties.country_ini_lon != null)
+            centroids[z] = [f.properties.country_ini_lon, f.properties.country_ini_lat];
+        }
+        const zoneGen = {};
+        for (const r of epmData.gen.filter(g => g.status === 1)) {
+          if (!zoneGen[r.zone]) zoneGen[r.zone] = {};
+          zoneGen[r.zone][r.fuel] = (zoneGen[r.zone][r.fuel] || 0) + r.capacity;
+        }
+        donutMarkersRef.current.forEach(m => m.remove());
+        donutMarkersRef.current = [];
+        for (const [zone, fuelMix] of Object.entries(zoneGen)) {
+          const coord = centroids[zone];
+          if (!coord) continue;
+          const el = document.createElement('div');
+          el.style.pointerEvents = 'none';
+          el.innerHTML = makeDonutSVG(fuelMix, tv);
+          const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+            .setLngLat(coord).addTo(map);
+          donutMarkersRef.current.push(marker);
+        }
 
-      // Corridor capacity lines for preferred zone view
-      const mwWidthExpr     = (field) => ['interpolate', ['linear'], ['coalesce', ['get', field], 0], 0, 1.5, 500, 3.0, 2000, 6.0];
-      const hasNtcField     = (field) => ['>', ['coalesce', ['get', field], 0], 0];
-      map.addLayer({
-        id: 'region-corridors-ex', type: 'line', source: 'region-corridors-src',
-        filter: hasNtcField('mw_existing'),
-        layout: { visibility: 'none' },
-        paint: { 'line-color': '#1a5fa8', 'line-width': mwWidthExpr('mw_existing'), 'line-opacity': 0.85 },
-      });
-      map.addLayer({
-        id: 'region-corridors-committed', type: 'line', source: 'region-corridors-src',
-        filter: hasNtcField('mw_committed'),
-        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#e07b00', 'line-width': mwWidthExpr('mw_committed'), 'line-opacity': 0.85, 'line-dasharray': [6, 3] },
-      });
-      map.addLayer({
-        id: 'region-corridors-candidate', type: 'line', source: 'region-corridors-src',
-        filter: hasNtcField('mw_candidate'),
-        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#555', 'line-width': mwWidthExpr('mw_candidate'), 'line-opacity': 0.7, 'line-dasharray': [2, 4] },
-      });
-      map.addLayer({
-        id: 'region-corridors-labels', type: 'symbol', source: 'region-corridors-src',
-        filter: ['>', ['coalesce', ['get', 'mw'], 0], 0],
-        layout: {
-          visibility: 'none',
-          'text-field': ['get', 'label'],
-          'text-size': 9,
-          'symbol-placement': 'line-center',
-          'text-allow-overlap': false,
-        },
-        paint: {
-          'text-color': '#1a5fa8',
-          'text-halo-color': 'rgba(255,255,255,0.9)',
-          'text-halo-width': 1.5,
-        },
-      });
-      map.addLayer({
-        id: 'region-corridors-dots', type: 'circle', source: 'region-centroids-src',
-        layout: { visibility: 'none' },
-        paint: {
-          'circle-radius': 4, 'circle-color': '#696969',
-          'circle-opacity': 0.75,
-          'circle-stroke-width': 1.2, 'circle-stroke-color': 'rgba(255,255,255,0.7)',
-        },
-      });
+        // Hover on zones
+        let hoveredId = null;
+        map.on('mousemove', 'zone-fill', e => {
+          map.getCanvas().style.cursor = 'pointer';
+          if (hoveredId !== null) map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: false });
+          hoveredId = e.features[0].id;
+          map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: true });
+          const iso = e.features[0].properties.ISO_A3;
+          const zone = isoZoneMap[iso] || iso;
+          popup.setLngLat(e.lngLat).setHTML(`<b>${zone}</b>`).addTo(map);
+        });
+        map.on('mouseleave', 'zone-fill', () => {
+          map.getCanvas().style.cursor = '';
+          if (hoveredId !== null) map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: false });
+          hoveredId = null; popup.remove();
+        });
 
-      // ── Plant layers (3 status layers, data-driven fuel color) ───────────
-      const fuels = new Set();
-      for (const f of plantsGJ.features) {
-        const fuel = f.properties.fuel;
-        if (fuel && FUEL_COLORS[fuel]) fuels.add(fuel);
-      }
-      setPresentFuels(fuels);
+      } else {
+        // ── OSM map ──────────────────────────────────────────────────────────
+        const [plantsGJ, linesGJ, subsGJ, lcGJ] = await Promise.all([
+          fetch(`/data/cache/region_plants_${regionId}.geojson`).then(r => r.json()),
+          fetch(`/data/cache/region_lines_${regionId}.geojson`).then(r => r.json()),
+          fetch(`/data/cache/region_substations_${regionId}.geojson`)
+            .then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
+          fetch(`/data/region_load_centers_${regionId}.geojson`)
+            .then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
+        ]);
 
-      const colorExpr = fuelColorExpr();
+        map.addSource('plants',       { type: 'geojson', data: plantsGJ });
+        map.addSource('lines',        { type: 'geojson', data: linesGJ  });
+        map.addSource('substations',  { type: 'geojson', data: subsGJ   });
+        map.addSource('load-centers', { type: 'geojson', data: lcGJ     });
 
-      // Operating: filled circles
-      map.addLayer({ id: 'plants-operating', type: 'circle', source: 'plants',
-        filter: makeLayerFilter('operating', new Set(), 100),
-        paint: {
-          'circle-radius':       plantRadiusExpr(),
-          'circle-color':        colorExpr,
-          'circle-opacity':      0.88,
-          'circle-stroke-width': 0.6,
-          'circle-stroke-color': 'rgba(0,0,0,0.3)',
-        },
-      });
+        const tv = getT(theme);
+        const kvFilters = {
+          '500': ['>=', ['get', 'v'], 500_000],
+          '330': ['all', ['>=', ['get', 'v'], 330_000], ['<', ['get', 'v'], 500_000]],
+          '220': ['all', ['>=', ['get', 'v'], 220_000], ['<', ['get', 'v'], 330_000]],
+          '110': ['<', ['get', 'v'], 220_000],
+        };
+        for (const { colors, width, key } of VOLTAGE_BRACKETS) {
+          map.addLayer({ id: `lines-${key}`, type: 'line', source: 'lines',
+            filter: kvFilters[key],
+            paint: { 'line-color': colors[theme] ?? colors.fog, 'line-width': width,
+              'line-opacity': tv.isDark ? 0.92 : 0.65 } });
+        }
 
-      // Under construction: hollow ring
-      map.addLayer({ id: 'plants-construction', type: 'circle', source: 'plants',
-        filter: makeLayerFilter('construction', new Set(), 100),
-        paint: {
-          'circle-radius':         plantRadiusExpr(),
-          'circle-color':          'rgba(0,0,0,0)',
-          'circle-opacity':        1,
-          'circle-stroke-width':   2,
-          'circle-stroke-color':   colorExpr,
-          'circle-stroke-opacity': 0.9,
-        },
-      });
+        const hl = tv.highlight;
+        map.addLayer({ id: 'region-fill', type: 'fill', source: 'countries',
+          filter: ['in', ['get', 'ISO_A3'], ['literal', expandedIsos]],
+          paint: { 'fill-color': hl.fill,
+            'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.18, 0.08] } });
+        map.addLayer({ id: 'region-border', type: 'line', source: 'countries',
+          filter: ['in', ['get', 'ISO_A3'], ['literal', expandedIsos]],
+          paint: { 'line-color': hl.border, 'line-width': hl.borderW, 'line-opacity': 0.9 } });
 
-      // Planned: faint filled + thin stroke
-      map.addLayer({ id: 'plants-planned', type: 'circle', source: 'plants',
-        filter: makeLayerFilter('planned', new Set(), 100),
-        paint: {
-          'circle-radius':         plantRadiusExpr(),
-          'circle-color':          colorExpr,
-          'circle-opacity':        0.22,
-          'circle-stroke-width':   1,
-          'circle-stroke-color':   colorExpr,
-          'circle-stroke-opacity': 0.45,
-        },
-      });
+        const fuels = new Set();
+        for (const f of plantsGJ.features) {
+          const fuel = f.properties.fuel;
+          if (fuel && FUEL_COLORS[fuel]) fuels.add(fuel);
+        }
+        setPresentFuels(fuels);
+        const colorExpr = fuelColorExpr();
 
-      // Hover popups for each status layer
-      for (const status of PLANT_STATUSES) {
-        map.on('mouseenter', `plants-${status}`, e => {
+        map.addLayer({ id: 'plants-operating', type: 'circle', source: 'plants',
+          filter: makeLayerFilter('operating', new Set(), 100),
+          paint: { 'circle-radius': plantRadiusExpr(), 'circle-color': colorExpr,
+            'circle-opacity': 0.88, 'circle-stroke-width': 0.6, 'circle-stroke-color': 'rgba(0,0,0,0.3)' } });
+        map.addLayer({ id: 'plants-construction', type: 'circle', source: 'plants',
+          filter: makeLayerFilter('construction', new Set(), 100),
+          paint: { 'circle-radius': plantRadiusExpr(), 'circle-color': 'rgba(0,0,0,0)',
+            'circle-opacity': 1, 'circle-stroke-width': 2, 'circle-stroke-color': colorExpr,
+            'circle-stroke-opacity': 0.9 } });
+        map.addLayer({ id: 'plants-planned', type: 'circle', source: 'plants',
+          filter: makeLayerFilter('planned', new Set(), 100),
+          paint: { 'circle-radius': plantRadiusExpr(), 'circle-color': colorExpr,
+            'circle-opacity': 0.22, 'circle-stroke-width': 1, 'circle-stroke-color': colorExpr,
+            'circle-stroke-opacity': 0.45 } });
+
+        for (const status of PLANT_STATUSES) {
+          map.on('mouseenter', `plants-${status}`, e => {
+            map.getCanvas().style.cursor = 'pointer';
+            const p = e.features[0].properties;
+            const name   = p.name ? `<b>${p.name}</b><br>` : '';
+            const mwText = p.mw   ? ` · ${p.mw} MW` : '';
+            const badge  = status !== 'operating'
+              ? ` <span style="opacity:.55;font-size:.85em">[${status}]</span>` : '';
+            popup.setLngLat(e.features[0].geometry.coordinates)
+              .setHTML(`${name}<span style="opacity:.75">${p.fuel}${mwText}${badge}</span>`)
+              .addTo(map);
+          });
+          map.on('mouseleave', `plants-${status}`, () => {
+            map.getCanvas().style.cursor = ''; popup.remove();
+          });
+        }
+
+        const sqSz = 5;
+        const sqData = new Uint8Array(sqSz * sqSz * 4);
+        for (let i = 0; i < sqSz * sqSz; i++) {
+          sqData[i*4] = 105; sqData[i*4+1] = 105; sqData[i*4+2] = 105;
+          sqData[i*4+3] = tv.isDark ? 160 : 130;
+        }
+        map.addImage('sub-sq', { width: sqSz, height: sqSz, data: sqData });
+        map.addLayer({ id: 'substations', type: 'symbol', source: 'substations',
+          filter: ['in', ['get', 'iso'], ['literal', isos]],
+          layout: { 'icon-image': 'sub-sq', 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' },
+          paint: { 'icon-opacity': 0.8 } });
+        map.on('mouseenter', 'substations', e => {
           map.getCanvas().style.cursor = 'pointer';
           const p = e.features[0].properties;
-          const name   = p.name ? `<b>${p.name}</b><br>` : '';
-          const mwText = p.mw   ? ` · ${p.mw} MW` : '';
-          const badge  = status !== 'operating'
-            ? ` <span style="opacity:.55;font-size:.85em">[${status}]</span>` : '';
+          const kv = p.v ? `${Math.round(p.v / 1000)} kV` : '';
           popup.setLngLat(e.features[0].geometry.coordinates)
-            .setHTML(`${name}<span style="opacity:.75">${p.fuel}${mwText}${badge}</span>`)
+            .setHTML(`${p.name ? `<b>${p.name}</b><br>` : ''}<span style="opacity:.75">Substation${kv ? ' · ' + kv : ''}</span>`)
             .addTo(map);
         });
-        map.on('mouseleave', `plants-${status}`, () => {
-          map.getCanvas().style.cursor = ''; popup.remove();
+        map.on('mouseleave', 'substations', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+
+        map.addLayer({ id: 'load-centers', type: 'circle', source: 'load-centers',
+          filter: ['>=', ['get', 'pop'], 300_000], layout: { visibility: 'none' },
+          paint: { 'circle-radius': lcRadiusExpr(), 'circle-color': '#1a237e', 'circle-opacity': 0.72,
+            'circle-stroke-width': 1.2, 'circle-stroke-color': 'rgba(255,255,255,0.65)' } });
+        map.addLayer({ id: 'load-centers-labels', type: 'symbol', source: 'load-centers',
+          filter: ['>=', ['get', 'pop'], 300_000], layout: { visibility: 'none',
+            'text-field': ['get', 'name'], 'text-size': 9, 'text-offset': [0, 1.3], 'text-anchor': 'top' },
+          paint: { 'text-color': '#1a237e', 'text-halo-color': 'rgba(255,255,255,0.88)', 'text-halo-width': 1.5 } });
+
+        let hoveredId = null;
+        map.on('mousemove', 'region-fill', e => {
+          map.getCanvas().style.cursor = 'pointer';
+          if (hoveredId !== null)
+            map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: false });
+          hoveredId = e.features[0].id;
+          map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: true });
+        });
+        map.on('mouseleave', 'region-fill', () => {
+          map.getCanvas().style.cursor = '';
+          if (hoveredId !== null)
+            map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: false });
+          hoveredId = null;
+        });
+        const ALIAS_TO_CANON = { SOL: 'SOM', SDS: 'SDN' };
+        map.on('click', 'region-fill', e => {
+          const iso = e.features[0].properties.ISO_A3;
+          const canonIso = (!isos.includes(iso) && ALIAS_TO_CANON[iso]) || iso;
+          if (isos.includes(canonIso)) navigate(`/country/${canonIso}`);
         });
       }
-
-      // Substations
-      const sqSz = 5;
-      const sqData = new Uint8Array(sqSz * sqSz * 4);
-      for (let i = 0; i < sqSz * sqSz; i++) {
-        sqData[i*4] = 105; sqData[i*4+1] = 105; sqData[i*4+2] = 105;
-        sqData[i*4+3] = tv.isDark ? 160 : 130;
-      }
-      map.addImage('sub-sq', { width: sqSz, height: sqSz, data: sqData });
-      map.addLayer({ id: 'substations', type: 'symbol', source: 'substations',
-        filter: ['in', ['get', 'iso'], ['literal', isos]],
-        layout: { 'icon-image': 'sub-sq', 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' },
-        paint: { 'icon-opacity': 0.8 } });
-      map.on('mouseenter', 'substations', e => {
-        map.getCanvas().style.cursor = 'pointer';
-        const p = e.features[0].properties;
-        const kv = p.v ? `${Math.round(p.v / 1000)} kV` : '';
-        popup.setLngLat(e.features[0].geometry.coordinates)
-          .setHTML(`${p.name ? `<b>${p.name}</b><br>` : ''}<span style="opacity:.75">Substation${kv ? ' · ' + kv : ''}</span>`)
-          .addTo(map);
-      });
-      map.on('mouseleave', 'substations', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
-
-      // Load centers
-      map.addLayer({
-        id: 'load-centers', type: 'circle', source: 'load-centers',
-        filter: ['>=', ['get', 'pop'], 300_000],
-        layout: { visibility: 'none' },
-        paint: {
-          'circle-radius': lcRadiusExpr(),
-          'circle-color': '#1a237e', 'circle-opacity': 0.72,
-          'circle-stroke-width': 1.2, 'circle-stroke-color': 'rgba(255,255,255,0.65)',
-        },
-      });
-      map.addLayer({
-        id: 'load-centers-labels', type: 'symbol', source: 'load-centers',
-        filter: ['>=', ['get', 'pop'], 300_000],
-        layout: {
-          visibility: 'none',
-          'text-field': ['get', 'name'], 'text-size': 9,
-          'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-allow-overlap': false,
-        },
-        paint: {
-          'text-color': '#1a237e',
-          'text-halo-color': 'rgba(255,255,255,0.88)', 'text-halo-width': 1.5,
-        },
-      });
-      map.on('mouseenter', 'load-centers', e => {
-        map.getCanvas().style.cursor = 'pointer';
-        const p = e.features[0].properties;
-        const pop = p.pop >= 1_000_000 ? `${(p.pop / 1_000_000).toFixed(1)}M` : `${Math.round(p.pop / 1_000)}k`;
-        popup.setLngLat(e.features[0].geometry.coordinates)
-          .setHTML(`<b>${p.name}</b><br><span style="opacity:.75">${pop} pop.</span>`).addTo(map);
-      });
-      map.on('mouseleave', 'load-centers', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
-
-      // Country hover + click
-      let hoveredId = null;
-      map.on('mousemove', 'region-fill', e => {
-        map.getCanvas().style.cursor = 'pointer';
-        if (hoveredId !== null)
-          map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: false });
-        hoveredId = e.features[0].id;
-        map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: true });
-      });
-      map.on('mouseleave', 'region-fill', () => {
-        map.getCanvas().style.cursor = '';
-        if (hoveredId !== null)
-          map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: false });
-        hoveredId = null;
-      });
-      const ALIAS_TO_CANON = { SOL: 'SOM', SDS: 'SDN' };
-      map.on('click', 'region-fill', e => {
-        const iso = e.features[0].properties.ISO_A3;
-        const canonIso = (!isos.includes(iso) && ALIAS_TO_CANON[iso]) || iso;
-        if (isos.includes(canonIso)) navigate(`/country/${canonIso}`);
-      });
-      const onZoneClick = e => {
-        const iso = e.features[0].properties.ISO_A3 || e.features[0].properties.country;
-        const canonIso = (!isos.includes(iso) && ALIAS_TO_CANON[iso]) || iso;
-        if (isos.includes(canonIso)) navigate(`/country/${canonIso}`);
-      };
-      map.on('click', 'region-zones-fill', onZoneClick);
-      map.on('mouseenter', 'region-zones-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'region-zones-fill', () => { map.getCanvas().style.cursor = ''; });
-
     });
 
-    return () => { popup.remove(); mapRef.current?.remove(); };
-  }, [region, theme]);
+    return () => {
+      popup.remove();
+      donutMarkersRef.current.forEach(m => m.remove());
+      donutMarkersRef.current = [];
+      mapRef.current?.remove();
+    };
+  }, [region, theme, epmData?.linestringGJ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Basemap switcher ─────────────────────────────────────────────────────
+  // Basemap switcher
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -1073,212 +1359,7 @@ export default function RegionPage() {
     toggleSatLabels(map, satLabels, theme);
   }, [satLabels, basemap, theme]);
 
-  // ── Zone mode / refine toggle ─────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map?.getLayer('region-zones-fill')) return;
-    const showZones = mapMode === 'zones';
-
-    if (showZones) {
-      const slug       = selectedSlug || 'recommended';
-      const url        = `/data/zones/${regionId}_${slug}_zones_hd.geojson`;
-      const corrUrl    = `/data/zones/${regionId}_${slug}_corridors.geojson`;
-      const innerUrl   = `/data/zones/${regionId}_${slug}_inner_borders.geojson`;
-      Promise.all([
-        fetch(url).then(r => { if (!r.ok) throw new Error(); return r.json(); }),
-        fetch(corrUrl).then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(innerUrl).then(r => r.ok ? r.json() : null).catch(() => null),
-      ])
-        .then(([data, corridorsGJ, innerGJ]) => {
-          const m = mapRef.current;
-          if (!m?.getSource('region-zones')) return;
-          m.getSource('region-zones').setData(data);
-          if (m.getSource('region-zones-inner'))
-            m.getSource('region-zones-inner').setData(innerGJ || data);
-          m.setLayoutProperty('region-zones-fill',   'visibility', 'visible');
-          m.setLayoutProperty('region-zones-border', 'visibility', 'visible');
-          m.setLayoutProperty('region-fill', 'visibility', 'none');
-          const emptyGJ = { type: 'FeatureCollection', features: [] };
-          if (m.getSource('region-corridors-src'))
-            m.getSource('region-corridors-src').setData(corridorsGJ || emptyGJ);
-          // Extract centroids from corridor endpoints
-          const centroidMap = new Map();
-          for (const f of (corridorsGJ?.features || [])) {
-            const [s, e] = [f.geometry.coordinates[0], f.geometry.coordinates[f.geometry.coordinates.length - 1]];
-            const ks = `${s[0]},${s[1]}`, ke = `${e[0]},${e[1]}`;
-            if (!centroidMap.has(ks)) centroidMap.set(ks, { type: 'Feature', geometry: { type: 'Point', coordinates: s }, properties: { zone: f.properties.zone_a } });
-            if (!centroidMap.has(ke)) centroidMap.set(ke, { type: 'Feature', geometry: { type: 'Point', coordinates: e }, properties: { zone: f.properties.zone_b } });
-          }
-          if (m.getSource('region-centroids-src'))
-            m.getSource('region-centroids-src').setData({ type: 'FeatureCollection', features: [...centroidMap.values()] });
-          const layerVis = {
-            'region-corridors-ex':        corrExistOn ? 'visible' : 'none',
-            'region-corridors-committed':  corrCommOn  ? 'visible' : 'none',
-            'region-corridors-candidate':  corrCandOn  ? 'visible' : 'none',
-            'region-corridors-labels':    corrExistOn ? 'visible' : 'none',
-            'region-corridors-dots':      (corrExistOn || corrCommOn || corrCandOn) ? 'visible' : 'none',
-          };
-          for (const [id, vis] of Object.entries(layerVis))
-            if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', vis);
-        })
-        .catch(() => setMapMode('countries'));
-    } else {
-      if (map.getLayer('region-zones-fill'))   map.setLayoutProperty('region-zones-fill',   'visibility', 'none');
-      if (map.getLayer('region-zones-border')) map.setLayoutProperty('region-zones-border', 'visibility', 'none');
-      if (map.getLayer('region-fill'))         map.setLayoutProperty('region-fill', 'visibility', 'visible');
-      if (map.getSource('region-zones'))
-        map.getSource('region-zones').setData({ type: 'FeatureCollection', features: [] });
-      if (map.getSource('region-zones-inner'))
-        map.getSource('region-zones-inner').setData({ type: 'FeatureCollection', features: [] });
-      for (const id of ['region-corridors-ex', 'region-corridors-committed', 'region-corridors-candidate', 'region-corridors-labels', 'region-corridors-dots']) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
-      }
-      if (map.getSource('region-corridors-src'))
-        map.getSource('region-corridors-src').setData({ type: 'FeatureCollection', features: [] });
-      if (map.getSource('region-centroids-src'))
-        map.getSource('region-centroids-src').setData({ type: 'FeatureCollection', features: [] });
-    }
-  }, [mapMode, regionId, corrExistOn, corrCommOn, corrCandOn, selectedSlug]);
-
-  // ── Layer toggle handlers ─────────────────────────────────────────────────
-
-  const toggleFuel = useCallback(fuel => {
-    const map = mapRef.current;
-    if (!map) return;
-    setFuelsOff(prev => {
-      const next = new Set(prev);
-      if (next.has(fuel)) next.delete(fuel); else next.add(fuel);
-      for (const s of PLANT_STATUSES) {
-        if (map.getLayer(`plants-${s}`))
-          map.setFilter(`plants-${s}`, makeLayerFilter(s, next, minMw));
-      }
-      return next;
-    });
-  }, [minMw]);
-
-  const toggleStatus = useCallback(status => {
-    const map = mapRef.current;
-    if (!map || !map.getLayer(`plants-${status}`)) return;
-    setStatusOff(prev => {
-      const next    = new Set(prev);
-      const hiding  = !prev.has(status);
-      if (hiding) next.add(status); else next.delete(status);
-      if (plantsOn)
-        map.setLayoutProperty(`plants-${status}`, 'visibility', hiding ? 'none' : 'visible');
-      return next;
-    });
-  }, [plantsOn]);
-
-  const toggleKv = useCallback(key => {
-    const map = mapRef.current;
-    if (!map || !map.getLayer(`lines-${key}`)) return;
-    setKvsOff(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) { next.delete(key); map.setLayoutProperty(`lines-${key}`, 'visibility', 'visible'); }
-      else               { next.add(key);    map.setLayoutProperty(`lines-${key}`, 'visibility', 'none');    }
-      return next;
-    });
-  }, []);
-
-  const toggleLines = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setLinesOn(prev => {
-      const next = !prev;
-      for (const { key } of VOLTAGE_BRACKETS)
-        if (!kvsOff.has(key) && map.getLayer(`lines-${key}`))
-          map.setLayoutProperty(`lines-${key}`, 'visibility', next ? 'visible' : 'none');
-      return next;
-    });
-  }, [kvsOff]);
-
-  const togglePlants = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setPlantsOn(prev => {
-      const next = !prev;
-      for (const s of PLANT_STATUSES) {
-        if (!map.getLayer(`plants-${s}`)) continue;
-        if (!statusOff.has(s))
-          map.setLayoutProperty(`plants-${s}`, 'visibility', next ? 'visible' : 'none');
-      }
-      return next;
-    });
-  }, [statusOff]);
-
-  const toggleSubs = useCallback(() => {
-    const map = mapRef.current;
-    if (!map || !map.getLayer('substations')) return;
-    setSubsOn(prev => {
-      const next = !prev;
-      map.setLayoutProperty('substations', 'visibility', next ? 'visible' : 'none');
-      return next;
-    });
-  }, []);
-
-  const handleMinMw = useCallback(mw => {
-    const map = mapRef.current;
-    if (!map) return;
-    setMinMw(mw);
-    for (const s of PLANT_STATUSES)
-      if (map.getLayer(`plants-${s}`))
-        map.setFilter(`plants-${s}`, makeLayerFilter(s, fuelsOff, mw));
-  }, [fuelsOff]);
-
-  const handleCircleScale = useCallback(scale => {
-    const map = mapRef.current;
-    if (!map) return;
-    setCircleScale(scale);
-    for (const s of PLANT_STATUSES)
-      if (map.getLayer(`plants-${s}`))
-        map.setPaintProperty(`plants-${s}`, 'circle-radius', plantRadiusExpr(scale));
-  }, []);
-
-  const makeCorridorToggle = (layerIds, setter) => () => {
-    const map = mapRef.current;
-    if (!map) return;
-    setter(prev => {
-      const next = !prev;
-      for (const id of layerIds)
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', next ? 'visible' : 'none');
-      return next;
-    });
-  };
-  const toggleCorrExist = useCallback(
-    makeCorridorToggle(['region-corridors-ex', 'region-corridors-labels', 'region-corridors-dots'], setCorrExistOn), []);
-  const toggleCorrComm  = useCallback(
-    makeCorridorToggle(['region-corridors-committed', 'region-corridors-dots'], setCorrCommOn), []);
-  const toggleCorrCand  = useCallback(
-    makeCorridorToggle(['region-corridors-candidate', 'region-corridors-dots'], setCorrCandOn), []);
-
-  const toggleLoadCenters = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setLoadCentersOn(prev => {
-      const next = !prev;
-      for (const id of ['load-centers', 'load-centers-labels'])
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', next ? 'visible' : 'none');
-      return next;
-    });
-  }, []);
-
-  const handleLcMinPop = useCallback(pop => {
-    const map = mapRef.current;
-    if (!map) return;
-    setLcMinPop(pop);
-    for (const id of ['load-centers', 'load-centers-labels'])
-      if (map.getLayer(id)) map.setFilter(id, ['>=', ['get', 'pop'], pop]);
-  }, []);
-
-  const handleLcCircleScale = useCallback(scale => {
-    const map = mapRef.current;
-    if (!map) return;
-    setLcCircleScale(scale);
-    if (map.getLayer('load-centers'))
-      map.setPaintProperty('load-centers', 'circle-radius', lcRadiusExpr(scale));
-  }, []);
-
-  // Plant source hot-swap
+  // Plant source hot-swap (OSM mode only)
   useEffect(() => {
     const map = mapRef.current;
     if (!map?.getSource('plants')) return;
@@ -1300,213 +1381,61 @@ export default function RegionPage() {
       });
   }, [plantSource, regionId]);
 
-
-  // ── Download helpers ──────────────────────────────────────────────────────
-
-  const handleDownloadPlants = useCallback(async (format = 'geojson') => {
-    const suffix = plantSource === 'gppd' ? '_gppd' : plantSource === 'gem' ? '_gem' : '';
-    const url  = `/data/cache/region_plants_${regionId}${suffix}.geojson`;
-    const data = await fetch(url).then(r => r.json());
-    if (format === 'csv') {
-      const header = 'name,fuel,mw,country,status,lat,lon,source';
-      const rows = data.features.map(f => {
-        const p = f.properties;
-        const [lon, lat] = f.geometry.coordinates;
-        return [
-          `"${(p.name || '').replace(/"/g, '""')}"`,
-          p.fuel || '', p.mw || '', p.country || '', p.status || '',
-          lat.toFixed(5), lon.toFixed(5), plantSource,
-        ].join(',');
-      });
-      downloadBlob([header, ...rows].join('\n'), `plants_${regionId}${suffix}.csv`, 'text/csv');
-    } else {
-      downloadBlob(JSON.stringify(data), `plants_${regionId}${suffix}.geojson`, 'application/geo+json');
-    }
-  }, [plantSource, regionId]);
-
-  const handleDownloadLines = useCallback(async (format = 'geojson') => {
-    const url  = `/data/cache/region_lines_${regionId}.geojson`;
-    const data = await fetch(url).then(r => r.json());
-    if (format === 'csv') {
-      const header = 'id,voltage_kv,geometry_wkt';
-      const rows = data.features.map((f, i) => {
-        const vkv   = f.properties.v ? Math.round(f.properties.v / 1000) : '';
-        const wkt   = `LINESTRING(${f.geometry.coordinates.map(([x, y]) => `${x} ${y}`).join(', ')})`;
-        return `${i},${vkv},"${wkt}"`;
-      });
-      downloadBlob([header, ...rows].join('\n'), `lines_${regionId}.csv`, 'text/csv');
-    } else {
-      downloadBlob(JSON.stringify(data), `lines_${regionId}.geojson`, 'application/geo+json');
-    }
-  }, [regionId]);
-
-  const handleDownloadCapacity = useCallback(() => {
-    if (!capacity || !region) return;
-    const fuels = Object.keys(FUEL_COLORS);
-    const header = ['country', 'iso', ...fuels, 'total_mw'];
-    const rows = region.countries.map(c => {
-      const cd    = capacity.countries?.[c.iso] || {};
-      const total = Object.values(cd).reduce((s, v) => s + v, 0);
-      return [c.name, c.iso, ...fuels.map(f => (cd[f] || 0).toFixed(1)), total.toFixed(1)];
-    });
-    downloadBlob([header, ...rows].map(r => r.join(',')).join('\n'),
-      `capacity_${regionId}.csv`, 'text/csv');
-  }, [capacity, region, regionId]);
-
-  const handleDownloadTariffs = useCallback(() => {
-    if (!tariffs || !region) return;
-    const rows = region.countries.map(c => {
-      const d = tariffs.countries?.[c.iso] || {};
-      return [c.name, c.iso,
-        d.res != null ? Math.round(d.res * 1000) : '',
-        d.ind != null ? Math.round(d.ind * 1000) : ''];
-    });
-    downloadBlob(['country,iso,residential_usd_mwh,industrial_usd_mwh', ...rows.map(r => r.join(','))].join('\n'),
-      `tariffs_${regionId}.csv`, 'text/csv');
-  }, [tariffs, region, regionId]);
-
-  const handleDownloadAccess = useCallback(() => {
-    if (!access || !region) return;
-    const rows = region.countries.map(c => {
-      const d = access.countries?.[c.iso] || {};
-      return [c.name, c.iso, d.total ?? '', d.urban ?? '', d.rural ?? ''];
-    });
-    downloadBlob(['country,iso,total_pct,urban_pct,rural_pct', ...rows.map(r => r.join(','))].join('\n'),
-      `access_${regionId}.csv`, 'text/csv');
-  }, [access, region, regionId]);
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (!region) return <div style={{ padding: 40, color: t.text }}>Loading…</div>;
 
-  const dlBtn = {
-    background: 'none', border: 'none', cursor: 'pointer',
-    padding: '1px 4px', borderRadius: 3, color: t.lblMuted,
-    fontSize: '0.6rem', fontFamily: 'inherit',
-    display: 'inline-flex', alignItems: 'center', gap: 3,
-  };
+  const isEpmMode = !!(region.epm && epmData?.linestringGJ);
+  const showMap   = !region.epm || isEpmMode; // no map if EPM but no linestring
+
+  const panelWidth = 560;
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 46px)' }}>
 
-      <div style={{ position: 'relative', flex: 1 }}>
-        <div ref={containerRef}
-          style={{ width: '100%', height: 'calc(100vh - 46px)', backgroundColor: t.bg }} />
-        {zonesAvailable && (
-          <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
-            {/* Potential Zonings toggle */}
-            <button
-              onClick={() => setMapMode(m => m === 'zones' ? 'countries' : 'zones')}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                fontSize: '0.58rem', letterSpacing: '0.5px', fontFamily: 'inherit',
-                padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
-                border: `1px solid ${mapMode === 'zones' ? 'rgba(74,143,204,0.6)' : t.panelBorder}`,
-                backgroundColor: mapMode === 'zones' ? 'rgba(74,143,204,0.14)' : t.panel,
-                color: mapMode === 'zones' ? t.lbl : t.lblMuted,
-                fontWeight: mapMode === 'zones' ? 700 : 400,
-                boxShadow: '0 1px 4px rgba(0,0,0,.18)',
-                transition: 'all 0.15s',
-              }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: 2,
-                backgroundColor: mapMode === 'zones' ? 'rgba(74,143,204,0.8)' : t.panelBorder,
-                display: 'inline-block', transition: 'background 0.15s',
-              }} />
-              Potential Zonings
-            </button>
+      {/* Map */}
+      {showMap && (
+        <div style={{ position: 'relative', flex: 1 }}>
+          <div ref={containerRef}
+            style={{ width: '100%', height: 'calc(100vh - 46px)', backgroundColor: t.bg }} />
 
-            {/* Config selector — only when zone mode is active and multiple configs exist */}
-            {mapMode === 'zones' && zoningConfigs.length > 1 && (
-              <select
-                value={selectedSlug || ''}
-                onChange={e => setSelectedSlug(e.target.value)}
-                style={{
-                  fontSize: '0.58rem', fontFamily: 'inherit',
-                  padding: '5px 8px', borderRadius: 6,
-                  border: `1px solid rgba(74,143,204,0.5)`,
-                  backgroundColor: t.panel, color: t.lbl,
-                  cursor: 'pointer',
-                  boxShadow: '0 1px 4px rgba(0,0,0,.18)',
-                  outline: 'none',
-                }}>
-                {zoningConfigs.map(cfg => (
-                  <option key={cfg.slug} value={cfg.slug}>{cfg.name}</option>
-                ))}
-              </select>
-            )}
-
-            {/* Corridor type toggles — only in zone mode */}
-            {mapMode === 'zones' && [
-              { label: 'Existing',   on: corrExistOn, toggle: toggleCorrExist, color: '#1a5fa8', dash: null },
-              { label: 'Committed',  on: corrCommOn,  toggle: toggleCorrComm,  color: '#e07b00', dash: '8 3' },
-              { label: 'Candidate',  on: corrCandOn,  toggle: toggleCorrCand,  color: '#666',    dash: '2 4' },
-            ].map(({ label, on, toggle, color, dash }) => (
-              <button key={label} onClick={toggle} style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                fontSize: '0.58rem', letterSpacing: '0.5px', fontFamily: 'inherit',
-                padding: '5px 9px', borderRadius: 6, cursor: 'pointer',
-                border: `1px solid ${on ? color + '99' : t.panelBorder}`,
-                backgroundColor: on ? color + '22' : t.panel,
-                color: on ? t.lbl : t.lblMuted,
-                fontWeight: on ? 700 : 400,
-                boxShadow: '0 1px 4px rgba(0,0,0,.18)',
-                transition: 'all 0.15s',
-              }}>
-                <svg width="16" height="4" style={{ flexShrink: 0 }}>
-                  <line x1="0" y1="2" x2="16" y2="2"
-                    stroke={on ? color : t.panelBorder} strokeWidth="2.5"
-                    strokeDasharray={dash || ''} strokeLinecap="round" />
-                </svg>
-                {label}
-              </button>
-            ))}
+          {/* Basemap controls */}
+          <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, display: 'flex', gap: 4, alignItems: 'center' }}>
+            {[{ id: 'minimal', label: 'Map' }, { id: 'labeled', label: 'Labels' }, { id: 'satellite', label: 'Sat' }]
+              .map(({ id, label }) => {
+                const active = (basemap || 'minimal') === id;
+                return (
+                  <button key={id} onClick={() => setBasemap(id)} style={{
+                    fontSize: '0.52rem', letterSpacing: '0.5px', fontFamily: 'inherit',
+                    padding: '4px 8px', borderRadius: 5, cursor: 'pointer',
+                    border: `1px solid ${active ? 'rgba(74,143,204,0.6)' : t.panelBorder}`,
+                    backgroundColor: active ? 'rgba(74,143,204,0.14)' : t.panel,
+                    color: active ? t.lbl : t.lblMuted,
+                    boxShadow: '0 1px 4px rgba(0,0,0,.18)', transition: 'all 0.15s',
+                  }}>{label}</button>
+                );
+              })}
           </div>
-        )}
 
-        {/* Top-right: basemap + layer toggles */}
-        <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, display: 'flex', gap: 4, alignItems: 'center' }}>
-          {[
-            { id: 'minimal',   label: 'Map'    },
-            { id: 'labeled',   label: 'Labels' },
-            { id: 'satellite', label: 'Sat'    },
-          ].map(({ id, label }) => {
-            const active = (basemap || 'minimal') === id;
-            return (
-              <button key={id} onClick={() => setBasemap(id)} style={{
-                fontSize: '0.52rem', letterSpacing: '0.5px', fontFamily: 'inherit',
-                padding: '4px 8px', borderRadius: 5, cursor: 'pointer',
-                border: `1px solid ${active ? 'rgba(74,143,204,0.6)' : t.panelBorder}`,
-                backgroundColor: active ? 'rgba(74,143,204,0.14)' : t.panel,
-                color: active ? t.lbl : t.lblMuted,
-                boxShadow: '0 1px 4px rgba(0,0,0,.18)',
-                transition: 'all 0.15s',
-              }}>{label}</button>
-            );
-          })}
-          <div style={{ width: 1, height: 16, backgroundColor: t.panelBorder, margin: '0 2px' }} />
-          {[
-            { label: 'Plants', on: plantsOn, toggle: togglePlants },
-            { label: 'Lines',  on: linesOn,  toggle: toggleLines  },
-          ].map(({ label, on, toggle }) => (
-            <button key={label} onClick={toggle} style={{
-              fontSize: '0.52rem', letterSpacing: '0.5px', fontFamily: 'inherit',
-              padding: '4px 8px', borderRadius: 5, cursor: 'pointer',
-              border: `1px solid ${on ? 'rgba(128,160,192,0.55)' : t.panelBorder}`,
-              backgroundColor: on ? 'rgba(128,160,192,0.12)' : t.panel,
-              color: on ? t.lbl : t.lblMuted,
-              boxShadow: '0 1px 4px rgba(0,0,0,.18)',
-              transition: 'all 0.15s',
-            }}>{label}</button>
-          ))}
+          {/* EPM map badge */}
+          {isEpmMode && (
+            <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 10,
+              fontSize: '0.46rem', color: t.lblMuted, backgroundColor: t.panel,
+              border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: '3px 7px' }}>
+              EPM zones + NTC · {epmData.ntc.length} corridors
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Right panel */}
       <div style={{
-        width: 480, height: 'calc(100vh - 46px)', overflowY: 'auto',
+        width: showMap ? panelWidth : '100%',
+        maxWidth: showMap ? panelWidth : 800,
+        margin: showMap ? 0 : '0 auto',
+        height: 'calc(100vh - 46px)', overflowY: 'auto',
         padding: '18px 16px',
-        backgroundColor: t.panel, borderLeft: `1px solid ${t.panelBorder}`,
+        backgroundColor: t.panel, borderLeft: showMap ? `1px solid ${t.panelBorder}` : 'none',
         flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -1524,7 +1453,7 @@ export default function RegionPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 14, flexWrap: 'wrap' }}>
-          {['Overview', 'Supply', 'Demand', 'Topology', 'About'].map(tab => {
+          {['Overview', 'Supply', 'Demand', 'Trade', 'About'].map(tab => {
             const key    = tab.toLowerCase();
             const active = activeTab === key;
             return (
@@ -1541,55 +1470,28 @@ export default function RegionPage() {
           })}
         </div>
 
-        {activeTab === 'overview'  && (
+        {/* Tab content */}
+        {activeTab === 'overview' && (
           !region.epm  ? <NotAvailable t={t} /> :
           epmLoading   ? <LoadingBox t={t} /> :
           epmData      ? <EpmOverviewTab t={t} epmData={epmData} region={region} /> :
                          <NotAvailable t={t} />
         )}
-        {activeTab === 'supply'    && (
+        {activeTab === 'supply' && (
           !region.epm  ? <NotAvailable t={t} /> :
           epmLoading   ? <LoadingBox t={t} /> :
-          epmData      ? <EpmSupplyTab t={t} epmData={epmData} /> :
+          epmData      ? <EpmSupplyTab t={t} epmData={epmData} region={region} /> :
                          <NotAvailable t={t} />
         )}
-        {activeTab === 'demand'    && <DemandTab   t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} />}
-        {activeTab === 'topology'  && <TopologyTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} zonesAvailable={zonesAvailable} zoningConfigs={zoningConfigs} />}
-        {activeTab === 'about'     && <AboutTab    region={region} t={t} epmData={epmData} />}
-
-        {/* Export section */}
-        <div style={{ marginTop: 20, borderTop: `1px solid ${t.panelBorder}`, paddingTop: 12 }}>
-          <span style={{ fontSize: '0.47rem', letterSpacing: '2px', fontWeight: 700, color: t.lblMuted, textTransform: 'uppercase', display: 'block', marginBottom: 7 }}>
-            Export Data
-          </span>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-            {[
-              { label: 'Plants GeoJSON',  handler: handleDownloadPlants },
-              { label: 'Lines GeoJSON',   handler: handleDownloadLines  },
-              { label: 'Capacity CSV',    handler: handleDownloadCapacity },
-              tariffs && { label: 'Tariffs CSV', handler: handleDownloadTariffs },
-              access  && { label: 'Access CSV',  handler: handleDownloadAccess  },
-            ].filter(Boolean).map(({ label, handler }) => (
-              <button key={label} onClick={handler} style={{
-                ...dlBtn,
-                border: `1px solid ${t.panelBorder}`,
-                padding: '4px 6px', justifyContent: 'center',
-                fontSize: '0.52rem', color: t.muted,
-              }}>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-                {label}
-              </button>
-            ))}
-          </div>
-          <p style={{ fontSize: '0.47rem', color: t.lblMuted, marginTop: 6, fontStyle: 'italic' }}>
-            Source: {plantSource.toUpperCase()} · {region.name}
-          </p>
-        </div>
+        {activeTab === 'demand' && (
+          <DemandTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} />
+        )}
+        {activeTab === 'trade' && (
+          <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} />
+        )}
+        {activeTab === 'about' && (
+          <AboutTab region={region} t={t} epmData={epmData} />
+        )}
       </div>
     </div>
   );

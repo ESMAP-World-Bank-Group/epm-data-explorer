@@ -14,6 +14,15 @@ function parseCSV(text) {
   });
 }
 
+export async function fetchLinestringGeoJSON(branch, dataFolder) {
+  const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/linestring_countries.geojson`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
 export async function fetchEpmCSV(branch, dataFolder, relPath) {
   const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/${relPath}`;
   try {
@@ -67,15 +76,42 @@ export const STATUS_LABEL = { 1: 'Existing', 2: 'Committed', 3: 'Candidate' };
 // ── Processors ───────────────────────────────────────────────────────────────
 
 export function processGenData(rows) {
-  return rows.map(r => ({
-    g:        r.g || '',
-    zone:     r.z || '',
-    tech:     r.tech || '',
-    fuel:     normalizeFuel(r.fuel || r.f || ''),
-    fuelRaw:  r.fuel || r.f || '',
-    status:   parseInt(r.Status || r.status || '0'),
-    capacity: parseFloat(r.Capacity || r.capacity || '0') || 0,
-  })).filter(r => r.capacity > 0 && r.status >= 1 && r.status <= 3);
+  return rows.map(r => {
+    const status   = parseInt(r.Status || r.status || '0');
+    const capacity = parseFloat(r.Capacity || r.capacity || '0') || 0;
+    if (capacity <= 0 || status < 1 || status > 3) return null;
+    return {
+      g:        r.g || '',
+      zone:     r.z || '',
+      tech:     r.tech || '',
+      fuel:     normalizeFuel(r.fuel || r.f || ''),
+      fuelRaw:  r.fuel || r.f || '',
+      status,
+      capacity,
+      stYr:     parseInt(r.StYr || r.stYr || '0') || null,
+      retrYr:   parseInt(r.RetrYr || r.retrYr || '0') || null,
+      heatRate: parseFloat(r.HeatRate || r.heatRate || '0') || null,
+      capex:    parseFloat(r.Capex || r.capex || '0') || null,
+      fom:      parseFloat(r.FOMperMW || r.fomPerMW || '0') || null,
+      vom:      parseFloat(r.VOM || r.vom || '0') || null,
+    };
+  }).filter(Boolean);
+}
+
+/** Average hourly demand profile per zone: { zone: [h1avg..h24avg] } (values 0-1) */
+export function processDemandProfile(rows) {
+  if (!rows?.length) return {};
+  const byZone = {};
+  for (const r of rows) {
+    const z = r.z;
+    if (!byZone[z]) byZone[z] = { sum: new Array(24).fill(0), count: 0 };
+    for (let h = 1; h <= 24; h++) byZone[z].sum[h - 1] += parseFloat(r[`t${h}`]) || 0;
+    byZone[z].count++;
+  }
+  const result = {};
+  for (const [z, d] of Object.entries(byZone))
+    result[z] = d.sum.map(v => v / d.count);
+  return result;
 }
 
 /** Returns { zone, type ('peak'|'energy'), years: { '2024': val, ... } }[] */
