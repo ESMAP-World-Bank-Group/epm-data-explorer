@@ -12,10 +12,27 @@ import {
   fetchEpmCSV, processGenData, processDemand, processNTC,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
 } from '../utils/epmFetch';
-import {
-  ComposedChart, BarChart, Bar, Line, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
-} from 'recharts';
+// chart.js loaded via CDN script in index.html — no npm dep needed
+function CJChart({ type, data, options, height }) {
+  const canvasRef = useRef(null);
+  const chartRef  = useRef(null);
+  const sig = JSON.stringify({ type, labels: data.labels,
+    ds: data.datasets?.map(d => ({ l: d.label, n: d.data?.length, t: d.type, f: d.fill })) });
+
+  useEffect(() => {
+    const CJ = window.Chart;
+    if (!CJ || !canvasRef.current) return;
+    chartRef.current?.destroy();
+    chartRef.current = new CJ(canvasRef.current, { type, data, options });
+    return () => { chartRef.current?.destroy(); chartRef.current = null; };
+  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div style={{ height, width: '100%', position: 'relative' }}>
+      <canvas ref={canvasRef} />
+    </div>
+  );
+}
 
 const ZONE_PALETTE = [
   '#1E9AF5','#FF6B6B','#52C860','#FFD700','#C8A8F0',
@@ -98,13 +115,27 @@ function fmt(n, digits = 0) {
   return n.toLocaleString('en-US', { maximumFractionDigits: digits });
 }
 
-const ttStyle = (t) => ({
-  contentStyle: { fontSize: 9, backgroundColor: t.panel, border: `1px solid ${t.panelBorder}`,
-    borderRadius: 4, padding: '4px 8px' },
-  labelStyle: { color: t.lbl, fontWeight: 700 },
-});
-const tickS  = (t) => ({ fontSize: 8, fill: t.muted });
-const gridS  = (t) => ({ stroke: t.panelBorder, strokeDasharray: '2 3' });
+function cjDefaults(t) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: t.panel, borderColor: t.panelBorder, borderWidth: 1,
+        titleColor: t.lbl, bodyColor: t.muted,
+        titleFont: { size: 9 }, bodyFont: { size: 9 }, padding: 6,
+      },
+    },
+    scales: {
+      x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
+      y: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
+    },
+  };
+}
+function hexA(hex, a) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
 
 // ── Overview tab (EPM) ────────────────────────────────────────────────────────
 
@@ -150,20 +181,24 @@ function EpmOverviewTab({ t, epmData, region }) {
       {/* Capacity by fuel — horizontal bar chart */}
       <div>
         <SectionTitle t={t}>Existing capacity by fuel (MW)</SectionTitle>
-        <ResponsiveContainer width="100%" height={Math.min(fuelData.length * 22 + 24, 240)}>
-          <BarChart data={fuelData} layout="vertical"
-            margin={{ top: 0, right: 48, left: 56, bottom: 0 }}>
-            <CartesianGrid horizontal={false} {...gridS(t)} />
-            <XAxis type="number" tick={tickS(t)} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-            <YAxis type="category" dataKey="fuel" tick={{ ...tickS(t), fontSize: 9 }} width={56} />
-            <Tooltip {...ttStyle(t)} formatter={v => [`${v.toLocaleString()} MW`, 'Capacity']} />
-            <Bar dataKey="mw" maxBarSize={14}>
-              {fuelData.map(({ fuel }) => (
-                <Cell key={fuel} fill={EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <CJChart type="bar" height={Math.min(fuelData.length * 22 + 24, 240)}
+            data={{
+              labels: fuelData.map(d => d.fuel),
+              datasets: [{ data: fuelData.map(d => d.mw),
+                backgroundColor: fuelData.map(d => EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other),
+                borderWidth: 0, barThickness: 12 }],
+            }}
+            options={{ ...cjDefaults(t), indexAxis: 'y',
+              scales: {
+                x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                  callback: v => `${(v/1000).toFixed(0)}k` } },
+                y: { grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+              },
+              plugins: { ...cjDefaults(t).plugins,
+                tooltip: { ...cjDefaults(t).plugins.tooltip,
+                  callbacks: { label: ctx => `${ctx.raw.toLocaleString()} MW` } } },
+            }}
+          />
       </div>
     </div>
   );
@@ -193,24 +228,29 @@ function EpmSupplyTab({ t, epmData }) {
   return (
     <div>
       <SectionTitle t={t}>Installed capacity by fuel (MW)</SectionTitle>
-      <ResponsiveContainer width="100%" height={Math.min(fuels.length * 22 + 24, 280)}>
-        <BarChart data={chartData} layout="vertical"
-          margin={{ top: 0, right: 8, left: 64, bottom: 0 }}>
-          <CartesianGrid horizontal={false} {...gridS(t)} />
-          <XAxis type="number" tick={tickS(t)} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-          <YAxis type="category" dataKey="fuel" tick={{ ...tickS(t), fontSize: 9 }} width={64} />
-          <Tooltip {...ttStyle(t)} formatter={(v, name) => [`${v.toLocaleString()} MW`, name]} />
-          <Bar dataKey="Existing"  stackId="s" maxBarSize={14}>
-            {chartData.map(({ fuel }) => <Cell key={fuel} fill={EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other} fillOpacity={1} />)}
-          </Bar>
-          <Bar dataKey="Committed" stackId="s" maxBarSize={14}>
-            {chartData.map(({ fuel }) => <Cell key={fuel} fill={EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other} fillOpacity={0.5} />)}
-          </Bar>
-          <Bar dataKey="Candidate" stackId="s" maxBarSize={14}>
-            {chartData.map(({ fuel }) => <Cell key={fuel} fill={EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other} fillOpacity={0.22} />)}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+      <CJChart type="bar" height={Math.min(fuels.length * 22 + 24, 280)}
+          data={{
+            labels: chartData.map(d => d.fuel),
+            datasets: [
+              { label: 'Existing',  data: chartData.map(d => d.Existing),
+                backgroundColor: chartData.map(d => EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other),
+                borderWidth: 0, barThickness: 12 },
+              { label: 'Committed', data: chartData.map(d => d.Committed),
+                backgroundColor: chartData.map(d => hexA(EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other, 0.5)),
+                borderWidth: 0, barThickness: 12 },
+              { label: 'Candidate', data: chartData.map(d => d.Candidate),
+                backgroundColor: chartData.map(d => hexA(EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other, 0.22)),
+                borderWidth: 0, barThickness: 12 },
+            ],
+          }}
+          options={{ ...cjDefaults(t), indexAxis: 'y',
+            scales: {
+              x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                callback: v => `${(v/1000).toFixed(0)}k` } },
+              y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+            },
+          }}
+        />
       <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
         {[['Existing', 1.0], ['Committed', 0.5], ['Candidate', 0.22]].map(([lbl, op]) => (
           <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 4,
@@ -299,27 +339,34 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
       {/* ── Chart 1: dual-axis total ── */}
       <div>
         <SectionTitle t={t}>Total demand forecast</SectionTitle>
-        <ResponsiveContainer width="100%" height={190}>
-          <ComposedChart data={totalByYear} margin={{ top: 4, right: 48, left: 4, bottom: 0 }}>
-            <CartesianGrid {...gridS(t)} />
-            <XAxis dataKey="year" tick={tickS(t)} interval={xInterval} />
-            <YAxis yAxisId="L" tick={tickS(t)} width={38}
-              label={{ value: 'GW', angle: -90, position: 'insideLeft', fontSize: 8, fill: t.muted, dx: 10 }} />
-            <YAxis yAxisId="R" orientation="right" tick={tickS(t)} width={38}
-              label={{ value: 'TWh', angle: 90, position: 'insideRight', fontSize: 8, fill: t.muted, dx: -4 }} />
-            <Tooltip {...ttStyle(t)} formatter={(v, name) => [v, name]} />
-            <Bar     yAxisId="L" dataKey="Peak (GW)"    fill="#1a5fa8" fillOpacity={0.75} maxBarSize={18} />
-            <Line    yAxisId="R" dataKey="Energy (TWh)" stroke="#FF6B6B" strokeWidth={2.5} dot={false} type="monotone" />
-          </ComposedChart>
-        </ResponsiveContainer>
+        <CJChart type="bar" height={190}
+            data={{
+              labels: totalByYear.map(d => d.year),
+              datasets: [
+                { type: 'bar',  label: 'Peak (GW)',    yAxisID: 'yL',
+                  data: totalByYear.map(d => d['Peak (GW)']),
+                  backgroundColor: hexA('#1a5fa8', 0.75), borderWidth: 0 },
+                { type: 'line', label: 'Energy (TWh)', yAxisID: 'yR',
+                  data: totalByYear.map(d => d['Energy (TWh)']),
+                  borderColor: '#FF6B6B', borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
+              ],
+            }}
+            options={{ ...cjDefaults(t),
+              scales: {
+                x:  { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 }, maxTicksLimit: 7 } },
+                yL: { type: 'linear', position: 'left',  title: { display: true, text: 'GW',  color: t.muted, font: { size: 7 } },
+                  grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
+                yR: { type: 'linear', position: 'right', title: { display: true, text: 'TWh', color: t.muted, font: { size: 7 } },
+                  grid: { drawOnChartArea: false }, ticks: { color: t.muted, font: { size: 8 } } },
+              },
+            }}
+          />
         <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.48rem', color: t.muted }}>
-            <div style={{ width: 12, height: 10, backgroundColor: '#1a5fa8', opacity: 0.75, borderRadius: 1 }} />
-            Peak GW (left)
+            <div style={{ width: 12, height: 10, backgroundColor: '#1a5fa8', opacity: 0.75, borderRadius: 1 }} />Peak GW (left)
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.48rem', color: t.muted }}>
-            <div style={{ width: 18, height: 2.5, backgroundColor: '#FF6B6B', borderRadius: 1 }} />
-            Energy TWh (right)
+            <div style={{ width: 18, height: 2.5, backgroundColor: '#FF6B6B', borderRadius: 1 }} />Energy TWh (right)
           </div>
         </div>
       </div>
@@ -346,33 +393,43 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
           ))}
         </div>
 
-        <ResponsiveContainer width="100%" height={210}>
-          <ComposedChart data={byZoneYear} margin={{ top: 4, right: 52, left: 4, bottom: 0 }}>
-            <CartesianGrid {...gridS(t)} />
-            <XAxis dataKey="year" tick={tickS(t)} interval={xInterval} />
-            <YAxis yAxisId="L" tick={tickS(t)} width={42}
-              tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}
-              label={{ value: 'MW', angle: -90, position: 'insideLeft', fontSize: 8, fill: t.muted, dx: 12 }} />
-            <YAxis yAxisId="R" orientation="right" tick={tickS(t)} width={40}
-              label={{ value: 'TWh', angle: 90, position: 'insideRight', fontSize: 8, fill: t.muted, dx: -4 }} />
-            <Tooltip {...ttStyle(t)}
-              formatter={(v, name) => name === 'Energy (TWh)'
-                ? [`${v} TWh`, 'Energy']
-                : [`${v.toLocaleString()} MW`, name]} />
-            {activeZones.map((z, i) => {
-              const color = ZONE_PALETTE[i % ZONE_PALETTE.length];
-              const common = { key: z, yAxisId: 'L', dataKey: z, name: z,
-                fill: color, stroke: color };
-              if (chartType === 'area')
-                return <Area {...common} stackId="s" type="monotone" fillOpacity={0.65} strokeWidth={0} />;
-              if (chartType === 'bar')
-                return <Bar  {...common} stackId="s" maxBarSize={18} />;
-              return <Line {...common} type="monotone" strokeWidth={1.5} dot={false} />;
-            })}
-            <Line yAxisId="R" dataKey="Energy (TWh)" stroke="#FF6B6B"
-              strokeWidth={2} dot={false} strokeDasharray="5 3" type="monotone" />
-          </ComposedChart>
-        </ResponsiveContainer>
+        <CJChart type={chartType === 'bar' ? 'bar' : 'line'} height={210}
+            data={{
+              labels: byZoneYear.map(d => d.year),
+              datasets: [
+                ...activeZones.map((z, i) => {
+                  const color = ZONE_PALETTE[i % ZONE_PALETTE.length];
+                  return {
+                    type: chartType === 'bar' ? 'bar' : 'line',
+                    label: z, yAxisID: 'yL',
+                    data: byZoneYear.map(d => d[z]),
+                    backgroundColor: chartType === 'area' ? hexA(color, 0.65) : color,
+                    borderColor: color, borderWidth: chartType === 'line' ? 1.5 : 0,
+                    fill: chartType === 'area' ? true : false,
+                    pointRadius: 0, tension: 0.3,
+                    stack: chartType !== 'line' ? 'zones' : undefined,
+                  };
+                }),
+                { type: 'line', label: 'Energy (TWh)', yAxisID: 'yR',
+                  data: byZoneYear.map(d => d['Energy (TWh)']),
+                  borderColor: '#FF6B6B', borderWidth: 2, borderDash: [5,3],
+                  pointRadius: 0, tension: 0.3 },
+              ],
+            }}
+            options={{ ...cjDefaults(t),
+              scales: {
+                x:  { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 }, maxTicksLimit: 7 } },
+                yL: { type: 'linear', position: 'left', stacked: chartType !== 'line',
+                  title: { display: true, text: 'MW', color: t.muted, font: { size: 7 } },
+                  grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                  callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
+                yR: { type: 'linear', position: 'right',
+                  title: { display: true, text: 'TWh', color: t.muted, font: { size: 7 } },
+                  grid: { drawOnChartArea: false }, ticks: { color: t.muted, font: { size: 8 } } },
+              },
+              plugins: { ...cjDefaults(t).plugins, legend: { display: false } },
+            }}
+          />
 
         {/* Zone legend */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 10px', marginTop: 6 }}>
@@ -403,21 +460,30 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
             {allYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
-        <ResponsiveContainer width="100%" height={170}>
-          <BarChart data={byZoneSnap} margin={{ top: 4, right: 8, left: 4, bottom: 36 }}>
-            <CartesianGrid vertical={false} {...gridS(t)} />
-            <XAxis dataKey="zone" tick={{ ...tickS(t), angle: -35, textAnchor: 'end' }} interval={0} />
-            <YAxis tick={tickS(t)} tickFormatter={v => `${(v/1000).toFixed(0)}k`} width={34} />
-            <Tooltip {...ttStyle(t)} formatter={v => [`${v.toLocaleString()} GWh`]} />
-            <Bar dataKey="Energy (GWh)" maxBarSize={22}>
-              {byZoneSnap.map((entry) => {
-                const zi = allZones.indexOf(entry.zone);
-                return <Cell key={entry.zone}
-                  fill={ZONE_PALETTE[(zi >= 0 ? zi : 0) % ZONE_PALETTE.length]} />;
-              })}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <CJChart type="bar" height={170}
+            data={{
+              labels: byZoneSnap.map(d => d.zone),
+              datasets: [{
+                data: byZoneSnap.map(d => d['Energy (GWh)']),
+                backgroundColor: byZoneSnap.map(d => {
+                  const zi = allZones.indexOf(d.zone);
+                  return ZONE_PALETTE[(zi >= 0 ? zi : 0) % ZONE_PALETTE.length];
+                }),
+                borderWidth: 0,
+              }],
+            }}
+            options={{ ...cjDefaults(t),
+              scales: {
+                x: { grid: { display: false }, ticks: { color: t.muted, font: { size: 8 },
+                  maxRotation: 35, minRotation: 35 } },
+                y: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                  callback: v => `${(v/1000).toFixed(0)}k` } },
+              },
+              plugins: { ...cjDefaults(t).plugins,
+                tooltip: { ...cjDefaults(t).plugins.tooltip,
+                  callbacks: { label: ctx => `${ctx.raw.toLocaleString()} GWh` } } },
+            }}
+          />
       </div>
 
     </div>
