@@ -23,6 +23,15 @@ export async function fetchLinestringGeoJSON(branch, dataFolder) {
   } catch { return null; }
 }
 
+export async function fetchZonesGeoJSON(branch, dataFolder) {
+  const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/zones.geojson`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
 export async function fetchEpmCSV(branch, dataFolder, relPath) {
   const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/${relPath}`;
   try {
