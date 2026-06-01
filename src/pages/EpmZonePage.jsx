@@ -6,7 +6,7 @@ import { getT, mapStyle } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON,
   processGenData, processDemand, processNTC, processDemandProfile,
-  availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
+  availableYears, EPM_FUEL_COLORS, STATUS_LABEL, computeCentroid,
 } from '../utils/epmFetch';
 
 function CJChart({ type, data, options, height }) {
@@ -116,9 +116,14 @@ export default function EpmZonePage() {
     const zoneToCountry = Object.fromEntries(zcmapRows.map(r => [r.z, r.c]));
     const countryName   = zoneToCountry[zoneIdDecoded] || '';
 
-    // Zone centroids from BOTH linestring endpoints
+    // Zone centroids — from polygon centroids when zonesGJ available, else from linestring endpoints
     const zoneCentroids = {};
-    if (linestringGJ) {
+    if (zonesGJ) {
+      for (const f of zonesGJ.features) {
+        const z = f.properties.z;
+        if (z) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
+      }
+    } else if (linestringGJ) {
       for (const f of linestringGJ.features) {
         const coords = f.geometry.coordinates;
         const z = f.properties.z, z2 = f.properties.z_other;
@@ -127,7 +132,7 @@ export default function EpmZonePage() {
       }
     }
 
-    const center = zoneCentroids[zoneIdDecoded] || [20, 0];
+    const center = zoneCentroids[zoneIdDecoded] || [35, 39]; // fallback: Turkiye center
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -212,43 +217,65 @@ export default function EpmZonePage() {
       }
 
       // NTC lines — highlight connections to this zone
-      if (linestringGJ) {
+      {
         const ntcYrs = availableYears(epmData.ntc);
         const ntcYr  = ntcYrs[0] || '2024';
         const seenPairs = new Set();
-        const ntcFeatures = linestringGJ.features
-          .filter(f => {
-            const { z, z_other } = f.properties;
-            if (!z || !z_other) return false;
-            const key = [z, z_other].sort().join('||');
-            if (seenPairs.has(key)) return false; seenPairs.add(key);
-            const entry = epmData.ntc.find(r =>
-              (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
-            return (entry?.years[ntcYr] || 0) > 0;
-          })
-          .map(f => {
-            const { z, z_other } = f.properties;
-            const entry = epmData.ntc.find(r =>
-              (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
-            const isZone = z === zoneIdDecoded || z_other === zoneIdDecoded;
-            return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0, isZone } };
-          });
-        map.addSource('ntc-lines', { type: 'geojson',
-          data: { type: 'FeatureCollection', features: ntcFeatures } });
-        map.addLayer({ id: 'ntc-lines-bg', type: 'line', source: 'ntc-lines',
-          paint: { 'line-color': '#f0b030', 'line-width': 0.8, 'line-opacity': 0.2 } });
-        map.addLayer({ id: 'ntc-lines-active', type: 'line', source: 'ntc-lines',
-          filter: ['==', ['get', 'isZone'], true],
-          layout: { 'line-cap': 'round' },
-          paint: { 'line-color': '#f0b030',
-            'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0,1, 500,2, 2000,3.5, 8000,6],
-            'line-opacity': 0.95 } });
-        map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
-          filter: ['==', ['get', 'isZone'], true],
-          layout: { 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
-            'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
-          paint: { 'text-color': '#b07800',
-            'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+        let ntcFeatures = [];
+
+        if (Object.keys(zoneCentroids).length > 0) {
+          ntcFeatures = epmData.ntc
+            .filter(r => {
+              const key = [r.z, r.z2].sort().join('||');
+              if (seenPairs.has(key)) return false; seenPairs.add(key);
+              return (r.years[ntcYr] || 0) > 0 && zoneCentroids[r.z] && zoneCentroids[r.z2];
+            })
+            .map(r => {
+              const isZone = r.z === zoneIdDecoded || r.z2 === zoneIdDecoded;
+              return {
+                type: 'Feature',
+                properties: { z: r.z, z_other: r.z2, ntc_mw: r.years[ntcYr] || 0, isZone },
+                geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], zoneCentroids[r.z2]] },
+              };
+            });
+        } else if (linestringGJ) {
+          ntcFeatures = linestringGJ.features
+            .filter(f => {
+              const { z, z_other } = f.properties;
+              if (!z || !z_other) return false;
+              const key = [z, z_other].sort().join('||');
+              if (seenPairs.has(key)) return false; seenPairs.add(key);
+              const entry = epmData.ntc.find(r =>
+                (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+              return (entry?.years[ntcYr] || 0) > 0;
+            })
+            .map(f => {
+              const { z, z_other } = f.properties;
+              const entry = epmData.ntc.find(r =>
+                (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+              const isZone = z === zoneIdDecoded || z_other === zoneIdDecoded;
+              return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0, isZone } };
+            });
+        }
+
+        if (ntcFeatures.length > 0) {
+          map.addSource('ntc-lines', { type: 'geojson',
+            data: { type: 'FeatureCollection', features: ntcFeatures } });
+          map.addLayer({ id: 'ntc-lines-bg', type: 'line', source: 'ntc-lines',
+            paint: { 'line-color': '#f0b030', 'line-width': 0.8, 'line-opacity': 0.2 } });
+          map.addLayer({ id: 'ntc-lines-active', type: 'line', source: 'ntc-lines',
+            filter: ['==', ['get', 'isZone'], true],
+            layout: { 'line-cap': 'round' },
+            paint: { 'line-color': '#f0b030',
+              'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0,1, 500,2, 2000,3.5, 8000,6],
+              'line-opacity': 0.95 } });
+          map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
+            filter: ['==', ['get', 'isZone'], true],
+            layout: { 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
+              'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
+            paint: { 'text-color': '#b07800',
+              'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+        }
       }
 
       // Zone name label marker
