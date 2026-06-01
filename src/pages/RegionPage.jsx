@@ -12,6 +12,7 @@ import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON,
   processGenData, processDemand,
   processNTC, processDemandProfile, availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
+  computeCentroid,
 } from '../utils/epmFetch';
 
 // chart.js via CDN — no npm dep
@@ -35,22 +36,10 @@ function CJChart({ type, data, options, height }) {
 }
 
 const ZONE_PALETTE = [
-  '#1E9AF5','#FF6B6B','#52C860','#FFD700','#C8A8F0',
-  '#FF8C42','#44DAEC','#E74C3C','#9B59B6','#2ECC71',
+  '#1E9AF5','#5B8DD9','#52C860','#FFD700','#C8A8F0',
+  '#FF8C42','#44DAEC','#48C9B0','#9B59B6','#2ECC71',
   '#F39C12','#1ABC9C','#E67E22','#8E44AD','#16A085','#D35400',
 ];
-
-/** Compute the centroid of a GeoJSON polygon or multipolygon geometry. */
-function computeCentroid(geometry) {
-  if (!geometry) return null;
-  const rings = geometry.type === 'Polygon'
-    ? geometry.coordinates
-    : geometry.coordinates.flatMap(p => p);
-  let x = 0, y = 0, n = 0;
-  for (const ring of rings)
-    for (const [lon, lat] of ring) { x += lon; y += lat; n++; }
-  return n > 0 ? [x / n, y / n] : null;
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -969,9 +958,11 @@ export default function RegionPage() {
   const t            = getT(theme);
   const navigate     = useNavigate();
 
-  const containerRef     = useRef(null);
-  const mapRef           = useRef(null);
-  const donutMarkersRef  = useRef([]);
+  const containerRef       = useRef(null);
+  const mapRef             = useRef(null);
+  const donutMarkersRef    = useRef([]);
+  const zoneCentroidsRef   = useRef({});
+  const countryCentroidsRef = useRef({});
 
   const [region,        setRegion]        = useState(null);
   const [capacity,      setCapacity]      = useState(null);
@@ -997,6 +988,8 @@ export default function RegionPage() {
   const [satLabels,       setSatLabels]       = useState(false);
   const [epmData,         setEpmData]         = useState(null);
   const [epmLoading,      setEpmLoading]      = useState(false);
+  const [pieMode,         setPieMode]         = useState('country');
+  const [mapLoaded,       setMapLoaded]       = useState(0);
 
   // Static data
   useEffect(() => {
@@ -1151,6 +1144,10 @@ export default function RegionPage() {
           countryCentroids[c] = [d.sum[0] / d.n, d.sum[1] / d.n];
         }
 
+        // Store centroids in refs for pieMode effect
+        zoneCentroidsRef.current = zoneCentroids;
+        countryCentroidsRef.current = countryCentroids;
+
         // Zone polygon fill layer using zones.geojson
         if (zonesGJ) {
           const isoToCountry = {};
@@ -1262,26 +1259,8 @@ export default function RegionPage() {
           }
         }
 
-        // Country donut markers (one per country, aggregates all zones)
-        const countryGen = {};
-        for (const r of epmData.gen.filter(g => g.status === 1)) {
-          const c = zoneToCountry[r.zone] || r.zone;
-          if (!countryGen[c]) countryGen[c] = {};
-          countryGen[c][r.fuel] = (countryGen[c][r.fuel] || 0) + r.capacity;
-        }
-        donutMarkersRef.current.forEach(m => m.remove());
-        donutMarkersRef.current = [];
-        for (const [c, fuelMix] of Object.entries(countryGen)) {
-          const coord = countryCentroids[c];
-          if (!coord) continue;
-          const el = document.createElement('div');
-          el.style.cursor = 'pointer';
-          el.innerHTML = makeDonutSVG(fuelMix, tv);
-          el.addEventListener('click', () => navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`));
-          const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-            .setLngLat(coord).addTo(map);
-          donutMarkersRef.current.push(marker);
-        }
+        // Trigger donut rendering via pieMode effect
+        setMapLoaded(n => n + 1);
 
       } else {
         // ── OSM map ──────────────────────────────────────────────────────────
@@ -1437,6 +1416,53 @@ export default function RegionPage() {
     toggleSatLabels(map, satLabels, theme);
   }, [satLabels, basemap, theme]);
 
+  // Pie donut markers — re-render on pieMode toggle or after map loads
+  useEffect(() => {
+    if (!mapRef.current || !epmData || mapLoaded === 0) return;
+    const tv = getT(theme);
+    const zcmapRows = epmData.zcmap;
+    const zoneToCountry = Object.fromEntries(zcmapRows.map(r => [r.z, r.c]));
+
+    donutMarkersRef.current.forEach(m => m.remove());
+    donutMarkersRef.current = [];
+
+    if (pieMode === 'zone') {
+      for (const { z, c } of zcmapRows) {
+        const coord = zoneCentroidsRef.current[z];
+        if (!coord) continue;
+        const fuelMix = {};
+        for (const r of epmData.gen.filter(g => g.status === 1 && g.zone === z))
+          fuelMix[r.fuel] = (fuelMix[r.fuel] || 0) + r.capacity;
+        if (!Object.keys(fuelMix).length) continue;
+        const el = document.createElement('div');
+        el.style.cursor = 'pointer';
+        el.innerHTML = makeDonutSVG(fuelMix, tv, 44);
+        el.addEventListener('click', () => navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`));
+        const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat(coord).addTo(mapRef.current);
+        donutMarkersRef.current.push(marker);
+      }
+    } else {
+      const countryGen = {};
+      for (const r of epmData.gen.filter(g => g.status === 1)) {
+        const c = zoneToCountry[r.zone] || r.zone;
+        if (!countryGen[c]) countryGen[c] = {};
+        countryGen[c][r.fuel] = (countryGen[c][r.fuel] || 0) + r.capacity;
+      }
+      for (const [c, fuelMix] of Object.entries(countryGen)) {
+        const coord = countryCentroidsRef.current[c];
+        if (!coord) continue;
+        const el = document.createElement('div');
+        el.style.cursor = 'pointer';
+        el.innerHTML = makeDonutSVG(fuelMix, tv);
+        el.addEventListener('click', () => navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`));
+        const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat(coord).addTo(mapRef.current);
+        donutMarkersRef.current.push(marker);
+      }
+    }
+  }, [pieMode, mapLoaded, theme]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Plant source hot-swap (OSM mode only)
   useEffect(() => {
     const map = mapRef.current;
@@ -1495,12 +1521,27 @@ export default function RegionPage() {
               })}
           </div>
 
-          {/* EPM map badge */}
+          {/* EPM map badge + pie mode toggle */}
           {isEpmMode && (
-            <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 10,
-              fontSize: '0.46rem', color: t.lblMuted, backgroundColor: t.panel,
-              border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: '3px 7px' }}>
-              EPM zones + NTC · {epmData.ntc.length} corridors
+            <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div style={{ fontSize: '0.46rem', color: t.lblMuted, backgroundColor: t.panel,
+                border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: '3px 7px' }}>
+                EPM zones + NTC · {epmData.ntc.length} corridors
+              </div>
+              <div style={{ display: 'flex', gap: 2, backgroundColor: t.panel,
+                border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: 2 }}>
+                {['country', 'zone'].map(mode => (
+                  <button key={mode} onClick={() => setPieMode(mode)} style={{
+                    fontSize: '0.46rem', fontFamily: 'inherit', cursor: 'pointer',
+                    padding: '2px 7px', borderRadius: 3, border: 'none',
+                    backgroundColor: pieMode === mode ? 'rgba(74,143,204,0.2)' : 'transparent',
+                    color: pieMode === mode ? t.lbl : t.lblMuted,
+                    fontWeight: pieMode === mode ? 700 : 400,
+                  }}>
+                    {mode === 'country' ? 'By country' : 'By zone'}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>

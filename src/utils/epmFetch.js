@@ -1,5 +1,17 @@
 const RAW_BASE = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
 
+/** Compute the centroid of a GeoJSON Polygon or MultiPolygon geometry. */
+export function computeCentroid(geometry) {
+  if (!geometry) return null;
+  const rings = geometry.type === 'Polygon'
+    ? geometry.coordinates
+    : geometry.coordinates.flatMap(p => p);
+  let x = 0, y = 0, n = 0;
+  for (const ring of rings)
+    for (const [lon, lat] of ring) { x += lon; y += lat; n++; }
+  return n > 0 ? [x / n, y / n] : null;
+}
+
 function stripBOM(s) {
   return s.charCodeAt(0) === 0xFEFF ? s.slice(1) : s;
 }
