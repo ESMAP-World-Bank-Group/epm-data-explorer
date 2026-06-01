@@ -40,6 +40,18 @@ const ZONE_PALETTE = [
   '#F39C12','#1ABC9C','#E67E22','#8E44AD','#16A085','#D35400',
 ];
 
+/** Compute the centroid of a GeoJSON polygon or multipolygon geometry. */
+function computeCentroid(geometry) {
+  if (!geometry) return null;
+  const rings = geometry.type === 'Polygon'
+    ? geometry.coordinates
+    : geometry.coordinates.flatMap(p => p);
+  let x = 0, y = 0, n = 0;
+  for (const ring of rings)
+    for (const [lon, lat] of ring) { x += lon; y += lat; n++; }
+  return n > 0 ? [x / n, y / n] : null;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fitBounds(isos, countries) {
@@ -1107,9 +1119,14 @@ export default function RegionPage() {
         const countryColorMap = {};
         regionCountries.forEach((c, i) => { countryColorMap[c] = ZONE_PALETTE[i % ZONE_PALETTE.length]; });
 
-        // Zone centroids from BOTH linestring endpoints
+        // Zone centroids — from polygon centroids when zonesGJ available, else from linestring endpoints
         const zoneCentroids = {};
-        if (lsgj) {
+        if (zonesGJ) {
+          for (const f of zonesGJ.features) {
+            const z = f.properties.z;
+            if (z) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
+          }
+        } else if (lsgj) {
           for (const f of lsgj.features) {
             const coords = f.geometry.coordinates;
             const z = f.properties.z;
@@ -1188,39 +1205,61 @@ export default function RegionPage() {
         }
 
         // NTC transmission lines
-        if (lsgj) {
+        {
           const ntcYrs = availableYears(epmData.ntc);
           const ntcYr  = ntcYrs[0] || '2024';
           const seenPairs = new Set();
-          const ntcFeatures = lsgj.features
-            .filter(f => {
-              const { z, z_other } = f.properties;
-              if (!z || !z_other) return false;
-              const key = [z, z_other].sort().join('||');
-              if (seenPairs.has(key)) return false;
-              seenPairs.add(key);
-              const entry = epmData.ntc.find(r =>
-                (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
-              return (entry?.years[ntcYr] || 0) > 0;
-            })
-            .map(f => {
-              const { z, z_other } = f.properties;
-              const entry = epmData.ntc.find(r =>
-                (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
-              return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0 } };
-            });
-          map.addSource('ntc-lines', { type: 'geojson',
-            data: { type: 'FeatureCollection', features: ntcFeatures } });
-          map.addLayer({ id: 'ntc-lines-layer', type: 'line', source: 'ntc-lines',
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': '#f0b030',
-              'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3.5, 8000, 6],
-              'line-opacity': 0.88 } });
-          map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
-            layout: { 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
-              'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
-            paint: { 'text-color': '#b07800',
-              'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+          let ntcFeatures = [];
+
+          if (Object.keys(zoneCentroids).length > 0) {
+            // Build NTC lines from computed zone centroids + pTransferLimit data
+            ntcFeatures = epmData.ntc
+              .filter(r => {
+                const key = [r.z, r.z2].sort().join('||');
+                if (seenPairs.has(key)) return false;
+                seenPairs.add(key);
+                return (r.years[ntcYr] || 0) > 0 && zoneCentroids[r.z] && zoneCentroids[r.z2];
+              })
+              .map(r => ({
+                type: 'Feature',
+                properties: { z: r.z, z_other: r.z2, ntc_mw: r.years[ntcYr] || 0 },
+                geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], zoneCentroids[r.z2]] },
+              }));
+          } else if (lsgj) {
+            // Fallback: original linestring-based NTC (for regions without zonesGJ)
+            ntcFeatures = lsgj.features
+              .filter(f => {
+                const { z, z_other } = f.properties;
+                if (!z || !z_other) return false;
+                const key = [z, z_other].sort().join('||');
+                if (seenPairs.has(key)) return false;
+                seenPairs.add(key);
+                const entry = epmData.ntc.find(r =>
+                  (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+                return (entry?.years[ntcYr] || 0) > 0;
+              })
+              .map(f => {
+                const { z, z_other } = f.properties;
+                const entry = epmData.ntc.find(r =>
+                  (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+                return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0 } };
+              });
+          }
+
+          if (ntcFeatures.length > 0) {
+            map.addSource('ntc-lines', { type: 'geojson',
+              data: { type: 'FeatureCollection', features: ntcFeatures } });
+            map.addLayer({ id: 'ntc-lines-layer', type: 'line', source: 'ntc-lines',
+              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              paint: { 'line-color': '#f0b030',
+                'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3.5, 8000, 6],
+                'line-opacity': 0.88 } });
+            map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
+              layout: { 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
+                'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
+              paint: { 'text-color': '#b07800',
+                'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+          }
         }
 
         // Country donut markers (one per country, aggregates all zones)
