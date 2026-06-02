@@ -429,6 +429,23 @@ export default function EpmCountryPage() {
     });
   }, [filteredPlants, supplySort]);
 
+  // Trade corridors — deduplicated, must stay before early return
+  const tradeCorridors = useMemo(() => {
+    const seen = new Set();
+    return ntcAll.reduce((acc, r) => {
+      const key = [r.z,r.z2].sort().join('||');
+      if (seen.has(key)) return acc; seen.add(key);
+      const rev = ntcAll.find(x=>x.z===r.z2&&x.z2===r.z);
+      acc.push({
+        key, z:r.z, z2:r.z2,
+        c: zoneToCountry[r.z]||r.z, c2: zoneToCountry[r.z2]||r.z2,
+        mwFwd: r.years[refYr]||0, mwRev: rev ? (rev.years[refYr]||0) : 0,
+        isCountry: countryZoneIds.includes(r.z)||countryZoneIds.includes(r.z2),
+      });
+      return acc;
+    }, []).sort((a,b)=>b.mwFwd-a.mwFwd);
+  }, [ntcAll, zoneToCountry, countryZoneIds, refYr]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const hasData = !!(epmData && !loading);
   if (!region) return <div style={{ padding: 40, color: t.text }}>Loading…</div>;
 
@@ -605,23 +622,6 @@ export default function EpmCountryPage() {
       })),
     };
   };
-
-  // ── Trade data ────────────────────────────────────────────────────────────────
-  const tradeCorridors = useMemo(() => {
-    const seen = new Set();
-    return ntcAll.reduce((acc, r) => {
-      const key = [r.z,r.z2].sort().join('||');
-      if (seen.has(key)) return acc; seen.add(key);
-      const rev = ntcAll.find(x=>x.z===r.z2&&x.z2===r.z);
-      acc.push({
-        key, z:r.z, z2:r.z2,
-        c: zoneToCountry[r.z]||r.z, c2: zoneToCountry[r.z2]||r.z2,
-        mwFwd: r.years[refYr]||0, mwRev: rev ? (rev.years[refYr]||0) : 0,
-        isCountry: countryZoneIds.includes(r.z)||countryZoneIds.includes(r.z2),
-      });
-      return acc;
-    }, []).sort((a,b)=>b.mwFwd-a.mwFwd);
-  }, [ntcAll, zoneToCountry, countryZoneIds, refYr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mix chart config ──────────────────────────────────────────────────────────
   const mixLabels = mixView === 'zone'
