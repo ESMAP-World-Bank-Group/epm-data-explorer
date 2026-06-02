@@ -603,8 +603,8 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
       ]};
     }
 
+    // Use full segments list for stable color assignment (not filtered list)
     const segments = segMode === 'zone' ? allZones : allCountries;
-    const segColor = (seg, i) => ZONE_PALETTE[i % ZONE_PALETTE.length];
     const ebySegYear = {};
     const pby = {};
 
@@ -623,11 +623,14 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
       }
     }
 
-    const visSegs = segments.filter(s => !hidden.has(s));
+    // Iterate all segments (not filtered), skip hidden — preserves color index
     return { labels: allYears, datasets: [
-      ...visSegs.map((seg, i) => ({ type:'bar', label:seg, yAxisID:'yL',
-        data: allYears.map(y => Math.round(ebySegYear[seg]?.[y]||0)),
-        backgroundColor: segColor(seg,i), borderWidth:0, stack:'energy' })),
+      ...segments.flatMap((seg, i) => {
+        if (hidden.has(seg)) return [];
+        return [{ type:'bar', label:seg, yAxisID:'yL',
+          data: allYears.map(y => Math.round(ebySegYear[seg]?.[y]||0)),
+          backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length], borderWidth:0, stack:'energy' }];
+      }),
       { type:'line', label:'Peak (GW)', yAxisID:'yR',
         data: allYears.map(y => +((pby[y]||0)/1000).toFixed(2)),
         borderColor:'#FF6B6B', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
@@ -778,6 +781,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1 }}>
             <CJChart type="bar" height={180} data={forecastData}
+              cacheKey={`forecast|${segMode}|${[...hidden].sort().join(',')}`}
               options={{ ...cjDefaults(t),
                 scales: {
                   x: { stacked:true, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8},maxTicksLimit:7} },

@@ -94,6 +94,19 @@ export const EPM_FUEL_COLORS = {
 
 export const STATUS_LABEL = { 1: 'Existing', 2: 'Committed', 3: 'Candidate' };
 
+// ── Column-name helpers (EPM models use inconsistent headers) ─────────────────
+
+/** Read zone ID — tolerates z, zone, Zone */
+function rZone(r)    { return r.z    || r.zone  || r.Zone  || ''; }
+/** Read season — tolerates season, q, Q, m */
+function rSeason(r)  { return r.season || r.q   || r.Q    || r.m  || ''; }
+/** Read daytype — tolerates daytype, d, D */
+function rDaytype(r) { return r.daytype || r.d  || r.D    || ''; }
+/** Read hourly value at index i (1-based) — tolerates t01 and t1 */
+function rT(r, i) {
+  return parseFloat(r[`t${String(i).padStart(2,'0')}`] || r[`t${i}`] || 0) || 0;
+}
+
 // ── Processors ───────────────────────────────────────────────────────────────
 
 export function processGenData(rows) {
@@ -103,7 +116,7 @@ export function processGenData(rows) {
     if (capacity <= 0 || status < 1 || status > 3) return null;
     return {
       g:        r.g || '',
-      zone:     r.z || '',
+      zone:     rZone(r),
       tech:     r.tech || '',
       fuel:     normalizeFuel(r.fuel || r.f || ''),
       fuelRaw:  r.fuel || r.f || '',
@@ -140,7 +153,7 @@ export function processDemand(rows) {
   if (!rows?.length) return [];
   const yearCols = Object.keys(rows[0]).filter(k => /^\d{4}$/.test(k));
   return rows.map(r => ({
-    zone: r.z,
+    zone: rZone(r),
     type: (r.type || '').toLowerCase(),
     years: Object.fromEntries(yearCols.map(y => [y, parseFloat(r[y]) || 0])),
   }));
@@ -152,8 +165,12 @@ export function processNTC(rows) {
   const yearCols = Object.keys(rows[0]).filter(k => /^\d{4}$/.test(k));
   const pairs = {};
   for (const r of rows) {
-    const key = `${r.z}||${r.z2}`;
-    if (!pairs[key]) pairs[key] = { z: r.z, z2: r.z2, years: {}, count: 0 };
+    // Tolerates: z/z2 (Black Sea) and From/To (SAPP)
+    const z  = r.z  || r.from || r.From || '';
+    const z2 = r.z2 || r.to   || r.To   || '';
+    if (!z || !z2) continue;
+    const key = `${z}||${z2}`;
+    if (!pairs[key]) pairs[key] = { z, z2, years: {}, count: 0 };
     pairs[key].count += 1;
     for (const y of yearCols)
       pairs[key].years[y] = (pairs[key].years[y] || 0) + (parseFloat(r[y]) || 0);
@@ -193,14 +210,13 @@ export function processDemandProfileFull(rows) {
   if (!rows?.length) return {};
   const out = {};
   for (const r of rows) {
-    const z = r.zone || r.z;
-    const s = r.season || '';
-    const d = r.daytype || '';
+    const z = rZone(r);
+    const s = rSeason(r);
+    const d = rDaytype(r);
     if (!z || !s || !d) continue;
     if (!out[z])       out[z]       = {};
     if (!out[z][s])    out[z][s]    = {};
-    out[z][s][d] = Array.from({ length: 24 }, (_, i) =>
-      parseFloat(r[`t${String(i + 1).padStart(2, '0')}`]) || 0);
+    out[z][s][d] = Array.from({ length: 24 }, (_, i) => rT(r, i + 1));
   }
   return out;
 }
@@ -211,16 +227,15 @@ export function processVREProfile(rows) {
   if (!rows?.length) return {};
   const out = {};
   for (const r of rows) {
-    const z    = r.zone || r.z;
+    const z    = rZone(r);
     const tech = (r.tech || '').toLowerCase();
-    const s    = r.season || '';
-    const d    = r.daytype || '';
+    const s    = rSeason(r);
+    const d    = rDaytype(r);
     if (!z || !tech || !s || !d) continue;
     if (!out[z])          out[z]          = {};
     if (!out[z][tech])    out[z][tech]    = {};
     if (!out[z][tech][s]) out[z][tech][s] = {};
-    out[z][tech][s][d] = Array.from({ length: 24 }, (_, i) =>
-      parseFloat(r[`t${String(i + 1).padStart(2, '0')}`]) || 0);
+    out[z][tech][s][d] = Array.from({ length: 24 }, (_, i) => rT(r, i + 1));
   }
   return out;
 }
@@ -253,8 +268,8 @@ export function processHours(rows) {
     const q = r.q || r.Q || r.season || '';
     const d = r.d || r.D || r.daytype || '';
     if (!q || !d) continue;
-    // Weight = any of the t01..t24 values (they're all the same for pHours)
-    const w = parseFloat(r.t01 || r['t01'] || 0) || 0;
+    // Weight = any t value (all identical per row in pHours)
+    const w = rT(r, 1);
     if (!out[q]) out[q] = {};
     out[q][d] = w;
   }
