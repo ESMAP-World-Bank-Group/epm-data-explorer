@@ -37,9 +37,10 @@ function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey 
 }
 
 const ZONE_PALETTE = [
-  '#2E75B6','#9B59B6','#1ABC9C','#E8C547','#5DADE2',
-  '#8E44AD','#48C9B0','#C8A8F0','#1A5276','#76448A',
-  '#117864','#2471A3','#85C1E9','#D2B4DE','#A9CCE3','#6C3483',
+  '#1B6CA8','#36B5B5','#E8C547','#4DA6FF',
+  '#0D7680','#85C1E9','#2E9EC8','#5EBCBA',
+  '#1A5276','#A3D5FF','#14A094','#6BAED6',
+  '#EDD770','#AED6F1','#1F618D','#0A6B70',
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
