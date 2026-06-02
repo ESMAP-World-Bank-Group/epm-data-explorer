@@ -12,7 +12,7 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ZONE_PALETTE  = ['#1E9AF5','#F4A261','#52C860','#FFD700','#C8A8F0','#FF8C42','#44DAEC','#48C9B0','#9B59B6','#2ECC71','#F39C12','#1ABC9C','#E67E22','#8E44AD','#16A085','#D35400'];
+const ZONE_PALETTE  = ['#1E9AF5','#52C860','#9B59B6','#FFD700','#44DAEC','#2ECC71','#C8A8F0','#48C9B0','#1ABC9C','#8E44AD','#16A085','#2980B9','#27AE60','#5DADE2','#A569BD','#1A5276'];
 const VRE_DISPLAY  = { pv:'Solar PV', solar:'Solar PV', onshorewind:'Onshore Wind', wind:'Wind', offshorewind:'Offshore Wind', ror:'Run-of-River', rof:'Run-of-River' };
 const VRE_COLOR    = { pv:'#FFD700', solar:'#FFD700', onshorewind:'#44DAEC', wind:'#44DAEC', offshorewind:'#7CC8FA', ror:'#1E9AF5', rof:'#1E9AF5' };
 const STATUS_COLOR  = { 1: '#52C860', 2: '#FFD700', 3: '#9A9EF5' };
@@ -651,6 +651,39 @@ export default function EpmZonePage() {
         {/* ════════ SUPPLY ══════════════════════════════════════════════════════ */}
         {hasData && activeTab === 'supply' && (
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {/* Capacity chart */}
+            {(() => {
+              const chartPlants = zoneGen.filter(r => statusFilter.has(r.status));
+              const fuels = [...new Set(chartPlants.map(r => r.fuel))];
+              const byFS = {};
+              for (const r of chartPlants) { if(!byFS[r.fuel]) byFS[r.fuel]={1:0,2:0,3:0}; byFS[r.fuel][r.status]=(byFS[r.fuel][r.status]||0)+r.capacity; }
+              const fd = fuels.filter(f=>byFS[f]).map(f=>({ fuel:f, ex:Math.round(byFS[f]?.[1]||0), co:Math.round(byFS[f]?.[2]||0), ca:Math.round(byFS[f]?.[3]||0) })).filter(d=>d.ex+d.co+d.ca>0).sort((a,b)=>(b.ex+b.co+b.ca)-(a.ex+a.co+a.ca));
+              if (!fd.length) return null;
+              return (
+                <div>
+                  <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
+                  <CJChart type="bar" height={Math.min(fd.length*22+24,200)}
+                    data={{ labels:fd.map(d=>d.fuel), datasets:[
+                      { label:'Existing', data:fd.map(d=>d.ex), backgroundColor:fd.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'), borderWidth:0, barThickness:12, stack:'a' },
+                      { label:'Committed', data:fd.map(d=>d.co), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.55)), borderWidth:0, barThickness:12, stack:'a' },
+                      { label:'Candidate', data:fd.map(d=>d.ca), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.22)), borderWidth:0, barThickness:12, stack:'a' },
+                    ]}}
+                    options={{ ...cjDefaults(t), indexAxis:'y',
+                      scales:{
+                        x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                        y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                      }}}
+                  />
+                  <div style={{ display:'flex', gap:10, marginTop:4 }}>
+                    {[['Existing',1.0],['Committed',0.55],['Candidate',0.22]].map(([lbl,op])=>(
+                      <div key={lbl} style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.44rem', color:t.muted }}>
+                        <div style={{ width:8, height:8, borderRadius:2, backgroundColor:`rgba(100,140,200,${op})` }}/>{lbl}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {/* Status filters */}
             <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
               {[1,2,3].map(s=>(

@@ -37,9 +37,9 @@ function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey 
 }
 
 const ZONE_PALETTE = [
-  '#1E9AF5','#5B8DD9','#52C860','#FFD700','#C8A8F0',
-  '#FF8C42','#44DAEC','#48C9B0','#9B59B6','#2ECC71',
-  '#F39C12','#1ABC9C','#E67E22','#8E44AD','#16A085','#D35400',
+  '#1E9AF5','#52C860','#9B59B6','#FFD700','#44DAEC',
+  '#2ECC71','#C8A8F0','#48C9B0','#1ABC9C','#8E44AD',
+  '#16A085','#2980B9','#27AE60','#5DADE2','#A569BD','#1A5276',
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -599,7 +599,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
           backgroundColor: hexA('#1a5fa8',0.72), borderWidth:0 },
         { type:'line', label:'Peak (GW)', yAxisID:'yR',
           data: allYears.map(y => +((pby[y]||0)/1000).toFixed(2)),
-          borderColor:'#FF6B6B', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
+          borderColor:'#9B59B6', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
       ]};
     }
 
@@ -633,7 +633,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
       }),
       { type:'line', label:'Peak (GW)', yAxisID:'yR',
         data: allYears.map(y => +((pby[y]||0)/1000).toFixed(2)),
-        borderColor:'#FF6B6B', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
+        borderColor:'#9B59B6', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
     ]};
   };
 

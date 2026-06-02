@@ -13,9 +13,9 @@ import {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ZONE_PALETTE = [
-  '#1E9AF5','#F4A261','#52C860','#FFD700','#C8A8F0',
-  '#FF8C42','#44DAEC','#48C9B0','#9B59B6','#2ECC71',
-  '#F39C12','#1ABC9C','#E67E22','#8E44AD','#16A085','#D35400',
+  '#1E9AF5','#52C860','#9B59B6','#FFD700','#44DAEC',
+  '#2ECC71','#C8A8F0','#48C9B0','#1ABC9C','#8E44AD',
+  '#16A085','#2980B9','#27AE60','#5DADE2','#A569BD','#1A5276',
 ];
 const STATUS_COLOR  = { 1: '#52C860', 2: '#FFD700', 3: '#9A9EF5' };
 const STATUS_LABEL  = { 1: 'Existing', 2: 'Committed', 3: 'Candidate' };
@@ -533,7 +533,7 @@ export default function EpmCountryPage() {
           backgroundColor: hexA('#1a5fa8',0.72), borderWidth:0 },
         { type:'line', label:'Peak (GW)', yAxisID:'yR',
           data: allYears.map(y=>+((pby[y]||0)/1000).toFixed(2)),
-          borderColor:'#E07B30', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
+          borderColor:'#9B59B6', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
       ]};
     }
     const ebyZone = {}, pby = {};
@@ -551,7 +551,7 @@ export default function EpmCountryPage() {
       }),
       { type:'line', label:'Peak (GW)', yAxisID:'yR',
         data: allYears.map(y=>+((pby[y]||0)/1000).toFixed(2)),
-        borderColor:'#E07B30', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
+        borderColor:'#9B59B6', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
     ]};
   };
 
@@ -721,13 +721,11 @@ export default function EpmCountryPage() {
   };
 
   // ── Mix chart config ──────────────────────────────────────────────────────────
-  const mixLabels = mixView === 'zone'
-    ? countryZoneIds.filter(z=>Object.keys(genByZoneFuel[z]||{}).length>0)
-    : allCountries.filter(c=>Object.keys(genByCountryFuel[c]||{}).length>0)
-        .sort((a,b)=>sumObj(genByCountryFuel[b])-sumObj(genByCountryFuel[a]));
-  const mixData = buildMixChart(mixLabels, mixView==='zone' ? genByZoneFuel : genByCountryFuel);
+  // Mix chart: zone view only (we're already in a country)
+  const mixLabels = countryZoneIds.filter(z=>Object.keys(genByZoneFuel[z]||{}).length>0);
+  const mixData = buildMixChart(mixLabels, genByZoneFuel);
   const mixHeight = Math.max(mixLabels.length * 20 + 24, 60);
-  const presentFuelsInMix = sortedFuels.filter(f=>mixLabels.some(l=>((mixView==='zone'?genByZoneFuel:genByCountryFuel)[l]?.[f]||0)>0));
+  const presentFuelsInMix = sortedFuels.filter(f=>mixLabels.some(l=>(genByZoneFuel[l]?.[f]||0)>0));
 
   // ── Tab colors ────────────────────────────────────────────────────────────────
   const TABS = ['overview','demand','supply','resources','trade','about'];
@@ -832,12 +830,7 @@ export default function EpmCountryPage() {
 
             {/* Mix chart */}
             <div>
-              <SectionTitle t={t} right={
-                <div style={{ display:'flex', gap:3 }}>
-                  <Pill active={mixView==='zone'}    onClick={()=>setMixView('zone')}>Zones</Pill>
-                  <Pill active={mixView==='country'} onClick={()=>setMixView('country')}>Countries</Pill>
-                </div>
-              }>Capacity mix (MW)</SectionTitle>
+              <SectionTitle t={t}>Capacity mix by zone (MW)</SectionTitle>
               {mixLabels.length > 0 ? (
                 <>
                   <CJChart type="bar" height={Math.min(mixHeight, 260)}
@@ -894,8 +887,8 @@ export default function EpmCountryPage() {
             <div>
               <SectionTitle t={t} right={
                 <div style={{ display:'flex', gap:3 }}>
-                  <Pill active={demandSeg==='aggregate'} onClick={()=>setDemandSeg('aggregate')}>Aggregate</Pill>
-                  <Pill active={demandSeg==='zone'}      onClick={()=>setDemandSeg('zone')}>By Zone</Pill>
+                  <Pill active={demandSeg==='aggregate'} onClick={()=>{ setDemandSeg('aggregate'); setDemandHidden(new Set()); }}>Aggregate</Pill>
+                  <Pill active={demandSeg==='zone'}      onClick={()=>{ setDemandSeg('zone'); setDemandHidden(new Set()); }}>By Zone</Pill>
                 </div>
               }>Demand forecast</SectionTitle>
               {countryDemand.length > 0 ? (
@@ -993,6 +986,40 @@ export default function EpmCountryPage() {
         {/* ════════ SUPPLY ══════════════════════════════════════════════════════ */}
         {hasData && activeTab === 'supply' && (
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+
+            {/* Capacity chart */}
+            {(() => {
+              const chartPlants = countryGen.filter(r => statusFilter.has(r.status));
+              const fuels = [...new Set(chartPlants.map(r => r.fuel))];
+              const byFS = {};
+              for (const r of chartPlants) { if(!byFS[r.fuel]) byFS[r.fuel]={1:0,2:0,3:0}; byFS[r.fuel][r.status]=(byFS[r.fuel][r.status]||0)+r.capacity; }
+              const fd = fuels.filter(f=>byFS[f]).map(f=>({ fuel:f, ex:Math.round(byFS[f]?.[1]||0), co:Math.round(byFS[f]?.[2]||0), ca:Math.round(byFS[f]?.[3]||0) })).filter(d=>d.ex+d.co+d.ca>0).sort((a,b)=>(b.ex+b.co+b.ca)-(a.ex+a.co+a.ca));
+              if (!fd.length) return null;
+              return (
+                <div>
+                  <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
+                  <CJChart type="bar" height={Math.min(fd.length*22+24,200)}
+                    data={{ labels:fd.map(d=>d.fuel), datasets:[
+                      { label:'Existing', data:fd.map(d=>d.ex), backgroundColor:fd.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'), borderWidth:0, barThickness:12, stack:'a' },
+                      { label:'Committed', data:fd.map(d=>d.co), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.55)), borderWidth:0, barThickness:12, stack:'a' },
+                      { label:'Candidate', data:fd.map(d=>d.ca), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.22)), borderWidth:0, barThickness:12, stack:'a' },
+                    ]}}
+                    options={{ ...cjDefaults(t), indexAxis:'y',
+                      scales:{
+                        x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                        y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                      }}}
+                  />
+                  <div style={{ display:'flex', gap:10, marginTop:4 }}>
+                    {[['Existing',1.0],['Committed',0.55],['Candidate',0.22]].map(([lbl,op])=>(
+                      <div key={lbl} style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.44rem', color:t.muted }}>
+                        <div style={{ width:8, height:8, borderRadius:2, backgroundColor:`rgba(100,140,200,${op})` }}/>{lbl}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Filters */}
             <div style={{ display:'flex', flexWrap:'wrap', gap:4, alignItems:'center' }}>

@@ -68,30 +68,7 @@ export default function WorldPage() {
       map.addLayer({ id: 'borders', type: 'line', source: 'countries',
         paint: { 'line-color': t.worldBdr, 'line-width': t.worldBdrW } });
 
-      // Dimmed layer — available but no EPM data, non-interactive
-      if (dimmedIsos.length) {
-        const dimColorExpr = ['match', ['get', 'ISO_A3'],
-          ...dimmedIsos.flatMap(iso => {
-            const r = dimmed.find(r => r.countries.some(c => c.iso === iso));
-            return [iso, r?.color || '#888'];
-          }),
-          'transparent',
-        ];
-        map.addLayer({
-          id: 'region-fill-dim',
-          type: 'fill',
-          source: 'countries',
-          filter: ['in', ['get', 'ISO_A3'], ['literal', dimmedIsos]],
-          paint: { 'fill-color': dimColorExpr, 'fill-opacity': 0.10 },
-        });
-        map.addLayer({
-          id: 'region-border-dim',
-          type: 'line',
-          source: 'countries',
-          filter: ['in', ['get', 'ISO_A3'], ['literal', dimmedIsos]],
-          paint: { 'line-color': dimColorExpr, 'line-width': 0.6, 'line-opacity': 0.3 },
-        });
-      }
+      // Non-EPM regions: no highlight, blend into background
 
       // Clickable layer — regions with EPM data
       if (clickableIsos.length) {
@@ -234,15 +211,11 @@ export default function WorldPage() {
             color: t.lblMuted, textTransform: 'uppercase', marginBottom: 2 }}>
             Power Pools
           </div>
-          {regions.map(r => (
+          {regions.filter(r => r.epm).map(r => (
             <div
               key={r.id}
-              onClick={() => r.epm && navigate(`/region/${r.id}`)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                cursor: r.epm ? 'pointer' : 'default',
-                opacity: r.epm ? 1 : 0.32,
-              }}
+              onClick={() => navigate(`/region/${r.id}`)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
             >
               <span style={{ width: 9, height: 9, borderRadius: 2,
                 backgroundColor: r.color, flexShrink: 0 }} />
