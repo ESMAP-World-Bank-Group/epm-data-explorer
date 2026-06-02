@@ -244,6 +244,23 @@ export function processAvailability(rows) {
   return out;
 }
 
+/** Representative day weights from pHours.csv.
+ *  Returns { season: { daytype: number } } — number = days represented */
+export function processHours(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const q = r.q || r.Q || r.season || '';
+    const d = r.d || r.D || r.daytype || '';
+    if (!q || !d) continue;
+    // Weight = any of the t01..t24 values (they're all the same for pHours)
+    const w = parseFloat(r.t01 || r['t01'] || 0) || 0;
+    if (!out[q]) out[q] = {};
+    out[q][d] = w;
+  }
+  return out;
+}
+
 /** Fuel price trajectories.
  *  Returns { country: { fuel: { year: number } } } */
 export function processFuelPrice(rows) {

@@ -11,13 +11,13 @@ import StatsPanel from '../components/StatsPanel';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON,
   processGenData, processDemand,
-  processNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice,
+  processNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
   computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
 
 // chart.js via CDN — no npm dep
-function CJChart({ type, data, options, height }) {
+function CJChart({ type, data, options, height, plugins: extraPlugins }) {
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
   const sig = JSON.stringify({ type, labels: data.labels,
@@ -26,7 +26,7 @@ function CJChart({ type, data, options, height }) {
     const CJ = window.Chart;
     if (!CJ || !canvasRef.current) return;
     chartRef.current?.destroy();
-    chartRef.current = new CJ(canvasRef.current, { type, data, options });
+    chartRef.current = new CJ(canvasRef.current, { type, data, options, plugins: extraPlugins || [] });
     return () => { chartRef.current?.destroy(); chartRef.current = null; };
   }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -75,7 +75,7 @@ function downloadBlob(content, filename, type = 'application/octet-stream') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function makeDonutSVG(fuelMix, tv, size = 52) {
+function makeDonutSVG(fuelMix, tv, size = 68) {
   const cx = size / 2, cy = size / 2;
   const r  = size / 2 - 10;
   const sw = 8;
@@ -103,8 +103,8 @@ function makeDonutSVG(fuelMix, tv, size = 52) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
     <circle cx="${cx}" cy="${cy}" r="${r + sw / 2 + 1}" fill="${bg}" stroke="rgba(0,0,0,0.18)" stroke-width="0.5"/>
     ${arcs.join('')}
-    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="9" font-weight="700" fill="${tc}" font-family="system-ui,sans-serif">${label}</text>
-    <text x="${cx}" y="${cy + 9}" text-anchor="middle" font-size="7" fill="${tc}" font-family="system-ui,sans-serif" opacity="0.65">${unit}</text>
+    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="7" font-weight="700" fill="${tc}" font-family="system-ui,sans-serif">${label}</text>
+    <text x="${cx}" y="${cy + 7.5}" text-anchor="middle" font-size="5.5" fill="${tc}" font-family="system-ui,sans-serif" opacity="0.65">${unit}</text>
   </svg>`;
 }
 
@@ -570,10 +570,11 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
   const zoneToCountry = Object.fromEntries(zcmap.map(r => [r.z, r.c]));
   const allCountries  = [...new Set(allZones.map(z => zoneToCountry[z] || z))].sort();
 
-  const [segMode,   setSegMode]   = useState('zone');   // 'aggregate' | 'zone' | 'country'
-  const [hidden,    setHidden]    = useState(new Set());
-  const [season,    setSeason]    = useState('Q1');
-  const [daytype,   setDaytype]   = useState('avg');
+  const [segMode,     setSegMode]     = useState('zone');
+  const [hidden,      setHidden]      = useState(new Set());
+  const [profileMode, setProfileMode] = useState('full'); // 'full' | 'season'
+  const [season,      setSeason]      = useState('Q1');
+  const [daytype,     setDaytype]     = useState('avg');
 
   if (!hasEpm)                  return <NotAvailable t={t} />;
   if (epmLoading)               return <LoadingBox t={t} />;
@@ -633,33 +634,116 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
     ]};
   };
 
-  // Build profile chart data
+  // Detect available seasons/daytypes from profile data
+  const pf          = epmData?.demandProfileFull || {};
+  const hoursData   = epmData?.hours || {};
+  const firstZoneWithPf = allZones.find(z => pf[z]);
+  const availSeasons    = firstZoneWithPf ? Object.keys(pf[firstZoneWithPf]).sort() : ['Q1','Q2','Q3','Q4'];
+  const availDaytypes   = firstZoneWithPf ? Object.keys(pf[firstZoneWithPf]?.[availSeasons[0]] || {}).sort() : [];
+  const totalDays       = Object.values(hoursData).reduce((s, dts) => s + Object.values(dts||{}).reduce((a,b)=>a+b,0), 0) || 365;
+
+  // Build profile chart (full year or single season)
   const buildProfileData = () => {
-    const pf = epmData?.demandProfileFull || {};
-    const hours = Array.from({length:24},(_,i)=>`${i+1}h`);
+    const visZones = allZones.filter(z => !hidden.has(z));
+    const isDark = t.isDark;
+
+    if (profileMode === 'full') {
+      if (!firstZoneWithPf || !availDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
+      const nDT = availDaytypes.length, nS = availSeasons.length;
+      const nPts = nS * nDT * 24;
+      const labels = new Array(nPts).fill('');
+
+      // Zone lines first (behind avg)
+      const zoneDs = visZones.flatMap((z, i) => {
+        const data = [];
+        for (const s of availSeasons) for (const d of availDaytypes) {
+          const p = pf[z]?.[s]?.[d];
+          data.push(...(p ? p : new Array(24).fill(null)));
+        }
+        if (!data.some(v => v !== null)) return [];
+        return [{ label:z, data, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],
+          borderWidth:1.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true }];
+      });
+
+      // Region avg last (on top)
+      const avgData = [];
+      for (const s of availSeasons) for (const d of availDaytypes) {
+        const profs = allZones.map(z=>pf[z]?.[s]?.[d]).filter(Boolean);
+        for (let h=0;h<24;h++) avgData.push(profs.length ? profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length : null);
+      }
+      const avgDs = { label:'Region avg', data:avgData, borderColor:'#1a5fa8',
+        borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true };
+
+      // Separator + label plugin
+      const separatorPlugin = {
+        id: 'profileSep',
+        afterDraw: (chart) => {
+          const { ctx, chartArea, scales } = chart;
+          if (!chartArea || !scales.x) return;
+          const { top, bottom } = chartArea;
+          const xScale = scales.x;
+          const dashC   = isDark ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.12)';
+          const solidC  = isDark ? 'rgba(255,255,255,0.36)' : 'rgba(0,0,0,0.30)';
+          const textC   = isDark ? 'rgba(255,255,255,0.46)' : 'rgba(0,0,0,0.40)';
+          const seasonC = isDark ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.58)';
+
+          for (let si=0;si<nS;si++) {
+            const seasonStart = si * nDT * 24;
+            // Season label above chartArea
+            const sx = xScale.getPixelForValue(seasonStart + nDT * 12);
+            ctx.save();
+            ctx.font='700 9px system-ui,sans-serif';
+            ctx.fillStyle=seasonC; ctx.textAlign='center'; ctx.textBaseline='bottom';
+            ctx.fillText(availSeasons[si], sx, top - 2);
+            ctx.restore();
+
+            for (let di=0;di<nDT;di++) {
+              const dtStart = seasonStart + di * 24;
+              // Separator line
+              if (dtStart > 0) {
+                const lx = xScale.getPixelForValue(dtStart);
+                const isSeasBorder = di === 0;
+                ctx.save();
+                ctx.strokeStyle = isSeasBorder ? solidC : dashC;
+                ctx.lineWidth   = isSeasBorder ? 1.2 : 0.7;
+                if (!isSeasBorder) ctx.setLineDash([3,3]);
+                ctx.beginPath(); ctx.moveTo(lx,top); ctx.lineTo(lx,bottom); ctx.stroke();
+                ctx.restore();
+              }
+              // Day type label — rotated −90°, below x-axis
+              const midX = xScale.getPixelForValue(dtStart + 12);
+              const w    = hoursData?.[availSeasons[si]]?.[availDaytypes[di]] || 0;
+              const pct  = w > 0 ? ` (${((w/totalDays)*100).toFixed(0)}%)` : '';
+              ctx.save();
+              ctx.translate(midX, bottom + 3);
+              ctx.rotate(-Math.PI/2);
+              ctx.font='7px system-ui,sans-serif';
+              ctx.fillStyle=textC; ctx.textAlign='right'; ctx.textBaseline='middle';
+              ctx.fillText(`${availDaytypes[di]}${pct}`, 0, 0);
+              ctx.restore();
+            }
+          }
+        },
+      };
+      return { chartData:{ labels, datasets:[...zoneDs, avgDs] }, plugin:separatorPlugin };
+    }
+
+    // Single season mode
     const getP = (zone) => {
       const sp = pf[zone]?.[season];
       if (!sp) return null;
-      if (daytype === 'avg') { const days=Object.keys(sp); return days.length ? Array.from({length:24},(_,i)=>days.reduce((s,d)=>s+(sp[d][i]||0),0)/days.length) : null; }
+      if (daytype === 'avg') { const days=Object.keys(sp); return days.length ? Array.from({length:24},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length) : null; }
       return sp[daytype] || null;
     };
-    const visZones = allZones.filter(z => !hidden.has(z));
-    const allProfiles = visZones.map(z => getP(z)).filter(Boolean);
-    const datasets = [];
-    if (allProfiles.length) {
-      const avg = Array.from({length:24},(_,i)=>allProfiles.reduce((s,p)=>s+(p[i]||0),0)/allProfiles.length);
-      datasets.push({ label:'Region avg', data:avg, borderColor:hexA('#1a5fa8',0.9), borderWidth:2.5, pointRadius:0, tension:0.35, fill:false });
-    }
-    for (const [i,z] of visZones.entries()) {
-      const p = getP(z); if(!p) continue;
-      datasets.push({ label:z, data:p, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderWidth:1.5, pointRadius:0, tension:0.35, fill:false });
-    }
-    return { labels:hours, datasets };
+    const zoneLines = visZones.flatMap((z,i) => { const p=getP(z); return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[]; });
+    const allProf = allZones.map(z=>getP(z)).filter(Boolean);
+    const avgLine = allProf.length ? { label:'Region avg', data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:'#1a5fa8', borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
+    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])]} , plugin:null };
   };
 
   const segments = segMode === 'zone' ? allZones : segMode === 'country' ? allCountries : [];
-  const forecastData = buildForecastData();
-  const profileData  = buildProfileData();
+  const forecastData  = buildForecastData();
+  const profileResult = buildProfileData();
 
   const handleDownload = () => {
     const header = 'zone,type,' + allYears.join(',');
@@ -717,53 +801,80 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
       {/* Profile chart */}
       <div>
         <SectionTitle t={t}>Load profile</SectionTitle>
-        <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:6 }}>
-          {['Q1','Q2','Q3','Q4'].map(s => (
-            <button key={s} onClick={() => setSeason(s)} style={{
+        {/* Mode + season + daytype selectors */}
+        <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:6, alignItems:'center' }}>
+          {/* Full Year */}
+          <button onClick={() => setProfileMode('full')} style={{
+            fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 7px', borderRadius:3, cursor:'pointer',
+            border:`1px solid ${profileMode==='full'?'rgba(74,143,204,0.65)':t.panelBorder}`,
+            backgroundColor:profileMode==='full'?'rgba(74,143,204,0.12)':'transparent',
+            color:profileMode==='full'?t.lbl:t.lblMuted, fontWeight:profileMode==='full'?600:400,
+          }}>Full Year</button>
+          {/* Season buttons */}
+          {availSeasons.map(s => (
+            <button key={s} onClick={() => { setProfileMode('season'); setSeason(s); }} style={{
               fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 6px', borderRadius:3, cursor:'pointer',
-              border:`1px solid ${season===s?'rgba(74,143,204,0.65)':t.panelBorder}`,
-              backgroundColor:season===s?'rgba(74,143,204,0.12)':'transparent',
-              color:season===s?t.lbl:t.lblMuted, fontWeight:season===s?600:400,
-            }}>{SEASON_LABEL[s]}</button>
+              border:`1px solid ${profileMode==='season'&&season===s?'rgba(74,143,204,0.65)':t.panelBorder}`,
+              backgroundColor:profileMode==='season'&&season===s?'rgba(74,143,204,0.12)':'transparent',
+              color:profileMode==='season'&&season===s?t.lbl:t.lblMuted, fontWeight:profileMode==='season'&&season===s?600:400,
+            }}>{s}</button>
           ))}
-          <div style={{ width:1, backgroundColor:t.panelBorder, margin:'0 2px' }}/>
-          {['avg','d1','d2','d3','d4','d5'].map(d => (
-            <button key={d} onClick={() => setDaytype(d)} style={{
-              fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 6px', borderRadius:3, cursor:'pointer',
-              border:`1px solid ${daytype===d?'rgba(74,143,204,0.65)':t.panelBorder}`,
-              backgroundColor:daytype===d?'rgba(74,143,204,0.12)':'transparent',
-              color:daytype===d?t.lbl:t.lblMuted, fontWeight:daytype===d?600:400,
-            }}>{d==='avg'?'Avg':d}</button>
-          ))}
+          {/* Day type dropdown — only in season mode */}
+          {profileMode === 'season' && availDaytypes.length > 0 && (
+            <>
+              <div style={{ width:1, backgroundColor:t.panelBorder, height:14 }}/>
+              <select value={daytype} onChange={e=>setDaytype(e.target.value)} style={{
+                fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3,
+                border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer',
+              }}>
+                <option value="avg">Avg</option>
+                {availDaytypes.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </>
+          )}
         </div>
-        <div style={{ display:'flex', gap:8 }}>
-          <div style={{ flex:1 }}>
-            {profileData.datasets.length > 0 ? (
-              <CJChart type="line" height={150} data={profileData}
+
+        {/* Chart + legend */}
+        {profileResult.chartData.datasets.length > 0 ? (
+          <div style={{ display:'flex', gap:8 }}>
+            <div style={{ flex:1 }}>
+              <CJChart type="line"
+                height={profileMode==='full' ? 205 : 160}
+                data={profileResult.chartData}
+                plugins={profileResult.plugin ? [profileResult.plugin] : []}
                 options={{ ...cjDefaults(t),
+                  layout:{ padding:{ top: profileMode==='full'?18:4, bottom: profileMode==='full'?62:4 } },
                   scales:{
-                    x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxTicksLimit:12}},
-                    y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},min:0,
-                      title:{display:true,text:'Load factor',color:t.muted,font:{size:7}}},
-                  }}}
+                    x:{ grid:{ color:t.panelBorder, drawTicks:false },
+                      ticks:{ display: profileMode!=='full', color:t.muted, font:{size:7}, maxTicksLimit:12 } },
+                    y:{ grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}}, min:0,
+                      title:{display:true,text:'Load factor',color:t.muted,font:{size:7}} },
+                  },
+                }}
               />
-            ) : <div style={{ fontSize:'0.55rem', color:t.lblMuted, padding:'20px 0' }}>No profile data for {SEASON_LABEL[season]}.</div>}
-          </div>
-          <div style={{ width:100, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:150, overflowY:'auto' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <div style={{ width:12, height:2.5, backgroundColor:hexA('#1a5fa8',0.9), borderRadius:1 }}/>
-              <span style={{ fontSize:'0.43rem', color:t.muted }}>avg</span>
             </div>
-            {allZones.map((z,i) => (
-              <div key={z} onClick={() => toggleHidden(z)}
-                style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:hidden.has(z)?0.3:1 }}>
-                <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
-                <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
+            {/* Legend */}
+            <div style={{ width:96, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4,
+              maxHeight: profileMode==='full'?205:160, overflowY:'auto' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                <div style={{ width:12, height:2.5, backgroundColor:'#1a5fa8', borderRadius:1 }}/>
+                <span style={{ fontSize:'0.43rem', color:t.muted }}>avg</span>
               </div>
-            ))}
-            <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+              {allZones.map((z,i) => (
+                <div key={z} onClick={() => toggleHidden(z)}
+                  style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:hidden.has(z)?0.25:1 }}>
+                  <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
+                  <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
+                </div>
+              ))}
+              <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div style={{ fontSize:'0.55rem', color:t.lblMuted, padding:'20px 0' }}>
+            No profile data available.
+          </div>
+        )}
       </div>
 
       <button onClick={handleDownload} style={{
@@ -780,16 +891,36 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
   );
 }
 
+// ── Tech display helpers (VRE) ────────────────────────────────────────────────
+
+const VRE_DISPLAY = {
+  pv:'Solar PV', solar:'Solar PV',
+  onshorewind:'Onshore Wind', wind:'Wind',
+  offshorewind:'Offshore Wind',
+  ror:'Run-of-River', rof:'Run-of-River',
+};
+const VRE_COLOR = {
+  pv:'#FFD700', solar:'#FFD700',
+  onshorewind:'#44DAEC', wind:'#44DAEC',
+  offshorewind:'#7CC8FA',
+  ror:'#1E9AF5', rof:'#1E9AF5',
+};
+
 // ── Resources tab ─────────────────────────────────────────────────────────────
 
 function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
   const [section,     setSection]     = useState('vre');
-  const [vreTech,     setVreTech]     = useState('solar');
+  const [vreProfileMode, setVreProfileMode] = useState('full');
   const [vreSeason,   setVreSeason]   = useState('Q1');
   const [vreDay,      setVreDay]      = useState('avg');
   const [vreHidden,   setVreHidden]   = useState(new Set());
   const [availZone,   setAvailZone]   = useState('all');
   const [fpCountries, setFpCountries] = useState(null);
+
+  // Auto-detect available VRE techs
+  const vp         = epmData?.vreProfile || {};
+  const allVreTechs = [...new Set(Object.values(vp).flatMap(Object.keys))].sort();
+  const [vreTech, setVreTech] = useState(() => allVreTechs[0] || 'ror');
 
   if (!hasEpm)    return <NotAvailable t={t} />;
   if (epmLoading) return <LoadingBox t={t} />;
@@ -800,23 +931,100 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
   const allCountries = [...new Set(zcmap.map(r => r.c))].sort();
 
   const toggleVreHidden = z => setVreHidden(s => { const n=new Set(s); n.has(z)?n.delete(z):n.add(z); return n; });
-  const VRE_TECH_LABEL = { solar:'Solar', wind:'Wind', ror:'Run-of-River' };
 
-  const getAvgProfile = (profiles) => profiles.length ? Array.from({length:24},(_,i)=>profiles.reduce((s,p)=>s+(p[i]||0),0)/profiles.length) : null;
+  // Detect season/daytype structure for selected VRE tech
+  const firstZoneWithVre  = allZones.find(z => vp[z]?.[vreTech]);
+  const vreAvailSeasons   = firstZoneWithVre ? Object.keys(vp[firstZoneWithVre][vreTech]).sort() : [];
+  const vreAvailDaytypes  = firstZoneWithVre && vreAvailSeasons[0]
+    ? Object.keys(vp[firstZoneWithVre][vreTech][vreAvailSeasons[0]] || {}).sort() : [];
+  const hoursData  = epmData?.hours || {};
+  const totalDaysV = Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0) || 365;
 
   const buildVREData = () => {
-    const vp = epmData.vreProfile || {};
-    const hours = Array.from({length:24},(_,i)=>`${i+1}h`);
-    const datasets = [];
-    allZones.forEach((z,i) => {
-      if (vreHidden.has(z)) return;
-      const sp = vp[z]?.[vreTech]?.[vreSeason];
-      if (!sp) return;
-      const profile = vreDay==='avg' ? getAvgProfile(Object.values(sp)) : sp[vreDay];
-      if (!profile) return;
-      datasets.push({ label:z, data:profile, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderWidth:1.8, pointRadius:0, tension:0.35, fill:false });
-    });
-    return { labels:hours, datasets };
+    const visZones = allZones.filter(z => !vreHidden.has(z));
+    const isDark = t.isDark;
+
+    if (vreProfileMode === 'full') {
+      if (!firstZoneWithVre || !vreAvailDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
+      const nDT = vreAvailDaytypes.length, nS = vreAvailSeasons.length;
+      const nPts = nS * nDT * 24;
+      const labels = new Array(nPts).fill('');
+
+      // Zone lines first
+      const zoneDs = visZones.flatMap((z, i) => {
+        const data = [];
+        for (const s of vreAvailSeasons) for (const d of vreAvailDaytypes) {
+          const p = vp[z]?.[vreTech]?.[s]?.[d];
+          data.push(...(p ? p : new Array(24).fill(null)));
+        }
+        if (!data.some(v => v !== null)) return [];
+        return [{ label:z, data, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],
+          borderWidth:1.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true }];
+      });
+
+      // Avg last
+      const avgData = [];
+      for (const s of vreAvailSeasons) for (const d of vreAvailDaytypes) {
+        const profs = allZones.map(z=>vp[z]?.[vreTech]?.[s]?.[d]).filter(Boolean);
+        for (let h=0;h<24;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
+      }
+      const techColor = VRE_COLOR[vreTech] || '#1E9AF5';
+      const avgDs = { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:avgData,
+        borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true };
+
+      // Separator plugin (reuse same pattern as demand)
+      const separatorPlugin = {
+        id: 'vreSep',
+        afterDraw: (chart) => {
+          const { ctx, chartArea, scales } = chart;
+          if (!chartArea || !scales.x) return;
+          const { top, bottom } = chartArea;
+          const xScale = scales.x;
+          const dashC  = isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';
+          const solidC = isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
+          const textC  = isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';
+          const seasC  = isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
+          for (let si=0;si<nS;si++) {
+            const ss = si*nDT*24;
+            const sx = xScale.getPixelForValue(ss+nDT*12);
+            ctx.save(); ctx.font='700 9px system-ui,sans-serif';
+            ctx.fillStyle=seasC; ctx.textAlign='center'; ctx.textBaseline='bottom';
+            ctx.fillText(vreAvailSeasons[si], sx, top-2); ctx.restore();
+            for (let di=0;di<nDT;di++) {
+              const dts = ss+di*24;
+              if (dts>0) {
+                const lx=xScale.getPixelForValue(dts);
+                const isS=di===0;
+                ctx.save(); ctx.strokeStyle=isS?solidC:dashC; ctx.lineWidth=isS?1.2:0.7;
+                if(!isS)ctx.setLineDash([3,3]);
+                ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();
+              }
+              const midX=xScale.getPixelForValue(dts+12);
+              const w=hoursData?.[vreAvailSeasons[si]]?.[vreAvailDaytypes[di]]||0;
+              const pct=w>0?` (${((w/totalDaysV)*100).toFixed(0)}%)`:'';
+              ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);
+              ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;
+              ctx.textAlign='right';ctx.textBaseline='middle';
+              ctx.fillText(`${vreAvailDaytypes[di]}${pct}`,0,0);ctx.restore();
+            }
+          }
+        },
+      };
+      return { chartData:{ labels, datasets:[...zoneDs, avgDs] }, plugin:separatorPlugin };
+    }
+
+    // Single season mode
+    const getP = (zone) => {
+      const sp = vp[zone]?.[vreTech]?.[vreSeason];
+      if (!sp) return null;
+      if (vreDay==='avg') { const days=Object.keys(sp); return days.length?Array.from({length:24},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null; }
+      return sp[vreDay]||null;
+    };
+    const zoneLines = visZones.flatMap((z,i)=>{ const p=getP(z); return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[]; });
+    const allProf = allZones.map(z=>getP(z)).filter(Boolean);
+    const techColor = VRE_COLOR[vreTech]||'#1E9AF5';
+    const avgLine = allProf.length?{ label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.35, fill:false }:null;
+    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])]} , plugin:null };
   };
 
   const buildAvailData = () => {
@@ -828,7 +1036,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
     const firstZ = av[zones[0]] || {};
     const qCols = keys.length ? Object.keys(firstZ[keys[0]]||{}).filter(k=>/^Q\d+$/.test(k)).sort() : ['Q1','Q2','Q3','Q4'];
     return {
-      labels: qCols.map(q => SEASON_LABEL[q]||q),
+      labels: qCols,
       datasets: keys.map((k,i) => {
         const e = firstZ[k]||{};
         return {
@@ -875,34 +1083,84 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
 
       {section === 'vre' && (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
-            {['solar','wind','ror'].map(tc => <Pill key={tc} active={vreTech===tc} onClick={()=>setVreTech(tc)}>{VRE_TECH_LABEL[tc]}</Pill>)}
-            <div style={{ width:1, backgroundColor:t.panelBorder, margin:'0 2px' }}/>
-            {['Q1','Q2','Q3','Q4'].map(s => <Pill key={s} active={vreSeason===s} onClick={()=>setVreSeason(s)}>{SEASON_LABEL[s]}</Pill>)}
-            <div style={{ width:1, backgroundColor:t.panelBorder, margin:'0 2px' }}/>
-            {['avg','d1','d2','d3','d4','d5'].map(d => <Pill key={d} active={vreDay===d} onClick={()=>setVreDay(d)}>{d==='avg'?'Avg':d}</Pill>)}
-          </div>
-          {(() => { const vd=buildVREData(); return vd.datasets.length>0 ? (
-            <div style={{ display:'flex', gap:8 }}>
-              <div style={{ flex:1 }}>
-                <CJChart type="line" height={150} data={vd}
-                  options={{ ...cjDefaults(t), scales:{
-                    x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxTicksLimit:12}},
-                    y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}}},
-                  }}}
-                />
-              </div>
-              <div style={{ width:100, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4 }}>
-                {allZones.filter(z=>(epmData.vreProfile||{})[z]?.[vreTech]).map((z,i)=>(
-                  <div key={z} onClick={()=>toggleVreHidden(z)} style={{ display:'flex',alignItems:'center',gap:4,cursor:'pointer',opacity:vreHidden.has(z)?0.3:1 }}>
-                    <div style={{ width:10,height:2.5,backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderRadius:1 }}/>
-                    <span style={{ fontSize:'0.43rem',color:t.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{z}</span>
-                  </div>
+          {allVreTechs.length === 0 ? (
+            <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No VRE profile data for this region.</div>
+          ) : (
+            <>
+              {/* Tech pills */}
+              <div style={{ display:'flex', flexWrap:'wrap', gap:3, alignItems:'center' }}>
+                {allVreTechs.map(tc => (
+                  <Pill key={tc} active={vreTech===tc} onClick={()=>setVreTech(tc)}>
+                    {VRE_DISPLAY[tc]||tc}
+                  </Pill>
                 ))}
-                <div style={{ fontSize:'0.38rem',color:t.lblMuted,marginTop:4 }}>click to hide</div>
+                <div style={{ width:1, backgroundColor:t.panelBorder, height:14, margin:'0 2px' }}/>
+                {/* Mode */}
+                <Pill active={vreProfileMode==='full'} onClick={()=>setVreProfileMode('full')}>Full Year</Pill>
+                {vreAvailSeasons.map(s => (
+                  <Pill key={s} active={vreProfileMode==='season'&&vreSeason===s}
+                    onClick={()=>{ setVreProfileMode('season'); setVreSeason(s); }}>{s}</Pill>
+                ))}
+                {/* Day type dropdown in season mode */}
+                {vreProfileMode === 'season' && vreAvailDaytypes.length > 0 && (
+                  <>
+                    <div style={{ width:1, backgroundColor:t.panelBorder, height:14 }}/>
+                    <select value={vreDay} onChange={e=>setVreDay(e.target.value)} style={{
+                      fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3,
+                      border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer',
+                    }}>
+                      <option value="avg">Avg</option>
+                      {vreAvailDaytypes.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </>
+                )}
               </div>
-            </div>
-          ) : <div style={{ color:t.lblMuted,fontSize:'0.55rem' }}>No {VRE_TECH_LABEL[vreTech]} data for {SEASON_LABEL[vreSeason]}.</div>; })()}
+              {/* Chart */}
+              {(() => {
+                const vd = buildVREData();
+                return vd.chartData.datasets.length > 0 ? (
+                  <div style={{ display:'flex', gap:8 }}>
+                    <div style={{ flex:1 }}>
+                      <CJChart type="line"
+                        height={vreProfileMode==='full' ? 205 : 160}
+                        data={vd.chartData}
+                        plugins={vd.plugin ? [vd.plugin] : []}
+                        options={{ ...cjDefaults(t),
+                          layout:{ padding:{ top:vreProfileMode==='full'?18:4, bottom:vreProfileMode==='full'?62:4 } },
+                          scales:{
+                            x:{ grid:{color:t.panelBorder,drawTicks:false},
+                              ticks:{ display:vreProfileMode!=='full', color:t.muted,font:{size:7},maxTicksLimit:12 } },
+                            y:{ min:0, max:1, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}},
+                              title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}} },
+                          },
+                        }}
+                      />
+                    </div>
+                    {/* Legend */}
+                    <div style={{ width:96, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4,
+                      maxHeight:vreProfileMode==='full'?205:160, overflowY:'auto' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                        <div style={{ width:12, height:2.5, backgroundColor:VRE_COLOR[vreTech]||'#1E9AF5', borderRadius:1 }}/>
+                        <span style={{ fontSize:'0.43rem', color:t.muted }}>avg</span>
+                      </div>
+                      {allZones.filter(z => vp[z]?.[vreTech]).map((z,i) => (
+                        <div key={z} onClick={()=>toggleVreHidden(z)}
+                          style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has(z)?0.25:1 }}>
+                          <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
+                          <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
+                        </div>
+                      ))}
+                      <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>
+                    No {VRE_DISPLAY[vreTech]||vreTech} data available.
+                  </div>
+                );
+              })()}
+            </>
+          )}
         </div>
       )}
 
@@ -1270,7 +1528,8 @@ export default function RegionPage() {
       fetchEpmCSV(branch, dataFolder, 'supply/pVREProfile.csv'),
       fetchEpmCSV(branch, dataFolder, 'supply/pAvailabilityDefault.csv'),
       fetchEpmCSV(branch, dataFolder, 'supply/pFuelPrice.csv'),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw]) => {
+      fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
       setEpmData({
         gen:               genRaw    ? processGenData(genRaw)               : [],
         demand:            demandRaw ? processDemand(demandRaw)             : [],
@@ -1280,6 +1539,7 @@ export default function RegionPage() {
         vreProfile:        vreRaw    ? processVREProfile(vreRaw)            : {},
         availability:      availRaw  ? processAvailability(availRaw)        : {},
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)              : {},
+        hours:             hoursRaw  ? processHours(hoursRaw)               : {},
         linestringGJ, zonesGJ, branch,
       });
     }).finally(() => setEpmLoading(false));
