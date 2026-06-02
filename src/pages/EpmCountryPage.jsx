@@ -6,22 +6,22 @@ import { getT, mapStyle } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON,
   processGenData, processDemand, processNTC,
-  processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice,
+  processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ZONE_PALETTE = [
-  '#1E9AF5','#FF6B6B','#52C860','#FFD700','#C8A8F0',
+  '#1E9AF5','#F4A261','#52C860','#FFD700','#C8A8F0',
   '#FF8C42','#44DAEC','#48C9B0','#9B59B6','#2ECC71',
   '#F39C12','#1ABC9C','#E67E22','#8E44AD','#16A085','#D35400',
 ];
 const STATUS_COLOR  = { 1: '#52C860', 2: '#FFD700', 3: '#9A9EF5' };
 const STATUS_LABEL  = { 1: 'Existing', 2: 'Committed', 3: 'Candidate' };
 const RE_FUELS      = new Set(['hydro','solar','wind','biomass','geothermal','biogas','waste']);
-const SEASON_LABEL  = { Q1: 'Winter', Q2: 'Spring', Q3: 'Summer', Q4: 'Autumn' };
-const VRE_TECH_LABEL = { solar: 'Solar', wind: 'Wind', ror: 'Run-of-River' };
+const VRE_DISPLAY  = { pv:'Solar PV', solar:'Solar PV', onshorewind:'Onshore Wind', wind:'Wind', offshorewind:'Offshore Wind', ror:'Run-of-River', rof:'Run-of-River' };
+const VRE_COLOR    = { pv:'#FFD700', solar:'#FFD700', onshorewind:'#44DAEC', wind:'#44DAEC', offshorewind:'#7CC8FA', ror:'#1E9AF5', rof:'#1E9AF5' };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -133,10 +133,11 @@ export default function EpmCountryPage() {
   const [mixView, setMixView] = useState('zone'); // 'zone' | 'country'
 
   // ── Demand state ────────────────────────────────────────────────────────────
-  const [demandSeg,    setDemandSeg]    = useState('aggregate'); // 'aggregate' | 'zone'
-  const [demandSeason, setDemandSeason] = useState('Q1');
-  const [demandDay,    setDemandDay]    = useState('avg');
-  const [demandHidden, setDemandHidden] = useState(new Set());
+  const [demandSeg,         setDemandSeg]         = useState('aggregate');
+  const [demandProfileMode, setDemandProfileMode] = useState('full');
+  const [demandSeason,      setDemandSeason]      = useState('Q1');
+  const [demandDay,         setDemandDay]         = useState('avg');
+  const [demandHidden,      setDemandHidden]      = useState(new Set());
 
   // ── Supply state ────────────────────────────────────────────────────────────
   const [statusFilter,  setStatusFilter]  = useState(new Set([1]));
@@ -146,7 +147,8 @@ export default function EpmCountryPage() {
 
   // ── Resources state ─────────────────────────────────────────────────────────
   const [resSection,    setResSection]    = useState('vre');
-  const [vreTech,       setVreTech]       = useState('solar');
+  const [vreTech,       setVreTech]       = useState('');
+  const [vreProfileMode, setVreProfileMode] = useState('full');
   const [vreSeason,     setVreSeason]     = useState('Q1');
   const [vreDay,        setVreDay]        = useState('avg');
   const [vreHidden,     setVreHidden]     = useState(new Set());
@@ -178,7 +180,8 @@ export default function EpmCountryPage() {
       fetchEpmCSV(branch, dataFolder, 'supply/pVREProfile.csv'),
       fetchEpmCSV(branch, dataFolder, 'supply/pAvailabilityDefault.csv'),
       fetchEpmCSV(branch, dataFolder, 'supply/pFuelPrice.csv'),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw]) => {
+      fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
       setEpmData({
         gen:              genRaw     ? processGenData(genRaw)              : [],
         demand:           demandRaw  ? processDemand(demandRaw)            : [],
@@ -188,6 +191,7 @@ export default function EpmCountryPage() {
         vreProfile:        vreRaw    ? processVREProfile(vreRaw)           : {},
         availability:      availRaw  ? processAvailability(availRaw)       : {},
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)             : {},
+        hours:             hoursRaw  ? processHours(hoursRaw)              : {},
         linestringGJ, zonesGJ, branch,
       });
     }).finally(() => setLoading(false));
@@ -501,6 +505,20 @@ export default function EpmCountryPage() {
     };
   };
 
+  // ── Computed profile metadata ─────────────────────────────────────────────────
+  const pf           = epmData?.demandProfileFull || {};
+  const hoursData    = epmData?.hours || {};
+  const vp           = epmData?.vreProfile || {};
+  const firstZoneWithPf  = countryZoneIds.find(z => pf[z]);
+  const availSeasons     = firstZoneWithPf ? Object.keys(pf[firstZoneWithPf]).sort() : [];
+  const availDaytypes    = firstZoneWithPf && availSeasons[0] ? Object.keys(pf[firstZoneWithPf][availSeasons[0]]||{}).sort() : [];
+  const totalDaysPf      = Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0) || 365;
+  const allVreTechs      = [...new Set(countryZoneIds.flatMap(z=>Object.keys(vp[z]||{})))].sort();
+  const activeVreTech    = allVreTechs.includes(vreTech) ? vreTech : (allVreTechs[0]||'');
+  const firstZoneWithVre = countryZoneIds.find(z=>vp[z]?.[activeVreTech]);
+  const vreAvailSeasons  = firstZoneWithVre ? Object.keys(vp[firstZoneWithVre][activeVreTech]).sort() : [];
+  const vreAvailDaytypes = firstZoneWithVre && vreAvailSeasons[0] ? Object.keys(vp[firstZoneWithVre][activeVreTech][vreAvailSeasons[0]]||{}).sort() : [];
+
   // ── Demand forecast builder ───────────────────────────────────────────────────
   const buildForecastData = () => {
     if (demandSeg === 'aggregate') {
@@ -513,66 +531,145 @@ export default function EpmCountryPage() {
         { type:'bar',  label:'Energy (GWh)', yAxisID:'yL',
           data: allYears.map(y=>Math.round(eby[y]||0)),
           backgroundColor: hexA('#1a5fa8',0.72), borderWidth:0 },
-        { type:'line', label:'Peak (GW)',    yAxisID:'yR',
+        { type:'line', label:'Peak (GW)', yAxisID:'yR',
           data: allYears.map(y=>+((pby[y]||0)/1000).toFixed(2)),
-          borderColor:'#FF6B6B', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
+          borderColor:'#E07B30', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
       ]};
     }
-    // By zone — stacked energy + aggregate peak line
     const ebyZone = {}, pby = {};
     for (const r of countryDemand) for (const y of allYears) {
       if (r.type==='energy') { if(!ebyZone[r.zone]) ebyZone[r.zone]={}; ebyZone[r.zone][y]=(ebyZone[r.zone][y]||0)+(r.years[y]||0); }
       if (r.type==='peak') pby[y]=(pby[y]||0)+(r.years[y]||0);
     }
-    const visZones = demandZones.filter(z=>!demandHidden.has(z));
+    // Stable colors: use demandZones index, skip hidden
     return { labels: allYears, datasets: [
-      ...visZones.map(z => ({ type:'bar', label:z, yAxisID:'yL',
-        data: allYears.map(y=>Math.round(ebyZone[z]?.[y]||0)),
-        backgroundColor: zoneColors[z]||'#aaa', borderWidth:0, stack:'energy' })),
+      ...demandZones.flatMap((z,i) => {
+        if (demandHidden.has(z)) return [];
+        return [{ type:'bar', label:z, yAxisID:'yL',
+          data: allYears.map(y=>Math.round(ebyZone[z]?.[y]||0)),
+          backgroundColor: ZONE_PALETTE[i%ZONE_PALETTE.length], borderWidth:0, stack:'energy' }];
+      }),
       { type:'line', label:'Peak (GW)', yAxisID:'yR',
         data: allYears.map(y=>+((pby[y]||0)/1000).toFixed(2)),
-        borderColor:'#FF6B6B', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
+        borderColor:'#E07B30', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
     ]};
   };
 
-  // ── Profile builder ───────────────────────────────────────────────────────────
-  const buildProfileData = (profileData) => {
-    const hours = Array.from({length:24},(_,i)=>`${i+1}h`);
-    const regionProfiles = countryZoneIds.map(z=>getProfile(profileData,z,demandSeason,demandDay)).filter(Boolean);
-    const datasets = [];
-    const regionAvg = regionProfiles.length ? avgProfile(regionProfiles) : null;
-    if (regionAvg) datasets.push({ label:`${countryNameDecoded} avg`, data:regionAvg,
-      borderColor:hexA('#1a5fa8',0.9), borderWidth:2.5, pointRadius:0, tension:0.35, fill:false });
-    for (const [i,z] of countryZoneIds.entries()) {
-      if (demandHidden.has(z)) continue;
-      const p = getProfile(profileData, z, demandSeason, demandDay);
-      if (!p) continue;
-      datasets.push({ label:z, data:p, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],
-        borderWidth:1.5, pointRadius:0, tension:0.35, fill:false });
+  // ── Profile builder (Full Year + single season) ───────────────────────────────
+  const buildProfileData = () => {
+    const isDark   = t.isDark;
+    const showAvg  = !demandHidden.has('__avg__');
+
+    if (demandProfileMode === 'full') {
+      if (!firstZoneWithPf || !availDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
+      const nDT = availDaytypes.length, nS = availSeasons.length;
+      const nPts = nS * nDT * 24;
+      const zoneDs = countryZoneIds.flatMap((z,i) => {
+        if (demandHidden.has(z)) return [];
+        const data = [];
+        for (const s of availSeasons) for (const d of availDaytypes) {
+          const p = pf[z]?.[s]?.[d];
+          data.push(...(p ? p : new Array(24).fill(null)));
+        }
+        if (!data.some(v=>v!==null)) return [];
+        return [{ label:z, data, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderWidth:1.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true }];
+      });
+      const avgData = [];
+      for (const s of availSeasons) for (const d of availDaytypes) {
+        const profs = countryZoneIds.map(z=>pf[z]?.[s]?.[d]).filter(Boolean);
+        for (let h=0;h<24;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
+      }
+      const avgDs = showAvg ? { label:'avg', data:avgData, borderColor:'#1a5fa8', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true } : null;
+      const separatorPlugin = {
+        id:'profSepC',
+        afterDraw:(chart)=>{
+          const {ctx,chartArea,scales}=chart; if(!chartArea||!scales.x) return;
+          const {top,bottom}=chartArea; const xS=scales.x;
+          const dashC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';
+          const solidC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
+          const textC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';
+          const seasC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
+          for(let si=0;si<nS;si++){
+            const ss=si*nDT*24;
+            ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';
+            ctx.fillText(availSeasons[si],xS.getPixelForValue(ss+nDT*12),top-2);ctx.restore();
+            for(let di=0;di<nDT;di++){
+              const dts=ss+di*24;
+              if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
+              const midX=xS.getPixelForValue(dts+12);
+              const w=hoursData?.[availSeasons[si]]?.[availDaytypes[di]]||0;
+              const pct=w>0?` (${((w/totalDaysPf)*100).toFixed(0)}%)`:'';
+              ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';
+              ctx.fillText(`${availDaytypes[di]}${pct}`,0,0);ctx.restore();
+            }
+          }
+        },
+      };
+      return { chartData:{ labels:new Array(nPts).fill(''), datasets:[...zoneDs,...(avgDs?[avgDs]:[])] }, plugin:separatorPlugin };
     }
-    return { labels: hours, datasets };
+
+    // Single season
+    const getP = (zone) => {
+      const sp=pf[zone]?.[demandSeason]; if(!sp) return null;
+      if(demandDay==='avg'){const days=Object.keys(sp);return days.length?Array.from({length:24},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null;}
+      return sp[demandDay]||null;
+    };
+    const zoneLines = countryZoneIds.flatMap((z,i)=>{if(demandHidden.has(z))return[];const p=getP(z);return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[];});
+    const allProf = countryZoneIds.map(z=>getP(z)).filter(Boolean);
+    const avgLine = (showAvg&&allProf.length)?{label:'avg',data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length),borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.35,fill:false}:null;
+    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
   };
 
   // ── VRE profile builder ───────────────────────────────────────────────────────
   const buildVREData = () => {
-    const hours = Array.from({length:24},(_,i)=>`${i+1}h`);
-    const vp = epmData?.vreProfile || {};
-    const zonesWithData = countryZoneIds.filter(z=>vp[z]?.[vreTech]);
-    const datasets = [];
-    for (const [i,z] of zonesWithData.entries()) {
-      if (vreHidden.has(z)) continue;
-      const p = getProfile(vp[z][vreTech] ? {[vreSeason]: vp[z][vreTech][vreSeason]} : {}, vreSeason, vreDay);
-      // alternative direct access
-      const sp = vp[z]?.[vreTech]?.[vreSeason];
-      if (!sp) continue;
-      const profile = vreDay === 'avg'
-        ? avgProfile(Object.values(sp))
-        : sp[vreDay];
-      if (!profile) continue;
-      datasets.push({ label:z, data:profile, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],
-        borderWidth:1.8, pointRadius:0, tension:0.35, fill:false });
+    const isDark = t.isDark;
+    const showAvgV = !vreHidden.has('__avg__');
+    const tech = activeVreTech;
+
+    if (vreProfileMode === 'full') {
+      if (!firstZoneWithVre || !vreAvailDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
+      const nDT=vreAvailDaytypes.length, nS=vreAvailSeasons.length, nPts=nS*nDT*24;
+      const zoneDs = countryZoneIds.flatMap((z,i)=>{
+        if(vreHidden.has(z)) return [];
+        const data=[];
+        for(const s of vreAvailSeasons) for(const d of vreAvailDaytypes){const p=vp[z]?.[tech]?.[s]?.[d];data.push(...(p?p:new Array(24).fill(null)));}
+        if(!data.some(v=>v!==null)) return [];
+        return [{label:z,data,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,spanGaps:true}];
+      });
+      const avgData=[];
+      for(const s of vreAvailSeasons) for(const d of vreAvailDaytypes){
+        const profs=countryZoneIds.map(z=>vp[z]?.[tech]?.[s]?.[d]).filter(Boolean);
+        for(let h=0;h<24;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
+      }
+      const techColor=VRE_COLOR[tech]||'#1E9AF5';
+      const avgDs=showAvgV?{label:`${VRE_DISPLAY[tech]||tech} avg`,data:avgData,borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.3,fill:false,spanGaps:true}:null;
+      const separatorPlugin={
+        id:'vreSepC',
+        afterDraw:(chart)=>{
+          const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
+          const{top,bottom}=chartArea;const xS=scales.x;
+          const dashC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const solidC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
+          const textC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seasC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
+          for(let si=0;si<nS;si++){
+            const ss=si*nDT*24;ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(vreAvailSeasons[si],xS.getPixelForValue(ss+nDT*12),top-2);ctx.restore();
+            for(let di=0;di<nDT;di++){
+              const dts=ss+di*24;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
+              const midX=xS.getPixelForValue(dts+12);const w=hoursData?.[vreAvailSeasons[si]]?.[vreAvailDaytypes[di]]||0;const pct=w>0?` (${((w/totalDaysPf)*100).toFixed(0)}%)`:'';
+              ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${vreAvailDaytypes[di]}${pct}`,0,0);ctx.restore();
+            }
+          }
+        },
+      };
+      return { chartData:{ labels:new Array(nPts).fill(''), datasets:[...zoneDs,...(avgDs?[avgDs]:[])] }, plugin:separatorPlugin };
     }
-    return { labels: hours, datasets };
+
+    // Single season
+    const getP=(zone)=>{const sp=vp[zone]?.[tech]?.[vreSeason];if(!sp)return null;if(vreDay==='avg'){const days=Object.keys(sp);return days.length?Array.from({length:24},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null;}return sp[vreDay]||null;};
+    const zoneLines=countryZoneIds.flatMap((z,i)=>{if(vreHidden.has(z))return[];const p=getP(z);return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[];});
+    const allProf=countryZoneIds.map(z=>getP(z)).filter(Boolean);
+    const techColor=VRE_COLOR[tech]||'#1E9AF5';
+    const avgLine=(showAvgV&&allProf.length)?{label:`${VRE_DISPLAY[tech]||tech} avg`,data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length),borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.35,fill:false}:null;
+    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
   };
 
   // ── Availability builder ──────────────────────────────────────────────────────
@@ -585,7 +682,7 @@ export default function EpmCountryPage() {
     const firstZoneData = av[zones[0]] || {};
     const qCols = keys.length ? Object.keys(firstZoneData[keys[0]]||{}).filter(k=>/^Q\d+$/.test(k)).sort() : ['Q1','Q2','Q3','Q4'];
     return {
-      labels: qCols.map(q => SEASON_LABEL[q] || q),
+      labels: qCols,
       datasets: keys.map((k, i) => {
         const entry = firstZoneData[k] || {};
         const displayLabel = entry.fuel && entry.fuel !== '' ? entry.fuel : entry.tech || k;
@@ -805,6 +902,7 @@ export default function EpmCountryPage() {
                 <div style={{ display:'flex', gap:8 }}>
                   <div style={{ flex:1 }}>
                     <CJChart type="bar" height={170} data={buildForecastData()}
+                      cacheKey={`forecast|${demandSeg}|${[...demandHidden].sort().join(',')}`}
                       options={{ ...cjDefaults(t),
                         scales: {
                           x:  { stacked:true, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8},maxTicksLimit:7} },
@@ -834,50 +932,59 @@ export default function EpmCountryPage() {
             {/* Profile */}
             <div>
               <SectionTitle t={t}>Load profile</SectionTitle>
-              {/* Season + daytype selectors */}
-              <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:6 }}>
-                {['Q1','Q2','Q3','Q4'].map(s=>(
-                  <Pill key={s} active={demandSeason===s} onClick={()=>setDemandSeason(s)}>
-                    {SEASON_LABEL[s]}
+              <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:6, alignItems:'center' }}>
+                <Pill active={demandProfileMode==='full'} onClick={()=>setDemandProfileMode('full')}>Full Year</Pill>
+                {availSeasons.map(s=>(
+                  <Pill key={s} active={demandProfileMode==='season'&&demandSeason===s}
+                    onClick={()=>{setDemandProfileMode('season');setDemandSeason(s);}}>
+                    {s}
                   </Pill>
                 ))}
-                <div style={{ width:1, backgroundColor:t.panelBorder, margin:'0 3px' }}/>
-                {['avg','d1','d2','d3','d4','d5'].map(d=>(
-                  <Pill key={d} active={demandDay===d} onClick={()=>setDemandDay(d)}>
-                    {d==='avg'?'Avg':d}
-                  </Pill>
-                ))}
+                {demandProfileMode==='season' && availDaytypes.length>0 && (
+                  <>
+                    <div style={{ width:1, backgroundColor:t.panelBorder, height:14 }}/>
+                    <select value={demandDay} onChange={e=>setDemandDay(e.target.value)} style={{
+                      fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3,
+                      border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' }}>
+                      <option value="avg">Avg</option>
+                      {availDaytypes.map(d=><option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </>
+                )}
               </div>
               {(() => {
-                const pd = buildProfileData(epmData?.demandProfileFull||{});
-                return pd.datasets.length > 0 ? (
+                const pd = buildProfileData();
+                return pd.chartData.datasets.length > 0 ? (
                   <div style={{ display:'flex', gap:8 }}>
                     <div style={{ flex:1 }}>
-                      <CJChart type="line" height={150} data={pd}
+                      <CJChart type="line"
+                        height={demandProfileMode==='full'?205:160}
+                        data={pd.chartData}
+                        plugins={pd.plugin?[pd.plugin]:[]}
+                        cacheKey={`${demandProfileMode}|${demandSeason}|${demandDay}|${[...demandHidden].sort().join(',')}`}
                         options={{ ...cjDefaults(t),
-                          scales: {
-                            x: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:7},maxTicksLimit:12} },
-                            y: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}},
-                              title:{display:true,text:'Load factor',color:t.muted,font:{size:7}} },
-                          } }}
+                          layout:{padding:{top:demandProfileMode==='full'?18:4,bottom:demandProfileMode==='full'?62:4}},
+                          scales:{
+                            x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
+                            y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},min:0,title:{display:true,text:'Load factor',color:t.muted,font:{size:7}}},
+                          }}}
                       />
                     </div>
-                    <div style={{ width:100, flexShrink:0, display:'flex', flexDirection:'column', gap:3, paddingTop:4 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                        <div style={{ width:10, height:2.5, backgroundColor:hexA('#1a5fa8',0.9), borderRadius:1 }}/>
-                        <span style={{ fontSize:'0.43rem', color:t.muted }}>avg</span>
+                    <div style={{ width:96, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:demandProfileMode==='full'?205:160, overflowY:'auto' }}>
+                      <div onClick={()=>toggleDemandHidden('__avg__')} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:demandHidden.has('__avg__')?0.25:1 }}>
+                        <div style={{ width:12, height:2.5, backgroundColor:'#1a5fa8', borderRadius:1 }}/>
+                        <span style={{ fontSize:'0.43rem', color:t.muted, fontWeight:600 }}>avg</span>
                       </div>
                       {countryZoneIds.map((z,i)=>(
-                        <div key={z} onClick={()=>toggleDemandHidden(z)}
-                          style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:demandHidden.has(z)?0.3:1 }}>
-                          <div style={{ width:10, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
+                        <div key={z} onClick={()=>toggleDemandHidden(z)} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:demandHidden.has(z)?0.25:1 }}>
+                          <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
                           <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
                         </div>
                       ))}
                       <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
                     </div>
                   </div>
-                ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No profile data for this season/daytype.</div>;
+                ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No profile data.</div>;
               })()}
             </div>
           </div>
@@ -992,53 +1099,77 @@ export default function EpmCountryPage() {
 
             {/* VRE Profiles */}
             {resSection === 'vre' && (
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
-                  {['solar','wind','ror'].map(tc=>(
-                    <Pill key={tc} active={vreTech===tc} onClick={()=>setVreTech(tc)}>
-                      {VRE_TECH_LABEL[tc]}
-                    </Pill>
-                  ))}
-                  <div style={{ width:1, backgroundColor:t.panelBorder, margin:'0 2px' }}/>
-                  {['Q1','Q2','Q3','Q4'].map(s=>(
-                    <Pill key={s} active={vreSeason===s} onClick={()=>setVreSeason(s)}>
-                      {SEASON_LABEL[s]}
-                    </Pill>
-                  ))}
-                  <div style={{ width:1, backgroundColor:t.panelBorder, margin:'0 2px' }}/>
-                  {['avg','d1','d2','d3','d4','d5'].map(d=>(
-                    <Pill key={d} active={vreDay===d} onClick={()=>setVreDay(d)}>
-                      {d==='avg'?'Avg':d}
-                    </Pill>
-                  ))}
-                </div>
-                {(() => {
-                  const vd = buildVREData();
-                  return vd.datasets.length > 0 ? (
-                    <div style={{ display:'flex', gap:8 }}>
-                      <div style={{ flex:1 }}>
-                        <CJChart type="line" height={150} data={vd}
-                          options={{ ...cjDefaults(t),
-                            scales: {
-                              x: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:7},maxTicksLimit:12} },
-                              y: { min:0, max:1, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}},
-                                title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}} },
-                            } }}
-                        />
-                      </div>
-                      <div style={{ width:100, flexShrink:0, display:'flex', flexDirection:'column', gap:3, paddingTop:4 }}>
-                        {countryZoneIds.filter(z=>(epmData?.vreProfile||{})[z]?.[vreTech]).map((z,i)=>(
-                          <div key={z} onClick={()=>toggleVreHidden(z)}
-                            style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has(z)?0.3:1 }}>
-                            <div style={{ width:10, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
-                            <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
-                          </div>
-                        ))}
-                        <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
-                      </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {allVreTechs.length === 0 ? (
+                  <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No VRE profile data for this country.</div>
+                ) : (
+                  <>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:3, alignItems:'center' }}>
+                      {allVreTechs.map(tc=>(
+                        <Pill key={tc} active={activeVreTech===tc} onClick={()=>setVreTech(tc)}>
+                          {VRE_DISPLAY[tc]||tc}
+                        </Pill>
+                      ))}
+                      <div style={{ width:1, backgroundColor:t.panelBorder, height:14, margin:'0 2px' }}/>
+                      <Pill active={vreProfileMode==='full'} onClick={()=>setVreProfileMode('full')}>Full Year</Pill>
+                      {vreAvailSeasons.map(s=>(
+                        <Pill key={s} active={vreProfileMode==='season'&&vreSeason===s}
+                          onClick={()=>{setVreProfileMode('season');setVreSeason(s);}}>
+                          {s}
+                        </Pill>
+                      ))}
+                      {vreProfileMode==='season' && vreAvailDaytypes.length>0 && (
+                        <>
+                          <div style={{ width:1, backgroundColor:t.panelBorder, height:14 }}/>
+                          <select value={vreDay} onChange={e=>setVreDay(e.target.value)} style={{
+                            fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3,
+                            border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' }}>
+                            <option value="avg">Avg</option>
+                            {vreAvailDaytypes.map(d=><option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </>
+                      )}
                     </div>
-                  ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No {VRE_TECH_LABEL[vreTech]} profile data for {SEASON_LABEL[vreSeason]}.</div>;
-                })()}
+                    {(() => {
+                      const vd = buildVREData();
+                      return vd.chartData.datasets.length > 0 ? (
+                        <div style={{ display:'flex', gap:8 }}>
+                          <div style={{ flex:1 }}>
+                            <CJChart type="line"
+                              height={vreProfileMode==='full'?205:160}
+                              data={vd.chartData}
+                              plugins={vd.plugin?[vd.plugin]:[]}
+                              cacheKey={`${vreProfileMode}|${activeVreTech}|${vreSeason}|${vreDay}|${[...vreHidden].sort().join(',')}`}
+                              options={{ ...cjDefaults(t),
+                                layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?62:4}},
+                                scales:{
+                                  x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
+                                  y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}}},
+                                }}}
+                            />
+                          </div>
+                          <div style={{ width:96, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:vreProfileMode==='full'?205:160, overflowY:'auto' }}>
+                            <div onClick={()=>setVreHidden(s=>{const n=new Set(s);n.has('__avg__')?n.delete('__avg__'):n.add('__avg__');return n;})}
+                              style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has('__avg__')?0.25:1 }}>
+                              <div style={{ width:12, height:2.5, backgroundColor:VRE_COLOR[activeVreTech]||'#1E9AF5', borderRadius:1 }}/>
+                              <span style={{ fontSize:'0.43rem', color:t.muted, fontWeight:600 }}>avg</span>
+                            </div>
+                            {countryZoneIds.map((z,i)=>{
+                              if(!vp[z]?.[activeVreTech]) return null;
+                              return (
+                                <div key={z} onClick={()=>toggleVreHidden(z)} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has(z)?0.25:1 }}>
+                                  <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
+                                  <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
+                                </div>
+                              );
+                            })}
+                            <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+                          </div>
+                        </div>
+                      ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No {VRE_DISPLAY[activeVreTech]||activeVreTech} data available.</div>;
+                    })()}
+                  </>
+                )}
               </div>
             )}
 
