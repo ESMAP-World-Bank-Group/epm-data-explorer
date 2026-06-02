@@ -186,3 +186,76 @@ export function availableYears(rows) {
   if (!rows?.length) return [];
   return Object.keys(rows[0]?.years || {}).filter(k => /^\d{4}$/.test(k)).sort();
 }
+
+/** Full demand profile with season/daytype granularity.
+ *  Returns { zone: { season: { daytype: number[24] } } } */
+export function processDemandProfileFull(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z = r.zone || r.z;
+    const s = r.season || '';
+    const d = r.daytype || '';
+    if (!z || !s || !d) continue;
+    if (!out[z])       out[z]       = {};
+    if (!out[z][s])    out[z][s]    = {};
+    out[z][s][d] = Array.from({ length: 24 }, (_, i) =>
+      parseFloat(r[`t${String(i + 1).padStart(2, '0')}`]) || 0);
+  }
+  return out;
+}
+
+/** VRE + ROR generation profiles.
+ *  Returns { zone: { tech: { season: { daytype: number[24] } } } } */
+export function processVREProfile(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z    = r.zone || r.z;
+    const tech = (r.tech || '').toLowerCase();
+    const s    = r.season || '';
+    const d    = r.daytype || '';
+    if (!z || !tech || !s || !d) continue;
+    if (!out[z])          out[z]          = {};
+    if (!out[z][tech])    out[z][tech]    = {};
+    if (!out[z][tech][s]) out[z][tech][s] = {};
+    out[z][tech][s][d] = Array.from({ length: 24 }, (_, i) =>
+      parseFloat(r[`t${String(i + 1).padStart(2, '0')}`]) || 0);
+  }
+  return out;
+}
+
+/** Seasonal availability factors.
+ *  Returns { zone: { 'tech|fuel': { Q1, Q2, Q3, Q4, tech, fuel } } } */
+export function processAvailability(rows) {
+  if (!rows?.length) return {};
+  const qCols = Object.keys(rows[0] || {}).filter(k => /^Q\d+$/.test(k)).sort();
+  const out = {};
+  for (const r of rows) {
+    const z    = r.zone || r.z;
+    const tech = r.tech || '';
+    if (!z || !tech) continue;
+    if (!out[z]) out[z] = {};
+    const key   = `${tech}|${r.fuel || ''}`;
+    const entry = { tech, fuel: r.fuel || '' };
+    for (const q of qCols) entry[q] = parseFloat(r[q]) ?? 1;
+    out[z][key] = entry;
+  }
+  return out;
+}
+
+/** Fuel price trajectories.
+ *  Returns { country: { fuel: { year: number } } } */
+export function processFuelPrice(rows) {
+  if (!rows?.length) return {};
+  const yearCols = Object.keys(rows[0] || {}).filter(k => /^\d{4}$/.test(k));
+  const out = {};
+  for (const r of rows) {
+    const c = r.country || r.c || '';
+    const f = r.fuel    || '';
+    if (!c || !f) continue;
+    if (!out[c]) out[c] = {};
+    out[c][f] = Object.fromEntries(yearCols.map(y => [y, parseFloat(r[y]) || 0]));
+  }
+  return out;
+}
