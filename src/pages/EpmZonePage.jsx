@@ -12,7 +12,7 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ZONE_PALETTE  = ['#1E9AF5','#52C860','#9B59B6','#FFD700','#44DAEC','#2ECC71','#C8A8F0','#48C9B0','#1ABC9C','#8E44AD','#16A085','#2980B9','#27AE60','#5DADE2','#A569BD','#1A5276'];
+const ZONE_PALETTE  = ['#2E75B6','#9B59B6','#1ABC9C','#E8C547','#5DADE2','#8E44AD','#48C9B0','#C8A8F0','#1A5276','#76448A','#117864','#2471A3','#85C1E9','#D2B4DE','#A9CCE3','#6C3483'];
 const VRE_DISPLAY  = { pv:'Solar PV', solar:'Solar PV', onshorewind:'Onshore Wind', wind:'Wind', offshorewind:'Offshore Wind', ror:'Run-of-River', rof:'Run-of-River' };
 const VRE_COLOR    = { pv:'#FFD700', solar:'#FFD700', onshorewind:'#44DAEC', wind:'#44DAEC', offshorewind:'#7CC8FA', ror:'#1E9AF5', rof:'#1E9AF5' };
 const STATUS_COLOR  = { 1: '#52C860', 2: '#FFD700', 3: '#9A9EF5' };
