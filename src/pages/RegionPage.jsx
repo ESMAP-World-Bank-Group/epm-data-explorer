@@ -17,10 +17,10 @@ import {
 } from '../utils/epmFetch';
 
 // chart.js via CDN — no npm dep
-function CJChart({ type, data, options, height, plugins: extraPlugins }) {
+function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey }) {
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
-  const sig = JSON.stringify({ type, labels: data.labels,
+  const sig = JSON.stringify({ type, labels: data.labels, ck: cacheKey,
     ds: data.datasets?.map(d => ({ l: d.label, n: d.data?.length, t: d.type, f: d.fill })) });
   useEffect(() => {
     const CJ = window.Chart;
@@ -75,7 +75,7 @@ function downloadBlob(content, filename, type = 'application/octet-stream') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function makeDonutSVG(fuelMix, tv, size = 68) {
+function makeDonutSVG(fuelMix, tv, size = 54) {
   const cx = size / 2, cy = size / 2;
   const r  = size / 2 - 10;
   const sw = 8;
@@ -644,8 +644,8 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
 
   // Build profile chart (full year or single season)
   const buildProfileData = () => {
-    const visZones = allZones.filter(z => !hidden.has(z));
     const isDark = t.isDark;
+    const showAvg = !hidden.has('__avg__');
 
     if (profileMode === 'full') {
       if (!firstZoneWithPf || !availDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
@@ -653,8 +653,9 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
       const nPts = nS * nDT * 24;
       const labels = new Array(nPts).fill('');
 
-      // Zone lines first (behind avg)
-      const zoneDs = visZones.flatMap((z, i) => {
+      // Zone lines — use allZones index for stable colors
+      const zoneDs = allZones.flatMap((z, i) => {
+        if (hidden.has(z)) return [];
         const data = [];
         for (const s of availSeasons) for (const d of availDaytypes) {
           const p = pf[z]?.[s]?.[d];
@@ -665,14 +666,14 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
           borderWidth:1.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true }];
       });
 
-      // Region avg last (on top)
+      // Region avg last (on top) — only if not hidden
       const avgData = [];
       for (const s of availSeasons) for (const d of availDaytypes) {
         const profs = allZones.map(z=>pf[z]?.[s]?.[d]).filter(Boolean);
         for (let h=0;h<24;h++) avgData.push(profs.length ? profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length : null);
       }
-      const avgDs = { label:'Region avg', data:avgData, borderColor:'#1a5fa8',
-        borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true };
+      const avgDs = showAvg ? { label:'Region avg', data:avgData, borderColor:'#1a5fa8',
+        borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true } : null;
 
       // Separator + label plugin
       const separatorPlugin = {
@@ -725,7 +726,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
           }
         },
       };
-      return { chartData:{ labels, datasets:[...zoneDs, avgDs] }, plugin:separatorPlugin };
+      return { chartData:{ labels, datasets:[...zoneDs, ...(avgDs?[avgDs]:[])] }, plugin:separatorPlugin };
     }
 
     // Single season mode
@@ -735,10 +736,15 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
       if (daytype === 'avg') { const days=Object.keys(sp); return days.length ? Array.from({length:24},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length) : null; }
       return sp[daytype] || null;
     };
-    const zoneLines = visZones.flatMap((z,i) => { const p=getP(z); return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[]; });
+    // Use allZones index for stable colors
+    const zoneLines = allZones.flatMap((z, i) => {
+      if (hidden.has(z)) return [];
+      const p = getP(z);
+      return p ? [{ label:z, data:p, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderWidth:1.8, pointRadius:0, tension:0.35, fill:false }] : [];
+    });
     const allProf = allZones.map(z=>getP(z)).filter(Boolean);
-    const avgLine = allProf.length ? { label:'Region avg', data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:'#1a5fa8', borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
-    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])]} , plugin:null };
+    const avgLine = (showAvg && allProf.length) ? { label:'Region avg', data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:'#1a5fa8', borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
+    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
   };
 
   const segments = segMode === 'zone' ? allZones : segMode === 'country' ? allCountries : [];
@@ -842,6 +848,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
                 height={profileMode==='full' ? 205 : 160}
                 data={profileResult.chartData}
                 plugins={profileResult.plugin ? [profileResult.plugin] : []}
+                cacheKey={`${profileMode}|${season}|${daytype}|${[...hidden].sort().join(',')}`}
                 options={{ ...cjDefaults(t),
                   layout:{ padding:{ top: profileMode==='full'?18:4, bottom: profileMode==='full'?62:4 } },
                   scales:{
@@ -856,9 +863,11 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
             {/* Legend */}
             <div style={{ width:96, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4,
               maxHeight: profileMode==='full'?205:160, overflowY:'auto' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+              {/* Avg toggle */}
+              <div onClick={() => toggleHidden('__avg__')}
+                style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:hidden.has('__avg__')?0.25:1 }}>
                 <div style={{ width:12, height:2.5, backgroundColor:'#1a5fa8', borderRadius:1 }}/>
-                <span style={{ fontSize:'0.43rem', color:t.muted }}>avg</span>
+                <span style={{ fontSize:'0.43rem', color:t.muted, fontWeight:600 }}>avg</span>
               </div>
               {allZones.map((z,i) => (
                 <div key={z} onClick={() => toggleHidden(z)}
@@ -941,8 +950,8 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
   const totalDaysV = Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0) || 365;
 
   const buildVREData = () => {
-    const visZones = allZones.filter(z => !vreHidden.has(z));
-    const isDark = t.isDark;
+    const isDark   = t.isDark;
+    const showAvgV = !vreHidden.has('__avg__');
 
     if (vreProfileMode === 'full') {
       if (!firstZoneWithVre || !vreAvailDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
@@ -950,8 +959,9 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
       const nPts = nS * nDT * 24;
       const labels = new Array(nPts).fill('');
 
-      // Zone lines first
-      const zoneDs = visZones.flatMap((z, i) => {
+      // Zone lines — use allZones index for stable colors
+      const zoneDs = allZones.flatMap((z, i) => {
+        if (vreHidden.has(z)) return [];
         const data = [];
         for (const s of vreAvailSeasons) for (const d of vreAvailDaytypes) {
           const p = vp[z]?.[vreTech]?.[s]?.[d];
@@ -969,8 +979,8 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
         for (let h=0;h<24;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
       }
       const techColor = VRE_COLOR[vreTech] || '#1E9AF5';
-      const avgDs = { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:avgData,
-        borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true };
+      const avgDs = showAvgV ? { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:avgData,
+        borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true } : null;
 
       // Separator plugin (reuse same pattern as demand)
       const separatorPlugin = {
@@ -1010,7 +1020,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
           }
         },
       };
-      return { chartData:{ labels, datasets:[...zoneDs, avgDs] }, plugin:separatorPlugin };
+      return { chartData:{ labels, datasets:[...zoneDs, ...(avgDs?[avgDs]:[])] }, plugin:separatorPlugin };
     }
 
     // Single season mode
@@ -1020,11 +1030,16 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
       if (vreDay==='avg') { const days=Object.keys(sp); return days.length?Array.from({length:24},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null; }
       return sp[vreDay]||null;
     };
-    const zoneLines = visZones.flatMap((z,i)=>{ const p=getP(z); return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[]; });
+    // Use allZones index for stable colors
+    const zoneLines = allZones.flatMap((z, i) => {
+      if (vreHidden.has(z)) return [];
+      const p = getP(z);
+      return p ? [{ label:z, data:p, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderWidth:1.8, pointRadius:0, tension:0.35, fill:false }] : [];
+    });
     const allProf = allZones.map(z=>getP(z)).filter(Boolean);
     const techColor = VRE_COLOR[vreTech]||'#1E9AF5';
-    const avgLine = allProf.length?{ label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.35, fill:false }:null;
-    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])]} , plugin:null };
+    const avgLine = (showAvgV && allProf.length) ? { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
+    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
   };
 
   const buildAvailData = () => {
@@ -1125,6 +1140,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
                         height={vreProfileMode==='full' ? 205 : 160}
                         data={vd.chartData}
                         plugins={vd.plugin ? [vd.plugin] : []}
+                        cacheKey={`${vreProfileMode}|${vreTech}|${vreSeason}|${vreDay}|${[...vreHidden].sort().join(',')}`}
                         options={{ ...cjDefaults(t),
                           layout:{ padding:{ top:vreProfileMode==='full'?18:4, bottom:vreProfileMode==='full'?62:4 } },
                           scales:{
@@ -1139,17 +1155,22 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
                     {/* Legend */}
                     <div style={{ width:96, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4,
                       maxHeight:vreProfileMode==='full'?205:160, overflowY:'auto' }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                      {/* Avg toggle */}
+                      <div onClick={() => setVreHidden(s => { const n=new Set(s); n.has('__avg__')?n.delete('__avg__'):n.add('__avg__'); return n; })}
+                        style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has('__avg__')?0.25:1 }}>
                         <div style={{ width:12, height:2.5, backgroundColor:VRE_COLOR[vreTech]||'#1E9AF5', borderRadius:1 }}/>
-                        <span style={{ fontSize:'0.43rem', color:t.muted }}>avg</span>
+                        <span style={{ fontSize:'0.43rem', color:t.muted, fontWeight:600 }}>avg</span>
                       </div>
-                      {allZones.filter(z => vp[z]?.[vreTech]).map((z,i) => (
-                        <div key={z} onClick={()=>toggleVreHidden(z)}
-                          style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has(z)?0.25:1 }}>
-                          <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
-                          <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
-                        </div>
-                      ))}
+                      {allZones.map((z, allIdx) => {
+                        if (!vp[z]?.[vreTech]) return null;
+                        return (
+                          <div key={z} onClick={()=>toggleVreHidden(z)}
+                            style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has(z)?0.25:1 }}>
+                            <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[allIdx%ZONE_PALETTE.length], borderRadius:1 }}/>
+                            <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
+                          </div>
+                        );
+                      })}
                       <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
                     </div>
                   </div>
@@ -1935,7 +1956,7 @@ export default function RegionPage() {
         if (!Object.keys(fuelMix).length) continue;
         const el = document.createElement('div');
         el.style.cursor = 'pointer';
-        el.innerHTML = makeDonutSVG(fuelMix, tv, 44);
+        el.innerHTML = makeDonutSVG(fuelMix, tv, 48);
         el.addEventListener('click', () => navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`));
         const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat(coord).addTo(mapRef.current);
