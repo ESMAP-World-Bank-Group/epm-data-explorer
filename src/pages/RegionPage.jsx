@@ -40,7 +40,7 @@ function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey 
 const MAP_PALETTE = [
   '#1B6CA8','#36B5B5','#E8C547','#4DA6FF',
   '#0D7680','#85C1E9','#2E9EC8','#5EBCBA',
-  '#1A5276','#A3D5FF','#14A094','#6BAED6',
+  '#1A5276','#7EC8E3','#14A094','#4CAFE8',
   '#EDD770','#AED6F1','#1F618D','#0A6B70',
 ];
 // Chart colors — full palette

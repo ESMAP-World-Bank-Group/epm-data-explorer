@@ -33,7 +33,7 @@ class ErrorBoundary extends Component {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState('fog');
+  const [theme, setTheme] = useState('slate');
   const t = getT(theme);
 
   return (

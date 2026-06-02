@@ -12,7 +12,7 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MAP_PALETTE   = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#0D7680','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#A3D5FF','#14A094','#6BAED6','#EDD770','#AED6F1','#1F618D','#0A6B70'];
+const MAP_PALETTE   = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#0D7680','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 const CHART_PALETTE = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#06B6D4','#EC4899','#84CC16','#F97316','#6366F1','#14B8A6','#A855F7','#EAB308','#22D3EE','#FB7185','#2DD4BF','#818CF8'];
 const ZONE_PALETTE  = CHART_PALETTE;
 const VRE_DISPLAY  = { pv:'Solar PV', solar:'Solar PV', onshorewind:'Onshore Wind', wind:'Wind', offshorewind:'Offshore Wind', ror:'Run-of-River', rof:'Run-of-River' };
