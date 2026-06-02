@@ -12,12 +12,19 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ZONE_PALETTE = [
+const MAP_PALETTE = [
   '#1B6CA8','#36B5B5','#E8C547','#4DA6FF',
   '#0D7680','#85C1E9','#2E9EC8','#5EBCBA',
   '#1A5276','#A3D5FF','#14A094','#6BAED6',
   '#EDD770','#AED6F1','#1F618D','#0A6B70',
 ];
+const CHART_PALETTE = [
+  '#3B82F6','#10B981','#F59E0B','#8B5CF6',
+  '#06B6D4','#EC4899','#84CC16','#F97316',
+  '#6366F1','#14B8A6','#A855F7','#EAB308',
+  '#22D3EE','#FB7185','#2DD4BF','#818CF8',
+];
+const ZONE_PALETTE = CHART_PALETTE;
 const STATUS_COLOR  = { 1: '#52C860', 2: '#FFD700', 3: '#9A9EF5' };
 const STATUS_LABEL  = { 1: 'Existing', 2: 'Committed', 3: 'Candidate' };
 const RE_FUELS      = new Set(['hydro','solar','wind','biomass','geothermal','biogas','waste']);
@@ -259,7 +266,7 @@ export default function EpmCountryPage() {
       if (zonesGJ) {
         const regionCountries = [...new Set(zcmapRows.map(r => r.c))].sort();
         const countryColorMap = {};
-        regionCountries.forEach((c, i) => { countryColorMap[c] = ZONE_PALETTE[i % ZONE_PALETTE.length]; });
+        regionCountries.forEach((c, i) => { countryColorMap[c] = MAP_PALETTE[i % MAP_PALETTE.length]; });
         const isoToCountry = {};
         for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3] = f.properties.c;
         const regionIsos = [...new Set(zonesGJ.features.map(f => f.properties.ISO_A3))];
