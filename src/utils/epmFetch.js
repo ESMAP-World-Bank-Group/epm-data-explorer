@@ -1,4 +1,115 @@
 const RAW_BASE = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
+const API_BASE = 'https://api.github.com/repos/ESMAP-World-Bank-Group/EPM';
+
+// ── Results: GitHub Contents API ──────────────────────────────────────────────
+
+/** List files/dirs at path in branch. Returns [{ name, type }] or null. */
+export async function fetchGitHubDir(branch, path) {
+  const url = `${API_BASE}/contents/${path}?ref=${branch}`;
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/vnd.github.v3+json' } });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+/** Fetch a result CSV: epm/output/{simRun}/{scenario}/output_csv/{filename} */
+export async function fetchResultCSV(branch, simRun, scenario, filename) {
+  const url = `${RAW_BASE}/${branch}/epm/output/${simRun}/${scenario}/output_csv/${filename}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return parseCSV(await res.text());
+  } catch { return null; }
+}
+
+// ── Result processors ─────────────────────────────────────────────────────────
+
+/** pTechFuelMerged → { zone: { attribute: { year: { techfuel: val } } } } */
+export function processTechFuel(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z = r.z || r.zone || ''; const attr = r.attribute || '';
+    const y = String(r.y || '').trim(); const tf = r.techfuel || r.tech || '';
+    const val = parseFloat(r.value) || 0;
+    if (!z || !attr || !y || !tf) continue;
+    if (!out[z]) out[z] = {};
+    if (!out[z][attr]) out[z][attr] = {};
+    if (!out[z][attr][y]) out[z][attr][y] = {};
+    out[z][attr][y][tf] = (out[z][attr][y][tf] || 0) + val;
+  }
+  return out;
+}
+
+/** pYearlyZoneMerged → { zone: { attribute: { year: val } } } */
+export function processYearlyZone(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z = r.z || r.zone || ''; const attr = r.attribute || '';
+    const y = String(r.y || '').trim(); const val = parseFloat(r.value) || 0;
+    if (!z || !attr || !y) continue;
+    if (!out[z]) out[z] = {};
+    if (!out[z][attr]) out[z][attr] = {};
+    out[z][attr][y] = (out[z][attr][y] || 0) + val;
+  }
+  return out;
+}
+
+/** pDispatchComplete → { zone: { q: { d: { t: { techfuel: val } } } } } */
+export function processDispatchResults(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z = r.z || r.zone || ''; const q = r.q || ''; const d = r.d || '';
+    const tt = r.t || ''; const tf = r.uni || r.techfuel || r.tech || '';
+    const val = parseFloat(r.value) || 0;
+    if (!z || !q || !d || !tt || !tf) continue;
+    if (!out[z]) out[z] = {};
+    if (!out[z][q]) out[z][q] = {};
+    if (!out[z][q][d]) out[z][q][d] = {};
+    if (!out[z][q][d][tt]) out[z][q][d][tt] = {};
+    out[z][q][d][tt][tf] = (out[z][q][d][tt][tf] || 0) + val;
+  }
+  return out;
+}
+
+/** pHourlyPrice → { zone: { q: { d: { t: val } } } } */
+export function processHourlyPrice(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z = r.z || r.zone || ''; const q = r.q || ''; const d = r.d || '';
+    const tt = r.t || ''; const val = parseFloat(r.value) || 0;
+    if (!z || !q || !d || !tt) continue;
+    if (!out[z]) out[z] = {};
+    if (!out[z][q]) out[z][q] = {};
+    if (!out[z][q][d]) out[z][q][d] = {};
+    out[z][q][d][tt] = val;
+  }
+  return out;
+}
+
+/** Extract sorted unique years from processTechFuel or processYearlyZone output */
+export function resultYears(data) {
+  const ys = new Set();
+  for (const attrs of Object.values(data))
+    for (const yrs of Object.values(attrs))
+      if (typeof yrs === 'object' && !Array.isArray(yrs))
+        for (const y of Object.keys(yrs)) ys.add(y);
+  return [...ys].sort();
+}
+
+/** Collect all techfuel names from dispatch or techFuel data */
+export function collectTechfuels(data) {
+  const tfs = new Set();
+  for (const z of Object.values(data))
+    for (const a of Object.values(z))
+      for (const y of Object.values(a))
+        if (typeof y === 'object') for (const tf of Object.keys(y)) tfs.add(tf);
+  return [...tfs].filter(t => t !== 'Demand').sort();
+}
 
 /** Compute the centroid of a GeoJSON Polygon or MultiPolygon geometry. */
 export function computeCentroid(geometry) {

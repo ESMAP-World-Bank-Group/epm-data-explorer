@@ -6,6 +6,9 @@ import RegionPage from './pages/RegionPage';
 import CountryPage from './pages/CountryPage';
 import EpmCountryPage from './pages/EpmCountryPage';
 import EpmZonePage from './pages/EpmZonePage';
+import ResultsRegionPage from './pages/ResultsRegionPage';
+import ResultsCountryPage from './pages/ResultsCountryPage';
+import ResultsZonePage from './pages/ResultsZonePage';
 import AboutPage from './pages/AboutPage';
 import ContactPage from './pages/ContactPage';
 import { getT } from './constants';
@@ -48,9 +51,12 @@ export default function App() {
             <div style={{ flex: 1, overflow: 'hidden', height: 'calc(100vh - 46px)' }}>
               <Routes>
                 <Route path="/"                    element={<WorldPage />} />
-                <Route path="/region/:regionId"                          element={<RegionPage />} />
-                <Route path="/region/:regionId/country/:countryName"  element={<EpmCountryPage />} />
-                <Route path="/region/:regionId/zone/:zoneId"          element={<EpmZonePage />} />
+                <Route path="/region/:regionId"                                          element={<RegionPage />} />
+                <Route path="/region/:regionId/country/:countryName"              element={<EpmCountryPage />} />
+                <Route path="/region/:regionId/zone/:zoneId"                      element={<EpmZonePage />} />
+                <Route path="/region/:regionId/results"                           element={<ResultsRegionPage />} />
+                <Route path="/region/:regionId/results/country/:countryName"      element={<ResultsCountryPage />} />
+                <Route path="/region/:regionId/results/zone/:zoneId"              element={<ResultsZonePage />} />
                 <Route path="/country/:iso"                           element={<CountryPage />} />
                 <Route path="/about"               element={<AboutPage />} />
                 <Route path="/contact"             element={<ContactPage />} />

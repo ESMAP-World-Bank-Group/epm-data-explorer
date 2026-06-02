@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { getT, THEME_LIST, THEMES } from '../constants';
 import { useEffect, useState, useMemo } from 'react';
@@ -42,7 +42,20 @@ export default function Navbar() {
   const t = getT(theme);
   const crumb = useBreadcrumb();
   const location = useLocation();
+  const navigate = useNavigate();
   const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  // Detect region context and current mode (inputs vs results)
+  const parts = location.pathname.split('/').filter(Boolean);
+  const regionId = parts[0] === 'region' ? parts[1] : null;
+  const isResults = parts[2] === 'results';
+  const isRegionCtx = !!regionId;
+
+  const handleToggle = (mode) => {
+    if (!regionId) return;
+    if (mode === 'results') navigate(`/region/${regionId}/results`);
+    else navigate(`/region/${regionId}`);
+  };
 
   const dashboardUrl = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean);
@@ -110,6 +123,22 @@ export default function Navbar() {
 
       {/* Right: theme toggle | EPM Suite | Data Sources | Contact */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+
+        {/* Inputs / Results toggle */}
+        {isRegionCtx && (
+          <div style={{ display:'flex', gap:0, border:`1px solid ${t.panelBorder}`, borderRadius:5, overflow:'hidden', marginRight:4 }}>
+            {[['inputs','Inputs'],['results','Results']].map(([mode, label]) => (
+              <button key={mode} onClick={() => handleToggle(mode)} style={{
+                fontSize:'0.58rem', fontFamily:'inherit', padding:'3px 11px',
+                border:'none', cursor:'pointer', letterSpacing:'0.5px',
+                backgroundColor: (mode==='results'?isResults:!isResults) ? 'rgba(74,143,204,0.2)' : 'transparent',
+                color: (mode==='results'?isResults:!isResults) ? t.lbl : t.lblMuted,
+                fontWeight: (mode==='results'?isResults:!isResults) ? 700 : 400,
+                transition:'background 0.15s',
+              }}>{label}</button>
+            ))}
+          </div>
+        )}
 
         {/* Theme swatches */}
         <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginRight: 2 }}>
