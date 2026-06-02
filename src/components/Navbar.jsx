@@ -3,7 +3,7 @@ import { useTheme } from '../App';
 import { getT, THEME_LIST, THEMES } from '../constants';
 import { useEffect, useState, useMemo } from 'react';
 
-const EPM_DASHBOARD_URL = 'https://epm-dashboard.onrender.com';
+const REGIONAL_EXPLORER_URL = 'https://regional-power-explorer.vercel.app';
 
 function useBreadcrumb() {
   const location = useLocation();
@@ -50,7 +50,7 @@ export default function Navbar() {
     if (parts[0] === 'region' && parts[1]) params.set('region', parts[1]);
     else if (parts[0] === 'country' && parts[1]) params.set('country', parts[1]);
     const qs = params.toString();
-    return qs ? `${EPM_DASHBOARD_URL}?${qs}` : EPM_DASHBOARD_URL;
+    return qs ? `${REGIONAL_EXPLORER_URL}?${qs}` : REGIONAL_EXPLORER_URL;
   }, [location.pathname]);
 
   const navBtn = (active = false) => ({
@@ -130,7 +130,7 @@ export default function Navbar() {
           })}
         </div>
 
-        {/* EPM Suite */}
+        {/* Geo Data */}
         <div style={{ position: 'relative' }}>
           <a
             href={dashboardUrl}
@@ -149,9 +149,12 @@ export default function Navbar() {
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              <circle cx="12" cy="12" r="10"/>
+              <ellipse cx="12" cy="12" rx="4.5" ry="10"/>
+              <line x1="2.5" y1="9" x2="21.5" y2="9"/>
+              <line x1="2.5" y1="15" x2="21.5" y2="15"/>
             </svg>
-            EPM Suite
+            Geo Data
             <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
                  style={{ opacity: 0.5 }}>
@@ -170,10 +173,9 @@ export default function Navbar() {
               pointerEvents: 'none',
             }}>
               <span style={{ color: t.lbl, fontWeight: 600, display: 'block', marginBottom: 4 }}>
-                EPM Suite · Capacity Expansion Results
+                Regional Power Explorer
               </span>
-              Scenario comparisons, dispatch analysis, and planning outputs from the EPM model.{' '}
-              <span style={{ color: 'rgba(74,143,204,0.8)', fontStyle: 'italic' }}>Coming soon.</span>
+              Power plants, transmission lines, RE resources and country profiles — interactive geo data layer.
             </div>
           )}
         </div>
