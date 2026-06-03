@@ -412,7 +412,7 @@ export default function ResultsRegionPage() {
     const isDk=t.isDark;
     const zcC={}; for(const f of zonesGJ.features){const z=f.properties.z;if(z){const c=computeCentroid(f.geometry);if(c)zcC[z]=c;}}
     const SZ=44,cx=SZ/2,cy=SZ/2,oR=SZ/2-1.5,iR=oR*0.50;
-    for(const z of allZones){
+    for(const z of zcmapRows.map(r=>r.z)){
       const coord=zcC[z]; if(!coord)continue;
       const data=sd.techFuel[z]?.[attr]?.[refYear]; if(!data)continue;
       const entries=Object.entries(data).filter(([,v])=>v>0);
@@ -435,7 +435,7 @@ export default function ResultsRegionPage() {
       canvas.title=`${z}: ${(total/unitDiv).toFixed(1)} ${unitLbl}`;
       pieMarkersRef.current.push(new maplibregl.Marker({element:canvas,anchor:'center'}).setLngLat(coord).addTo(map));
     }
-  }, [pieDispMode, resultsData, ovScenario, refYear, zonesGJ, allZones, mapLoadedCount, theme]); // eslint-disable-line
+  }, [pieDispMode, resultsData, ovScenario, refYear, zonesGJ, zcmapRows, mapLoadedCount, theme]); // eslint-disable-line
 
   // ── Computed ───────────────────────────────────────────────────────────────
   const zoneToCountry = useMemo(()=>Object.fromEntries(zcmapRows.map(r=>[r.z,r.c])),[zcmapRows]);
