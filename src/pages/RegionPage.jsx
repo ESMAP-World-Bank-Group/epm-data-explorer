@@ -1518,6 +1518,8 @@ export default function RegionPage() {
   const [epmLoading,      setEpmLoading]      = useState(false);
   const [pieMode,         setPieMode]         = useState('zone');
   const [mapLoaded,       setMapLoaded]       = useState(0);
+  const [panelWidth,      setPanelWidth]      = useState(560);
+  const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   // Static data
   useEffect(() => {
@@ -2025,9 +2027,6 @@ export default function RegionPage() {
 
   const isEpmMode = !!(region.epm && epmData && (epmData.linestringGJ || epmData.zonesGJ));
   const showMap   = !region.epm || isEpmMode;
-
-  const [panelWidth, setPanelWidth] = useState(560);
-  const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 46px)' }}
