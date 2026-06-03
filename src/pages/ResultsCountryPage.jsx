@@ -251,8 +251,9 @@ export default function ResultsCountryPage() {
       ctx.shadowColor='transparent';
       const t_=zPrices[z]!=null?(zPrices[z]-pMin)/pRng:null;
       const centerBg=t_!=null?priceColor(t_).replace('rgb(','rgba(').replace(')',',0.92)'):(isDk?'rgba(15,20,30,0.88)':'rgba(245,248,252,0.92)');
-      const textC=t_!=null&&t_>0.45?'rgba(255,255,255,0.95)':(isDk?'rgba(255,255,255,0.95)':'rgba(15,30,60,0.9)');
-      const mutedC=t_!=null&&t_>0.45?'rgba(255,255,255,0.65)':(isDk?'rgba(255,255,255,0.55)':'rgba(60,80,120,0.65)');
+      const lightBg=t_==null||t_<0.5;
+      const textC=lightBg?'rgba(15,30,60,0.9)':'rgba(255,255,255,0.95)';
+      const mutedC=lightBg?'rgba(60,80,120,0.65)':'rgba(255,255,255,0.55)';
       ctx.beginPath();ctx.arc(cx,cy,iR-0.5,0,2*Math.PI);ctx.fillStyle=centerBg;ctx.fill();
       const val=total/unitDiv;const valStr=val>=10?val.toFixed(0):val.toFixed(1);
       ctx.fillStyle=textC;ctx.font='bold 8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
@@ -354,7 +355,7 @@ export default function ResultsCountryPage() {
             </div>}
             {Object.keys(zoneAvgPrices).length>0&&<div>
               <SectionTitle t={t}>Avg marginal price by zone ($/MWh)</SectionTitle>
-              <CJChart type="bar" height={Math.min(allZones.length*22+24,200)} cacheKey={`pz-c|${ovScenario}|${refYear}|${theme}`} data={{labels:allZones.filter(z=>zoneAvgPrices[z]),datasets:[{data:allZones.filter(z=>zoneAvgPrices[z]).map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:allZones.filter(z=>zoneAvgPrices[z]).map(z=>hexA(priceBarColor((zoneAvgPrices[z]-minP)/rngP),0.92)),borderWidth:0,barThickness:12}]}} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}/>
+              <CJChart type="bar" height={Math.min(allZones.length*22+24,200)} cacheKey={`pz-c|${ovScenario}|${refYear}|${theme}`} data={{labels:allZones.filter(z=>zoneAvgPrices[z]),datasets:[{data:allZones.filter(z=>zoneAvgPrices[z]).map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:allZones.filter(z=>zoneAvgPrices[z]).map(z=>priceBarColor((zoneAvgPrices[z]-minP)/rngP).replace('rgb(','rgba(').replace(')',',0.92)')),borderWidth:0,barThickness:12}]}} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}/>
               {priceVals.length>0&&<div style={{display:'flex',gap:12,marginTop:4,fontSize:'0.44rem',color:t.muted}}><span>Avg: <b style={{color:t.lbl}}>{(priceVals.reduce((a,b)=>a+b,0)/priceVals.length).toFixed(1)} $/MWh</b></span><span>Min: <b style={{color:t.lbl}}>{minP.toFixed(1)}</b></span><span>Max: <b style={{color:t.lbl}}>{maxP.toFixed(1)}</b></span></div>}
             </div>}
           </div>
