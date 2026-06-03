@@ -641,6 +641,7 @@ export default function ResultsRegionPage() {
         {hasData && (
           <div style={{ position:'absolute', bottom:14, left:10, zIndex:10, backgroundColor:hexA(t.panel,0.92), border:`1px solid ${t.panelBorder}`, borderRadius:6, padding:'8px 10px', fontSize:'0.43rem', color:t.muted, minWidth:120 }}>
             <div style={{ marginBottom:5 }}>
+              <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginBottom:2 }}>Interco utilization</div>
               <div style={{ background:'linear-gradient(to right, #FFD700, #FF8C00, #E53935)', height:5, borderRadius:3, marginBottom:2 }}/>
               <div style={{ display:'flex', justifyContent:'space-between' }}>
                 <span>0%</span><span>100%</span>
@@ -648,6 +649,7 @@ export default function ResultsRegionPage() {
             </div>
             {Object.keys(zoneAvgPrices).length>0 && (
               <div>
+                <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginBottom:2 }}>Zonal price (marginal cost)</div>
                 <div style={{ background:'linear-gradient(to right, #FFFFFF, #1B6CA8)', height:5, borderRadius:3, marginBottom:2 }}/>
                 <div style={{ display:'flex', justifyContent:'space-between' }}>
                   <span>{minPrice.toFixed(0)}</span><span>{maxPrice.toFixed(0)} $/MWh</span>
@@ -782,7 +784,7 @@ export default function ResultsRegionPage() {
               {dispMode==='season'&&dispAvailD.length>0&&<><div style={{width:1,height:14,backgroundColor:t.panelBorder}}/><select value={dispDay} onChange={e=>setDispDay(e.target.value)} style={selectStyle}><option value="avg">Avg</option>{dispAvailD.map(d=><option key={d} value={d}>{d}</option>)}</select></>}
             </div>
             {dispResult.chartData.datasets.length>0?<>
-              <CJChart type="line" height={dispMode==='full'?215:165} data={dispResult.chartData} plugins={dispResult.plugin?[dispResult.plugin]:[]} cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}`}
+              <CJChart type="line" height={dispMode==='full'?215:165} data={dispResult.chartData} plugins={dispResult.plugin?[dispResult.plugin]:[]} cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}`}
                 options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
               />
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
@@ -810,7 +812,7 @@ export default function ResultsRegionPage() {
                 <div style={{ display:'flex', gap:8 }}>
                   <div style={{ flex:1 }}>
                     <CJChart type="bar" height={Math.min(zones.length*22+24,260)}
-                      cacheKey={`tr|${trScenario}|${refYear}|${[...hiddenMap['trade-bar']||[]].join(',')}`}
+                      cacheKey={`tr|${trScenario}|${refYear}|${theme}|${[...hiddenMap['trade-bar']||[]].join(',')}`}
                       data={tradeBarData}
                       options={{...cjDefaults(t),indexAxis:'y',
                         scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},
