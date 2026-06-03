@@ -511,7 +511,7 @@ export default function ResultsRegionPage() {
       // Actual demand from dispatch (dark red dashed)
       const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{ const v=getDispDemand(sd,activeDispZone,allZones,refYear,s,d,h); return v!=null&&v>0?v:null; })));
       if(demData.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:demData,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});
-      const sepPlugin={id:'dSep',afterDatasetsDraw:(chart)=>{if(demData.some(v=>v!=null)){const{ctx,chartArea:ca,scales:sc}=chart;if(ca&&sc.y){ctx.save();ctx.beginPath();ctx.strokeStyle='#CC0000';ctx.lineWidth=1.5;ctx.setLineDash([]);let mv=false;demData.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc.y.getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();}}},afterDraw:(chart)=>{
+      const sepPlugin={id:'dSep',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca)return;const dL=(data,yK,col)=>{if(!data.some(v=>v!=null)||!sc[yK])return;ctx.save();ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.setLineDash([]);let mv=false;data.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc[yK].getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();};dL(demData,'y','#CC0000');dL(pd,'yR',mcColor);},afterDraw:(chart)=>{
         const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
         const{top,bottom}=chartArea;const xS=scales.x;
         const dC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const sC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
@@ -539,8 +539,8 @@ export default function ResultsRegionPage() {
       :[]; if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});
     const zPr=sd.price[activeDispZone]?.[refYear]||{}; const prLine=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
     if(prLine.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prLine,yAxisID:'yR',borderColor:mcColor,borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});
-    const demPlugin=demLine.some(v=>v)?{id:'demS',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca||!sc.y)return;ctx.save();ctx.beginPath();ctx.strokeStyle='#CC0000';ctx.lineWidth=1.5;ctx.setLineDash([]);let mv=false;demLine.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc.y.getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();}}:null;
-    return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:demPlugin};
+    const linePlugin=(demLine.some(v=>v)||prLine.some(v=>v!=null))?{id:'lineS',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca)return;const dL=(data,yK,col)=>{if(!data.some(v=>v!=null)||!sc[yK])return;ctx.save();ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.setLineDash([]);let mv=false;data.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc[yK].getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();};dL(demLine,'y','#CC0000');dL(prLine,'yR',mcColor);}}:null;
+    return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:linePlugin};
   };
 
   // ── Trade ───────────────────────────────────────────────────────────────────
@@ -563,7 +563,7 @@ export default function ResultsRegionPage() {
         visImp&&{ label:'Imports', data:zones.map(z=>+imp[z].toFixed(1)), backgroundColor:hexA('#2E9EC8',0.78), borderWidth:0, barThickness:12, stack:'trade' },
         visExp&&{ label:'Exports', data:zones.map(z=>+(-exp[z]).toFixed(1)), backgroundColor:hexA('#E8C547',0.78), borderWidth:0, barThickness:12, stack:'trade' },
         // Net dot: thin bar at net position, independent of stack
-        { label:'Net', data:zones.map(z=>net[z]), backgroundColor:'rgba(255,255,255,0.92)', borderWidth:0, barThickness:3, order:0 },
+        { label:'Net', data:zones.map(z=>net[z]), backgroundColor:t.isDark?'rgba(255,255,255,0.92)':'#1E3A8A', borderWidth:0, barThickness:3, order:0 },
       ].filter(Boolean),
       _imp:imp, _exp:exp, _net:net,
     };
@@ -641,18 +641,16 @@ export default function ResultsRegionPage() {
         {hasData && (
           <div style={{ position:'absolute', bottom:14, left:10, zIndex:10, backgroundColor:hexA(t.panel,0.92), border:`1px solid ${t.panelBorder}`, borderRadius:6, padding:'8px 10px', fontSize:'0.43rem', color:t.muted, minWidth:120 }}>
             <div style={{ marginBottom:5 }}>
-              <div style={{ fontWeight:600, color:t.lbl, marginBottom:2 }}>Lines — utilization</div>
               <div style={{ background:'linear-gradient(to right, #FFD700, #FF8C00, #E53935)', height:5, borderRadius:3, marginBottom:2 }}/>
               <div style={{ display:'flex', justifyContent:'space-between' }}>
-                <span>Low</span><span>Med</span><span>High</span>
+                <span>0%</span><span>100%</span>
               </div>
             </div>
             {Object.keys(zoneAvgPrices).length>0 && (
               <div>
-                <div style={{ fontWeight:600, color:t.lbl, marginBottom:2 }}>Dots — marginal price</div>
                 <div style={{ background:'linear-gradient(to right, #FFFFFF, #1B6CA8)', height:5, borderRadius:3, marginBottom:2 }}/>
                 <div style={{ display:'flex', justifyContent:'space-between' }}>
-                  <span>{minPrice.toFixed(0)}</span><span>{maxPrice.toFixed(0)} USD/MWh</span>
+                  <span>{minPrice.toFixed(0)}</span><span>{maxPrice.toFixed(0)} $/MWh</span>
                 </div>
               </div>
             )}
