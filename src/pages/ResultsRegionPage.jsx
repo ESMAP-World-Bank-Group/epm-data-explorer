@@ -65,9 +65,8 @@ function hexA(hex, a) { if (!hex||hex.length<7) return `rgba(128,128,128,${a})`;
 function cjDefaults(t) { return { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:9},bodyFont:{size:9},padding:6}}, scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}}}; }
 
 function priceColor(t_) {
-  // t_ = 0-1: bright cyan → gold → red (matches legend)
-  if (t_ < 0.5) { const s=t_*2; return `rgb(${Math.round(68+s*(232-68))},${Math.round(218+s*(195-218))},${Math.round(238+s*(71-238))})` ; }
-  const s=(t_-0.5)*2; return `rgb(${Math.round(232+s*(229-232))},${Math.round(195+s*(57-195))},${Math.round(71+s*(53-71))})`;
+  // t_ = 0-1: white → #1B6CA8 (medium blue)
+  return `rgb(${Math.round(255-t_*(255-27))},${Math.round(255-t_*(255-108))},${Math.round(255-t_*(255-168))})`;
 }
 function priceBarColor(t_) {
   // High contrast for dark mode: bright cyan → bright gold → bright white
@@ -650,7 +649,7 @@ export default function ResultsRegionPage() {
             {Object.keys(zoneAvgPrices).length>0 && (
               <div>
                 <div style={{ fontWeight:600, color:t.lbl, marginBottom:2 }}>Dots — marginal price</div>
-                <div style={{ background:'linear-gradient(to right, #44DAEC, #FFD700, #E53935)', height:5, borderRadius:3, marginBottom:2 }}/>
+                <div style={{ background:'linear-gradient(to right, #FFFFFF, #1B6CA8)', height:5, borderRadius:3, marginBottom:2 }}/>
                 <div style={{ display:'flex', justifyContent:'space-between' }}>
                   <span>{minPrice.toFixed(0)}</span><span>{maxPrice.toFixed(0)} USD/MWh</span>
                 </div>

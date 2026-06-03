@@ -19,7 +19,7 @@ function fmt(n,d=0){if(n==null||isNaN(n))return'—';return n.toLocaleString('en
 function fmtBig(n){if(!n)return'—';const a=Math.abs(n);if(a>=1e3)return`${(n/1e3).toFixed(1)}k`;return n.toFixed(1);}
 function hexA(hex,a){if(!hex||hex.length<7)return`rgba(128,128,128,${a})`;const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;}
 function cjDefaults(t){return{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:9},bodyFont:{size:9},padding:6}},scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}}};}
-function priceColor(t_){if(t_<0.5){const s=t_*2;return`rgb(${Math.round(68+s*(232-68))},${Math.round(218+s*(195-218))},${Math.round(238+s*(71-238))})`;}const s=(t_-0.5)*2;return`rgb(${Math.round(232+s*(229-232))},${Math.round(195+s*(57-195))},${Math.round(71+s*(53-71))})`}
+function priceColor(t_){return`rgb(${Math.round(255-t_*(255-27))},${Math.round(255-t_*(255-108))},${Math.round(255-t_*(255-168))})`}
 
 const INDICATORS=[
   {key:'CapacityTechFuel',label:'Capacity (MW)',source:'techFuel',unit:'MW'},
@@ -255,6 +255,20 @@ export default function ResultsCountryPage() {
           <Link to={`/region/${regionId}/results`} style={{color:t.lblMuted,textDecoration:'none'}}>{region.name} · Results</Link>
           <span style={{color:t.lblMuted}}>›</span><span style={{color:t.lbl,fontWeight:600}}>{countryDecoded}</span>
         </div>
+        {hasData&&Object.keys(zoneAvgPrices).length>0&&(
+          <div style={{position:'absolute',bottom:14,left:10,zIndex:10,backgroundColor:hexA(t.panel,0.92),border:`1px solid ${t.panelBorder}`,borderRadius:6,padding:'8px 10px',fontSize:'0.43rem',color:t.muted,minWidth:110}}>
+            <div style={{marginBottom:5}}>
+              <div style={{fontWeight:600,color:t.lbl,marginBottom:2}}>Lines — utilization</div>
+              <div style={{background:'linear-gradient(to right, #FFD700, #FF8C00, #E53935)',height:5,borderRadius:3,marginBottom:2}}/>
+              <div style={{display:'flex',justifyContent:'space-between'}}><span>Low</span><span>High</span></div>
+            </div>
+            <div>
+              <div style={{fontWeight:600,color:t.lbl,marginBottom:2}}>Dots — marginal price</div>
+              <div style={{background:'linear-gradient(to right, #FFFFFF, #1B6CA8)',height:5,borderRadius:3,marginBottom:2}}/>
+              <div style={{display:'flex',justifyContent:'space-between'}}><span>{minP.toFixed(0)}</span><span>{maxP.toFixed(0)} $/MWh</span></div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
