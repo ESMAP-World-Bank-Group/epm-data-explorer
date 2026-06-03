@@ -63,7 +63,7 @@ export function processDispatchResults(rows) {
   const out = {};
   for (const r of rows) {
     const z = r.z || r.zone || ''; const q = r.q || ''; const d = r.d || '';
-    const tt = r.t || ''; const tf = r.uni || r.techfuel || r.tech || '';
+    const tt = (r.t||'').replace(/^(t)0+(\d)/,'$1$2'); const tf = r.uni || r.techfuel || r.tech || '';
     const val = parseFloat(r.value) || 0;
     if (!z || !q || !d || !tt || !tf) continue;
     if (!out[z]) out[z] = {};
@@ -81,7 +81,7 @@ export function processHourlyPrice(rows) {
   const out = {};
   for (const r of rows) {
     const z = r.z || r.zone || ''; const q = r.q || ''; const d = r.d || '';
-    const tt = r.t || ''; const val = parseFloat(r.value) || 0;
+    const tt = (r.t||'').replace(/^(t)0+(\d)/,'$1$2'); const val = parseFloat(r.value) || 0;
     if (!z || !q || !d || !tt) continue;
     if (!out[z]) out[z] = {};
     if (!out[z][q]) out[z][q] = {};
