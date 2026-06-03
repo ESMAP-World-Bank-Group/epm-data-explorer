@@ -499,6 +499,7 @@ export default function ResultsRegionPage() {
   const buildDispatch = () => {
     const sd=resultsData[dispScenario]; if(!sd||!activeDispZone||!refYear)return{chartData:{labels:[],datasets:[]},plugin:null};
     const zDisp=getZoneDisp(sd,activeDispZone,refYear); const isDark=t.isDark;
+    const mcColor=isDark?'rgba(255,255,255,0.88)':'#1E3A8A';
     const seasons=dispAvailS, days=dispAvailD;
     if(dispMode==='full'&&seasons.length&&days.length){
       const nS=seasons.length,nDT=days.length,nPts=nS*nDT*24;
@@ -506,7 +507,7 @@ export default function ResultsRegionPage() {
       const datasets=tfs.map(tf=>({label:tf,fill:true,data:seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.[tf]||0))),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));
       const zP=activeDispZone==='__all__'?sd.price[allZones[0]]?.[refYear]||{}:sd.price[activeDispZone]?.[refYear]||{};
       const pd=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zP[s]?.[d]?.[`t${h+1}`]||null)));
-      if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});
+      if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:mcColor,borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});
       // Actual demand from dispatch (dark red dashed)
       const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{ const v=getDispDemand(sd,activeDispZone,allZones,refYear,s,d,h); return v!=null&&v>0?v:null; })));
       if(demData.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:demData,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});
@@ -537,7 +538,7 @@ export default function ResultsRegionPage() {
         })
       :[]; if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});
     const zPr=sd.price[activeDispZone]?.[refYear]||{}; const prLine=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
-    if(prLine.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prLine,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});
+    if(prLine.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prLine,yAxisID:'yR',borderColor:mcColor,borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});
     const demPlugin=demLine.some(v=>v)?{id:'demS',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca||!sc.y)return;ctx.save();ctx.beginPath();ctx.strokeStyle='#CC0000';ctx.lineWidth=1.5;ctx.setLineDash([]);let mv=false;demLine.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc.y.getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();}}:null;
     return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:demPlugin};
   };
@@ -789,7 +790,7 @@ export default function ResultsRegionPage() {
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
                 {dispTechfuels.map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}
                 <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:'#8B0000',borderRadius:1,opacity:0.8}}/><span>Demand</span></div>
-                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:'#3B82F6',borderRadius:1}}/><span>Marginal cost</span></div>
+                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',borderRadius:1}}/><span>Marginal cost</span></div>
               </div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
           </div>
