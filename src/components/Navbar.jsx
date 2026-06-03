@@ -51,10 +51,27 @@ export default function Navbar() {
   const isResults = parts[2] === 'results';
   const isRegionCtx = !!regionId;
 
+  // Context-aware toggle: preserve country/zone sub-route across modes
   const handleToggle = (mode) => {
     if (!regionId) return;
-    if (mode === 'results') navigate(`/region/${regionId}/results`);
-    else navigate(`/region/${regionId}`);
+    sessionStorage.setItem('epmViewMode', mode);
+    if (mode === 'results') {
+      // Inputs → Results: preserve country/zone context
+      if (!isResults && parts[2] === 'country' && parts[3])
+        navigate(`/region/${regionId}/results/country/${parts[3]}`);
+      else if (!isResults && parts[2] === 'zone' && parts[3])
+        navigate(`/region/${regionId}/results/zone/${parts[3]}`);
+      else
+        navigate(`/region/${regionId}/results`);
+    } else {
+      // Results → Inputs: preserve country/zone context
+      if (isResults && parts[3] === 'country' && parts[4])
+        navigate(`/region/${regionId}/country/${parts[4]}`);
+      else if (isResults && parts[3] === 'zone' && parts[4])
+        navigate(`/region/${regionId}/zone/${parts[4]}`);
+      else
+        navigate(`/region/${regionId}`);
+    }
   };
 
   const dashboardUrl = useMemo(() => {

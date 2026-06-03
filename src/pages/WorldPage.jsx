@@ -133,11 +133,14 @@ export default function WorldPage() {
         const iso = e.features[0].properties.ISO_A3;
         const rs = isoToRegions[iso];
         if (!rs || rs.length === 0) return;
+        // Preserve last Inputs/Results mode
+        const lastMode = sessionStorage.getItem('epmViewMode') || 'inputs';
+        const suffix = lastMode === 'results' ? '/results' : '';
         if (rs.length === 1) {
-          navigate(`/region/${rs[0].id}`);
+          navigate(`/region/${rs[0].id}${suffix}`);
         } else {
           const pixel = map.project(e.lngLat);
-          setDisambig({ x: pixel.x, y: pixel.y, iso, regions: rs });
+          setDisambig({ x: pixel.x, y: pixel.y, iso, regions: rs, suffix });
         }
       });
     });
@@ -178,7 +181,7 @@ export default function WorldPage() {
               {disambig.regions.map(r => (
                 <button
                   key={r.id}
-                  onClick={e => { e.stopPropagation(); setDisambig(null); navigate(`/region/${r.id}`); }}
+                  onClick={e => { e.stopPropagation(); setDisambig(null); navigate(`/region/${r.id}${disambig.suffix||''}`); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     background: 'none', border: `1px solid ${r.color}44`,
