@@ -12,7 +12,7 @@ import {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#0D7680','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
+const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 
 const TECHFUEL_COLORS = {
   Nuclear:'#C8A8F0', Coal:'#808890', Peat:'#A0856C', 'Domestic Coal':'#6A5C4C',
@@ -511,7 +511,7 @@ export default function ResultsRegionPage() {
       // Actual demand from dispatch (dark red dashed)
       const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{ const v=getDispDemand(sd,activeDispZone,allZones,refYear,s,d,h); return v!=null&&v>0?v:null; })));
       if(demData.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:demData,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});
-      const sepPlugin={id:'dSep',afterDraw:(chart)=>{
+      const sepPlugin={id:'dSep',afterDatasetsDraw:(chart)=>{if(demData.some(v=>v!=null)){const{ctx,chartArea:ca,scales:sc}=chart;if(ca&&sc.y){ctx.save();ctx.beginPath();ctx.strokeStyle='#CC0000';ctx.lineWidth=1.5;ctx.setLineDash([]);let mv=false;demData.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc.y.getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();}}},afterDraw:(chart)=>{
         const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
         const{top,bottom}=chartArea;const xS=scales.x;
         const dC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const sC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
@@ -539,7 +539,8 @@ export default function ResultsRegionPage() {
       :[]; if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});
     const zPr=sd.price[activeDispZone]?.[refYear]||{}; const prLine=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
     if(prLine.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prLine,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});
-    return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:null};
+    const demPlugin=demLine.some(v=>v)?{id:'demS',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca||!sc.y)return;ctx.save();ctx.beginPath();ctx.strokeStyle='#CC0000';ctx.lineWidth=1.5;ctx.setLineDash([]);let mv=false;demLine.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc.y.getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();}}:null;
+    return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:demPlugin};
   };
 
   // ── Trade ───────────────────────────────────────────────────────────────────
