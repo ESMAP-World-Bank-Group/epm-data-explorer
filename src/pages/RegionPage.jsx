@@ -621,14 +621,14 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
     if (segMode === 'zone') {
       for (const r of epmData.demand) for (const y of allYears) {
         if (r.type==='energy') { if(!ebySegYear[r.zone]) ebySegYear[r.zone]={}; ebySegYear[r.zone][y]=(ebySegYear[r.zone][y]||0)+(r.years[y]||0); }
-        if (r.type==='peak')   pby[y]=(pby[y]||0)+(r.years[y]||0);
+        if (r.type==='peak' && !hidden.has(r.zone)) pby[y]=(pby[y]||0)+(r.years[y]||0);
       }
     } else {
       for (const r of epmData.demand) {
         const c = zoneToCountry[r.zone] || r.zone;
         for (const y of allYears) {
           if (r.type==='energy') { if(!ebySegYear[c]) ebySegYear[c]={}; ebySegYear[c][y]=(ebySegYear[c][y]||0)+(r.years[y]||0); }
-          if (r.type==='peak')   pby[y]=(pby[y]||0)+(r.years[y]||0);
+          if (r.type==='peak' && !hidden.has(c)) pby[y]=(pby[y]||0)+(r.years[y]||0);
         }
       }
     }
