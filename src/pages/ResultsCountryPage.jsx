@@ -19,7 +19,7 @@ function fmt(n,d=0){if(n==null||isNaN(n))return'—';return n.toLocaleString('en
 function fmtBig(n){if(!n)return'—';const a=Math.abs(n);if(a>=1e3)return`${(n/1e3).toFixed(1)}k`;return n.toFixed(1);}
 function hexA(hex,a){if(!hex||hex.length<7)return`rgba(128,128,128,${a})`;const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;}
 function cjDefaults(t){return{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:9},bodyFont:{size:9},padding:6}},scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}}};}
-function priceColor(t_){const r=Math.round(255-t_*(255-13));const g=Math.round(255-t_*(255-58));const b=Math.round(255-t_*(255-140));return`rgb(${r},${g},${b})`;}
+function priceColor(t_){if(t_<0.5){const s=t_*2;return`rgb(${Math.round(68+s*(232-68))},${Math.round(218+s*(195-218))},${Math.round(238+s*(71-238))})`;}const s=(t_-0.5)*2;return`rgb(${Math.round(232+s*(229-232))},${Math.round(195+s*(57-195))},${Math.round(71+s*(53-71))})`}
 
 const INDICATORS=[
   {key:'CapacityTechFuel',label:'Capacity (MW)',source:'techFuel',unit:'MW'},
@@ -218,7 +218,7 @@ export default function ResultsCountryPage() {
     const vals=Object.values(prices);if(!vals.length)return;
     const minV=Math.min(...vals),maxV=Math.max(...vals),rng=maxV-minV||1;
     for(const[z,price]of Object.entries(prices)){const coord=zoneCentroids[z];if(!coord)continue;const el=document.createElement('div');el.style.cssText=`width:10px;height:10px;border-radius:50%;background:${priceColor((price-minV)/rng)};border:1.5px solid rgba(255,255,255,0.7);box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;`;el.title=`${z}: ${price.toFixed(1)} $/MWh`;dotMarkersRef.current.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(coord).addTo(map));}
-  },[resultsData,refYear,ovScenario,zonesGJ,allZones,hoursData,theme]); // eslint-disable-line
+  },[resultsData,refYear,ovScenario,zonesGJ,allZones,hoursData,theme,mapLoadedCount]); // eslint-disable-line
 
   if(!region)return<div style={{padding:40,color:t.text}}>Loading…</div>;
   const selectStyle={fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer'};
