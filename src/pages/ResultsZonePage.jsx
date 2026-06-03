@@ -6,6 +6,7 @@ import { getT, mapStyle } from '../constants';
 import {
   fetchEpmCSV, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice, processHours,
+  processPlants,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
 } from '../utils/epmFetch';
 
@@ -60,7 +61,7 @@ export default function ResultsZonePage() {
   useEffect(()=>{
     if(!region?.epm||!simRun||!scenarioList.length)return;
     setLoading(true);const{branch}=region.epm;
-    Promise.all(scenarioList.map(async scen=>{const[tf,yz,dp,pr]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv'),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv'),fetchResultCSV(branch,simRun,scen,'pDispatchComplete.csv'),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv')]);return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:dp?processDispatchResults(dp):{},price:pr?processHourlyPrice(pr):{}};})).then(res=>{const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);}).finally(()=>setLoading(false));
+    Promise.all(scenarioList.map(async scen=>{const[tf,yz,dp,pr,pl]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv'),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv'),fetchResultCSV(branch,simRun,scen,'pDispatchComplete.csv'),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv'),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv')]);return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:dp?processDispatchResults(dp):{},price:pr?processHourlyPrice(pr):{},plants:pl?processPlants(pl):[]};})).then(res=>{const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);}).finally(()=>setLoading(false));
   },[region,simRun,scenarioList]); // eslint-disable-line
 
   const countryName=zcmapRows.find(r=>r.z===zoneIdDecoded)?.c||'';
@@ -160,7 +161,7 @@ export default function ResultsZonePage() {
         </div>
         {/* Tabs */}
         <div style={{display:'flex',gap:0,marginBottom:14,borderBottom:`1px solid ${t.panelBorder}`}}>
-          {['overview','dispatch'].map(tab=>(
+          {['overview','dispatch','plants'].map(tab=>(
             <button key={tab} onClick={()=>setActiveTab(tab)} style={{fontSize:'0.5rem',fontFamily:'inherit',padding:'6px 16px',border:'none',borderBottom:activeTab===tab?`2px solid ${t.lbl}`:'2px solid transparent',backgroundColor:'transparent',color:activeTab===tab?t.lbl:t.lblMuted,cursor:'pointer',fontWeight:activeTab===tab?600:400,textTransform:'capitalize'}}>{tab}</button>
           ))}
         </div>
@@ -212,6 +213,19 @@ export default function ResultsZonePage() {
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data for this zone.</div>}
           </div>
         )}
+        {/* Plants */}
+        {!loading&&hasData&&activeTab==='plants'&&(()=>{
+          const selectStyle={fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer'};
+          const [plInd,setPlInd]=[useState('CapacityPlant')[0],useState('CapacityPlant')[1]]; // local state workaround
+          const pl=(resultsData[scenario]?.plants||[]).filter(p=>p.attribute==='CapacityPlant'&&p.z===zoneIdDecoded&&p.y===refYear&&p.value>0).sort((a,b)=>b.value-a.value).slice(0,15);
+          return<div style={{display:'flex',flexDirection:'column',gap:10}}>
+            <div style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase',marginBottom:4}}>Top plants — Capacity (MW)</div>
+            {pl.length>0?<CJChart type="bar" height={Math.min(pl.length*18+24,280)} cacheKey={`zpl|${scenario}|${refYear}`}
+              data={{labels:pl.map(p=>p.g),datasets:[{data:pl.map(p=>+p.value.toFixed(2)),backgroundColor:pl.map(p=>hexA(techColor(p.techfuel),0.8)),borderWidth:0,barThickness:12}]}}
+              options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
+            />:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data for this zone.</div>}
+          </div>;
+        })()}
         <div style={{marginTop:24,paddingTop:12,borderTop:`1px solid ${t.panelBorder}`,fontSize:'0.48rem',color:t.lblMuted}}>
           Zone <b style={{color:t.lbl}}>{zoneIdDecoded}</b> · {countryName} · {region?.name}
         </div>

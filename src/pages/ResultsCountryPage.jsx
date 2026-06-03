@@ -6,8 +6,20 @@ import { getT, mapStyle } from '../constants';
 import {
   fetchEpmCSV, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice, processHours,
+  processTransmissionResults, processPlants,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
 } from '../utils/epmFetch';
+
+function fmtBig(n){if(!n)return'—';if(Math.abs(n)>=1e6)return`${(n/1e6).toFixed(1)}M`;if(Math.abs(n)>=1e3)return`${(n/1e3).toFixed(1)}k`;return n.toFixed(0);}
+
+const INDICATORS_C = [
+  { key:'CapacityTechFuel', label:'Capacity (MW)', source:'techFuel', unit:'MW' },
+  { key:'EnergyTechFuelComplete', label:'Energy (GWh)', source:'techFuel', unit:'GWh' },
+  { key:'NewCapacityTechFuel', label:'New Capacity (MW)', source:'techFuel', unit:'MW' },
+  { key:'Costs', label:'Costs (m USD)', source:'yearlyZone', unit:'m USD' },
+  { key:'CapexInvestmentComponent', label:'CAPEX (m USD)', source:'yearlyZone', unit:'m USD' },
+  { key:'GenCostsPerMWh', label:'Gen Cost (USD/MWh)', source:'yearlyZone', unit:'USD/MWh' },
+];
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#0D7680','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 const TECHFUEL_COLORS = { Nuclear:'#C8A8F0',Coal:'#808890',Gas:'#9A7040',CCGT:'#B8921A',OCGT:'#C4A820',Diesel:'#6A7888',HFO:'#7A7068',Oil:'#7A7068',Biomass:'#52C860',Waste:'#8A9098',Geothermal:'#D4A820',Reservoir:'#1E9AF5',ROR:'#5DADE2',PSH:'#0D7680',Solar:'#FFD700',PV:'#FFD700',CSP:'#E8C547','Onshore Wind':'#44DAEC',OnshoreWind:'#44DAEC','Offshore Wind':'#7CC8FA',OffshoreWind:'#7CC8FA',Battery:'#A3D5FF',Storage:'#AED6F1',Demand:'#9B59B6' };
@@ -43,10 +55,13 @@ export default function ResultsCountryPage() {
   const [activeTab, setActiveTab]     = useState('overview');
   const [refYear, setRefYear]         = useState(null);
   const [scenario, setScenario]       = useState(null);
+  const [evIndicator, setEvIndicator] = useState('CapacityTechFuel');
   const [dispMode, setDispMode]       = useState('full');
   const [dispSeason, setDispSeason]   = useState('Q1');
   const [dispDay, setDispDay]         = useState('avg');
   const [dispZone, setDispZone]       = useState(null);
+  const [plIndicator, setPlIndicator] = useState('CapacityPlant');
+  const [plTopN, setPlTopN]           = useState(15);
 
   useEffect(()=>{fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId]);
 
@@ -79,8 +94,8 @@ export default function ResultsCountryPage() {
     setLoading(true);
     const{branch}=region.epm;
     Promise.all(scenarioList.map(async scen=>{
-      const[tf,yz,dp,pr]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv'),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv'),fetchResultCSV(branch,simRun,scen,'pDispatchComplete.csv'),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv')]);
-      return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:dp?processDispatchResults(dp):{},price:pr?processHourlyPrice(pr):{}};
+      const[tf,yz,dp,pr,tx,pl]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv'),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv'),fetchResultCSV(branch,simRun,scen,'pDispatchComplete.csv'),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv'),fetchResultCSV(branch,simRun,scen,'pTransmissionMerged.csv'),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv')]);
+      return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:dp?processDispatchResults(dp):{},price:pr?processHourlyPrice(pr):{},transmission:tx?processTransmissionResults(tx):{},plants:pl?processPlants(pl):[]};
     })).then(res=>{
       const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);
       const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);
@@ -149,8 +164,12 @@ export default function ResultsCountryPage() {
   const buildEvolution=()=>{
     const sd=resultsData[scenario];if(!sd||!allYears.length)return null;
     const zones=countryZoneIds;
-    const tfs=[...new Set(zones.flatMap(z=>allYears.flatMap(y=>Object.keys(sd.techFuel[z]?.CapacityTechFuel?.[y]||{}))))].sort();
-    return{labels:allYears,datasets:tfs.map(tf=>({label:tf,data:allYears.map(y=>Math.round(zones.reduce((s,z)=>s+(sd.techFuel[z]?.CapacityTechFuel?.[y]?.[tf]||0),0))),backgroundColor:hexA(techColor(tf),0.85),borderWidth:0,stack:'a'}))};
+    const ind=INDICATORS_C.find(i=>i.key===evIndicator)||INDICATORS_C[0];
+    if(ind.source==='yearlyZone'){
+      return{labels:allYears,datasets:[{label:scenario,data:allYears.map(y=>+zones.reduce((s,z)=>s+(sd.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)),backgroundColor:hexA('#3B82F6',0.75),borderColor:'#3B82F6',borderWidth:2,fill:false,tension:0.3,type:'line'}]};
+    }
+    const tfs=[...new Set(zones.flatMap(z=>allYears.flatMap(y=>Object.keys(sd.techFuel[z]?.[ind.key]?.[y]||{}))))].sort();
+    return{labels:allYears,datasets:tfs.map(tf=>({label:tf,data:allYears.map(y=>Math.round(zones.reduce((s,z)=>s+(sd.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0))),backgroundColor:hexA(techColor(tf),0.85),borderWidth:0,stack:'a'}))};
   };
 
   const buildDispatch=()=>{
@@ -219,8 +238,8 @@ export default function ResultsCountryPage() {
         </div>
         {/* Tabs */}
         <div style={{display:'flex',gap:0,marginBottom:14,borderBottom:`1px solid ${t.panelBorder}`}}>
-          {['overview','evolution','dispatch'].map(tab=>(
-            <button key={tab} onClick={()=>setActiveTab(tab)} style={{fontSize:'0.5rem',fontFamily:'inherit',padding:'6px 14px',border:'none',borderBottom:activeTab===tab?`2px solid ${t.lbl}`:'2px solid transparent',backgroundColor:'transparent',color:activeTab===tab?t.lbl:t.lblMuted,cursor:'pointer',fontWeight:activeTab===tab?600:400,textTransform:'capitalize'}}>{tab}</button>
+          {['overview','evolution','dispatch','trade','plants'].map(tab=>(
+            <button key={tab} onClick={()=>setActiveTab(tab)} style={{fontSize:'0.5rem',fontFamily:'inherit',padding:'6px 11px',border:'none',borderBottom:activeTab===tab?`2px solid ${t.lbl}`:'2px solid transparent',backgroundColor:'transparent',color:activeTab===tab?t.lbl:t.lblMuted,cursor:'pointer',fontWeight:activeTab===tab?600:400,textTransform:'capitalize'}}>{tab}</button>
           ))}
         </div>
         {loading&&<div style={{padding:'24px 0',textAlign:'center',color:t.lblMuted,fontSize:'0.6rem'}}>Loading results…</div>}
@@ -249,7 +268,12 @@ export default function ResultsCountryPage() {
         {/* Evolution */}
         {!loading&&hasData&&activeTab==='evolution'&&(
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
-            {evData?<CJChart type="bar" height={220} cacheKey={`cev|${scenario}|${refYear}`} data={evData} options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}}}}}/>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No data.</div>}
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+              <select value={evIndicator} onChange={e=>setEvIndicator(e.target.value)} style={selectStyle}>
+                {INDICATORS_C.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}
+              </select>
+            </div>
+            {evData?<CJChart type={INDICATORS_C.find(i=>i.key===evIndicator)?.source==='yearlyZone'?'line':'bar'} height={220} cacheKey={`cev|${scenario}|${refYear}|${evIndicator}`} data={evData} options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}}}}}/>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No data.</div>}
           </div>
         )}
         {/* Dispatch */}
@@ -282,6 +306,42 @@ export default function ResultsCountryPage() {
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
           </div>
         )}
+        {/* Trade */}
+        {!loading&&hasData&&activeTab==='trade'&&(()=>{
+          const tx=resultsData[scenario]?.transmission||{};
+          if(!refYear)return<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select a year.</div>;
+          const seen=new Set();const netImports={};
+          for(const z of countryZoneIds){let net=0;for(const[z2,attrs]of Object.entries(tx[z]||{}))net-=(attrs.Interchange?.[refYear]||0);for(const[z2,zm]of Object.entries(tx))if(z2!==z)net+=(zm[z]?.Interchange?.[refYear]||0);netImports[z]=+net.toFixed(1);}
+          const zones=countryZoneIds.filter(z=>Math.abs(netImports[z]||0)>0).sort((a,b)=>netImports[b]-netImports[a]);
+          if(!zones.length)return<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No trade data.</div>;
+          return<div style={{display:'flex',flexDirection:'column',gap:10}}>
+            <div style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase',marginBottom:6}}>Net imports by zone (GWh)</div>
+            <CJChart type="bar" height={Math.min(zones.length*22+24,220)} cacheKey={`ctr|${scenario}|${refYear}`}
+              data={{labels:zones,datasets:[{data:zones.map(z=>netImports[z]),backgroundColor:zones.map(z=>hexA(netImports[z]>=0?'#2E9EC8':'#E8C547',0.75)),borderWidth:0,barThickness:12}]}}
+              options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}
+            />
+          </div>;
+        })()}
+        {/* Plants */}
+        {!loading&&hasData&&activeTab==='plants'&&(()=>{
+          const pl=(resultsData[scenario]?.plants||[]).filter(p=>p.attribute===plIndicator&&p.y===refYear&&p.value>0&&countryZoneIds.includes(p.z)).sort((a,b)=>b.value-a.value).slice(0,plTopN);
+          return<div style={{display:'flex',flexDirection:'column',gap:10}}>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+              <select value={plIndicator} onChange={e=>setPlIndicator(e.target.value)} style={selectStyle}>
+                {['CapacityPlant','EnergyPlant','CostsPlant','PlantAnnualLCOE','UtilizationPlant'].map(k=><option key={k} value={k}>{k.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</option>)}
+              </select>
+              <select value={plTopN} onChange={e=>setPlTopN(+e.target.value)} style={selectStyle}>
+                {[10,15,20,30].map(n=><option key={n} value={n}>Top {n}</option>)}
+              </select>
+            </div>
+            {pl.length>0?<>
+              <CJChart type="bar" height={Math.min(pl.length*18+24,280)} cacheKey={`cpl|${scenario}|${refYear}|${plIndicator}|${plTopN}`}
+                data={{labels:pl.map(p=>p.g),datasets:[{data:pl.map(p=>+p.value.toFixed(2)),backgroundColor:pl.map(p=>hexA(techColor(p.techfuel),0.8)),borderWidth:0,barThickness:12}]}}
+                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
+              />
+            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data.</div>}
+          </div>;
+        })()}
       </div>
     </div>
   );

@@ -91,6 +91,39 @@ export function processHourlyPrice(rows) {
   return out;
 }
 
+/** pTransmissionMerged → { z: { z2: { attribute: { year: val } } } } */
+export function processTransmissionResults(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z    = r.z || '';
+    const z2   = r.z2 || r.uni || '';
+    const attr = r.attribute || '';
+    const y    = String(r.y || '').trim();
+    const val  = parseFloat(r.value) || 0;
+    if (!z || !z2 || !attr || !y) continue;
+    if (!out[z])       out[z]       = {};
+    if (!out[z][z2])   out[z][z2]   = {};
+    if (!out[z][z2][attr]) out[z][z2][attr] = {};
+    out[z][z2][attr][y] = (out[z][z2][attr][y] || 0) + val;
+  }
+  return out;
+}
+
+/** pPlantMerged → [{ g, z, c, techfuel, attribute, year, value }] */
+export function processPlants(rows) {
+  if (!rows?.length) return [];
+  return rows.map(r => ({
+    g:         r.g || '',
+    z:         r.z || '',
+    c:         r.c || '',
+    techfuel:  r.techfuel || r.tech || '',
+    attribute: r.attribute || '',
+    y:         String(r.y || ''),
+    value:     parseFloat(r.value) || 0,
+  })).filter(r => r.g && r.attribute && r.y);
+}
+
 /** Extract sorted unique years from processTechFuel or processYearlyZone output */
 export function resultYears(data) {
   const ys = new Set();
