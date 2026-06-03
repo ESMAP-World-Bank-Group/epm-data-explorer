@@ -319,7 +319,7 @@ export default function ResultsRegionPage() {
           const dem = (sd.yearlyZone[z]?.DemandEnergyZone?.[yr]||0)/1000;
           const netImp = (sd.yearlyZone[z]?.NetImport?.[yr]||0)/1000;
           const hd=hoursDataRef.current;
-          const zP=sd.price[z]||{}; let tw=0,tp=0;
+          const zP=sd.price[z]?.[yr]||{}; let tw=0,tp=0;
           for(const[q,days]of Object.entries(zP))for(const[d,hrs]of Object.entries(days)){const w=hd[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}
           const avgP=tw>0?tp/tw:null;
           statsHtml=`<br><span style="opacity:.8;font-size:0.78em">` +
@@ -384,7 +384,8 @@ export default function ResultsRegionPage() {
     for (const f of zonesGJ.features) { const z=f.properties.z; if(z){const c=computeCentroid(f.geometry);if(c)zcCentroids[z]=c;} }
     // Compute avg price per zone
     const prices = {};
-    for (const [z, qmap] of Object.entries(sd.price)) {
+    for (const [z, yearmap] of Object.entries(sd.price)) {
+      const qmap=yearmap[refYear]||{};
       let tw=0,tp=0;
       for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}
       if(tw>0) prices[z]=tp/tw;
@@ -413,24 +414,24 @@ export default function ResultsRegionPage() {
   const allTechfuels  = useMemo(()=>{ const tfs=new Set(); for(const d of Object.values(resultsData)) for(const z of Object.values(d.techFuel)) for(const a of Object.values(z)) for(const y of Object.values(a)) for(const tf of Object.keys(y)) tfs.add(tf); return[...tfs].filter(t=>t!=='Demand').sort();},[resultsData]);
 
   const firstDisp      = Object.values(resultsData)[0]?.dispatch||{};
-  const dispAvailS     = useMemo(()=>{ const qs=new Set(); for(const z of Object.values(firstDisp)) for(const q of Object.keys(z)) qs.add(q); return[...qs].sort();},[firstDisp]);
-  const dispAvailD     = useMemo(()=>{ const ds=new Set(); for(const z of Object.values(firstDisp)) for(const q of Object.values(z)) for(const d of Object.keys(q)) ds.add(d); return[...ds].sort();},[firstDisp]);
+  const dispAvailS     = useMemo(()=>{ const qs=new Set(); for(const z of Object.values(firstDisp)) for(const yr of Object.values(z)) for(const q of Object.keys(yr)) qs.add(q); return[...qs].sort();},[firstDisp]);
+  const dispAvailD     = useMemo(()=>{ const ds=new Set(); for(const z of Object.values(firstDisp)) for(const yr of Object.values(z)) for(const q of Object.values(yr)) for(const d of Object.keys(q)) ds.add(d); return[...ds].sort();},[firstDisp]);
   const totalDays      = useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
   const activeDispZone = dispZone||'__all__';
 
   // Explicit demand lookup — zone-specific or region total (independent of generation)
-  const getDispDemand = (sd, zone, zones, s, d, h) => {
+  const getDispDemand = (sd, zone, zones, year, s, d, h) => {
     const key = `t${h+1}`;
-    if (zone === '__all__') return zones.reduce((sum, z) => sum + (sd.dispatch[z]?.[s]?.[d]?.[key]?.Demand || 0), 0);
-    return sd.dispatch[zone]?.[s]?.[d]?.[key]?.Demand ?? null;
+    if (zone === '__all__') return zones.reduce((sum, z) => sum + (sd.dispatch[z]?.[year]?.[s]?.[d]?.[key]?.Demand || 0), 0);
+    return sd.dispatch[zone]?.[year]?.[s]?.[d]?.[key]?.Demand ?? null;
   };
 
   // Aggregate dispatch generation (excl. Demand) across zones when '__all__' selected
-  const getZoneDisp = (sd, zone) => {
-    if (zone !== '__all__') return sd.dispatch[zone] || {};
+  const getZoneDisp = (sd, zone, year) => {
+    if (zone !== '__all__') return sd.dispatch[zone]?.[year] || {};
     const agg = {};
     for (const z of allZones) {
-      for (const [q, days] of Object.entries(sd.dispatch[z]||{}))
+      for (const [q, days] of Object.entries(sd.dispatch[z]?.[year]||{}))
         for (const [d, hours] of Object.entries(days))
           for (const [tt, tfs] of Object.entries(hours))
             for (const [tf, val] of Object.entries(tfs)) {
@@ -445,7 +446,7 @@ export default function ResultsRegionPage() {
   const zoneAvgPrices = useMemo(()=>{
     const sd=resultsData[ovScenario]||Object.values(resultsData)[0]; if(!sd||!refYear)return{};
     const res={};
-    for(const[z,qmap] of Object.entries(sd.price)){let tw=0,tp=0; for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}} if(tw>0)res[z]=tp/tw;}
+    for(const[z,yearmap] of Object.entries(sd.price)){const qmap=yearmap[refYear]||{};let tw=0,tp=0; for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}} if(tw>0)res[z]=tp/tw;}
     return res;
   },[resultsData,ovScenario,refYear,hoursData]);
 
@@ -499,19 +500,19 @@ export default function ResultsRegionPage() {
 
   // ── Dispatch ────────────────────────────────────────────────────────────────
   const buildDispatch = () => {
-    const sd=resultsData[dispScenario]; if(!sd||!activeDispZone)return{chartData:{labels:[],datasets:[]},plugin:null};
-    const zDisp=getZoneDisp(sd,activeDispZone); const isDark=t.isDark;
+    const sd=resultsData[dispScenario]; if(!sd||!activeDispZone||!refYear)return{chartData:{labels:[],datasets:[]},plugin:null};
+    const zDisp=getZoneDisp(sd,activeDispZone,refYear); const isDark=t.isDark;
     const seasons=dispAvailS, days=dispAvailD;
     if(dispMode==='full'&&seasons.length&&days.length){
       const nS=seasons.length,nDT=days.length,nPts=nS*nDT*24;
       const tfs=[...new Set(seasons.flatMap(q=>days.flatMap(d=>Object.values(zDisp[q]?.[d]||{}).flatMap(Object.keys))))].filter(t=>t!=='Demand').sort();
       const datasets=tfs.map(tf=>({label:tf,fill:true,data:seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.[tf]||0))),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0}));
-      const zP=activeDispZone==='__all__'?sd.price[allZones[0]]||{}:sd.price[activeDispZone]||{};
+      const zP=activeDispZone==='__all__'?sd.price[allZones[0]]?.[refYear]||{}:sd.price[activeDispZone]?.[refYear]||{};
       const pd=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zP[s]?.[d]?.[`t${h+1}`]||null)));
       if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true});
       // Actual demand from dispatch (dark red dashed)
-      const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{ const v=getDispDemand(sd,activeDispZone,allZones,s,d,h); return v!=null&&v>0?v:null; })));
-      if(demData.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:demData,borderColor:'#8B0000',borderWidth:1.8,pointRadius:0,tension:0,fill:false,spanGaps:true,borderDash:[5,3]});
+      const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{ const v=getDispDemand(sd,activeDispZone,allZones,refYear,s,d,h); return v!=null&&v>0?v:null; })));
+      if(demData.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:demData,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true});
       const sepPlugin={id:'dSep',afterDraw:(chart)=>{
         const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
         const{top,bottom}=chartArea;const xS=scales.x;
@@ -533,12 +534,12 @@ export default function ResultsRegionPage() {
     const demLine=dispAvailD.length>0
       ?Array.from({length:24},(_,h)=>{
           const ds=dispDay==='avg'?dispAvailD:[dispDay];
-          const vals=ds.map(d=>getDispDemand(sd,activeDispZone,allZones,dispSeason,d,h)).filter(v=>v!=null&&v>0);
+          const vals=ds.map(d=>getDispDemand(sd,activeDispZone,allZones,refYear,dispSeason,d,h)).filter(v=>v!=null&&v>0);
           if(!vals.length)return null;
           return dispDay==='avg'?vals.reduce((a,b)=>a+b,0)/vals.length:vals[0];
         })
-      :[]; if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1.8,pointRadius:0,tension:0,fill:false,spanGaps:true,borderDash:[5,3]});
-    const zPr=sd.price[activeDispZone]||{}; const prLine=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
+      :[]; if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true});
+    const zPr=sd.price[activeDispZone]?.[refYear]||{}; const prLine=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
     if(prLine.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prLine,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true});
     return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:null};
   };
@@ -785,7 +786,7 @@ export default function ResultsRegionPage() {
             </div>
             {dispResult.chartData.datasets.length>0?<>
               <CJChart type="line" height={dispMode==='full'?215:165} data={dispResult.chartData} plugins={dispResult.plugin?[dispResult.plugin]:[]} cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}`}
-                options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
+                options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
               />
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
                 {dispTechfuels.map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}

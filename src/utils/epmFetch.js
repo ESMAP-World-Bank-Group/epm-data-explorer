@@ -57,36 +57,40 @@ export function processYearlyZone(rows) {
   return out;
 }
 
-/** pDispatchComplete → { zone: { q: { d: { t: { techfuel: val } } } } } */
+/** pDispatchComplete → { zone: { year: { q: { d: { t: { techfuel: val } } } } } } */
 export function processDispatchResults(rows) {
   if (!rows?.length) return {};
   const out = {};
   for (const r of rows) {
-    const z = r.z || r.zone || ''; const q = r.q || ''; const d = r.d || '';
+    const z = r.z || r.zone || ''; const y = String(r.y || '').trim();
+    const q = r.q || ''; const d = r.d || '';
     const tt = (r.t||'').replace(/^(t)0+(\d)/,'$1$2'); const tf = r.uni || r.techfuel || r.tech || '';
     const val = parseFloat(r.value) || 0;
-    if (!z || !q || !d || !tt || !tf) continue;
+    if (!z || !y || !q || !d || !tt || !tf) continue;
     if (!out[z]) out[z] = {};
-    if (!out[z][q]) out[z][q] = {};
-    if (!out[z][q][d]) out[z][q][d] = {};
-    if (!out[z][q][d][tt]) out[z][q][d][tt] = {};
-    out[z][q][d][tt][tf] = (out[z][q][d][tt][tf] || 0) + val;
+    if (!out[z][y]) out[z][y] = {};
+    if (!out[z][y][q]) out[z][y][q] = {};
+    if (!out[z][y][q][d]) out[z][y][q][d] = {};
+    if (!out[z][y][q][d][tt]) out[z][y][q][d][tt] = {};
+    out[z][y][q][d][tt][tf] = (out[z][y][q][d][tt][tf] || 0) + val;
   }
   return out;
 }
 
-/** pHourlyPrice → { zone: { q: { d: { t: val } } } } */
+/** pHourlyPrice → { zone: { year: { q: { d: { t: val } } } } } */
 export function processHourlyPrice(rows) {
   if (!rows?.length) return {};
   const out = {};
   for (const r of rows) {
-    const z = r.z || r.zone || ''; const q = r.q || ''; const d = r.d || '';
+    const z = r.z || r.zone || ''; const y = String(r.y || '').trim();
+    const q = r.q || ''; const d = r.d || '';
     const tt = (r.t||'').replace(/^(t)0+(\d)/,'$1$2'); const val = parseFloat(r.value) || 0;
-    if (!z || !q || !d || !tt) continue;
+    if (!z || !y || !q || !d || !tt) continue;
     if (!out[z]) out[z] = {};
-    if (!out[z][q]) out[z][q] = {};
-    if (!out[z][q][d]) out[z][q][d] = {};
-    out[z][q][d][tt] = val;
+    if (!out[z][y]) out[z][y] = {};
+    if (!out[z][y][q]) out[z][y][q] = {};
+    if (!out[z][y][q][d]) out[z][y][q][d] = {};
+    out[z][y][q][d][tt] = val;
   }
   return out;
 }
