@@ -139,7 +139,20 @@ export default function ResultsRegionPage() {
   const [plScenario,   setPlScenario]   = useState(null);
   const [plIndicator,  setPlIndicator]  = useState('CapacityPlant');
   const [plTopN,       setPlTopN]       = useState(20);
-  const [plShowBubble, setPlShowBubble] = useState(false);
+  const [plShowBubble,   setPlShowBubble]   = useState(false);
+  const [panelWidth,     setPanelWidth]     = useState(560);
+  const [mapLoadedCount, setMapLoadedCount] = useState(0);
+  const [hiddenMap,      setHiddenMap]      = useState({}); // { chartId: Set<label> }
+  const isDraggingRef = useRef(false);
+  const dragStartX    = useRef(0);
+  const dragStartW    = useRef(0);
+
+  const toggleHidden = (chartId, label) => setHiddenMap(prev => {
+    const s = new Set(prev[chartId] || []);
+    s.has(label) ? s.delete(label) : s.add(label);
+    return { ...prev, [chartId]: s };
+  });
+  const isHidden = (chartId, label) => hiddenMap[chartId]?.has(label) || false;
 
   // ── Sync refs ──────────────────────────────────────────────────────────────
   useEffect(() => { resultsDataRef.current = resultsData; }, [resultsData]);
@@ -255,7 +268,8 @@ export default function ResultsRegionPage() {
       }
       if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData }, { sdf:true });
 
-      const countries = await fetch('/data/countries_110m.geojson').then(r=>r.json());
+      setMapLoadedCount(c => c + 1);
+      const countries = await fetch('/data/countries_10m.geojson').then(r=>r.json());
       countries.features.forEach((f,i)=>{ f.id=i; });
       map.addSource('countries', { type:'geojson', data:countries, generateId:false });
       map.addLayer({ id:'land',    type:'fill', source:'countries', paint:{'fill-color':tv.land,'fill-opacity':1} });
@@ -355,7 +369,7 @@ export default function ResultsRegionPage() {
       }
     }
     map.getSource('ntc-results').setData({ type:'FeatureCollection', features });
-  }, [resultsData, refYear, ovScenario, zonesGJ, linestringGJ]);
+  }, [resultsData, refYear, ovScenario, zonesGJ, linestringGJ, mapLoadedCount]); // eslint-disable-line
 
   // ── Update price dots ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -508,23 +522,40 @@ export default function ResultsRegionPage() {
       for(const[z2,attrs]of Object.entries(tx[z]||{}))exp[z]+=(attrs.Interchange?.[refYear]||0);
       for(const[z2,zm]of Object.entries(tx))if(z2!==z)imp[z]+=(zm[z]?.Interchange?.[refYear]||0);
     }
-    const zones=allZones.filter(z=>imp[z]+exp[z]>1).sort((a,b)=>(imp[b]-exp[b])-(imp[a]-exp[a]));
-    return { labels:zones, datasets:[
-      { label:'Imports', data:zones.map(z=>+imp[z].toFixed(1)), backgroundColor:hexA('#2E9EC8',0.75), borderWidth:0, barThickness:10 },
-      { label:'Exports', data:zones.map(z=>-exp[z].toFixed(1)), backgroundColor:hexA('#E8C547',0.75), borderWidth:0, barThickness:10 },
-      { label:'Net', type:'scatter', data:zones.map((z,i)=>({x:i, y:+(imp[z]-exp[z]).toFixed(1)})), borderColor:'#fff', borderWidth:1.5, pointRadius:5, pointBackgroundColor:zones.map(z=>(imp[z]-exp[z])>=0?'#2E9EC8':'#E8C547'), showLine:false },
-    ]};
+    const zones=allZones.filter(z=>imp[z]+exp[z]>0.5).sort((a,b)=>(imp[b]-exp[b])-(imp[a]-exp[a]));
+    if(!zones.length)return null;
+    // Diverging bars: imports (+) and exports (-) both from baseline 0 on stacked x axis
+    const visImp = !isHidden('trade-bar','Imports');
+    const visExp = !isHidden('trade-bar','Exports');
+    return {
+      labels:zones,
+      datasets:[
+        visImp&&{ label:'Imports', data:zones.map(z=>+imp[z].toFixed(1)), backgroundColor:hexA('#2E9EC8',0.78), borderWidth:0, barThickness:12 },
+        visExp&&{ label:'Exports', data:zones.map(z=>+(-exp[z]).toFixed(1)), backgroundColor:hexA('#E8C547',0.78), borderWidth:0, barThickness:12 },
+      ].filter(Boolean),
+      _imp:imp, _exp:exp,
+    };
   };
 
   const buildTradeEvolution = () => {
     const tx0=resultsData[trScenario]?.transmission||{}; if(!allYears.length||!Object.keys(tx0).length)return null;
     const corridors=[]; const seen=new Set();
     for(const[z,zm] of Object.entries(tx0))for(const z2 of Object.keys(zm)){const k=[z,z2].sort().join('||');if(!seen.has(k)){seen.add(k);corridors.push({z,z2,key:k});}}
-    const attr=trEvMetric==='volume'?'Interchange':'TransmissionCapacity';
-    return { labels:allYears, datasets:corridors.slice(0,12).map((c,i)=>({
+    let attr,unit;
+    if(trEvMetric==='volume')       { attr='Interchange';          unit='GWh'; }
+    else if(trEvMetric==='capacity'){ attr='TransmissionCapacity'; unit='MW'; }
+    else                            { attr='InterconUtilization';  unit='%'; }
+    return { labels:allYears, corridors, unit, datasets:corridors.slice(0,12).map((c,i)=>({
       label:`${c.z}↔${c.z2}`,
-      data:allYears.map(y=>{ const tx=resultsData[trScenario]?.transmission||{}; const fwd=tx[c.z]?.[c.z2]?.[attr]?.[y]||0; const rev=tx[c.z2]?.[c.z]?.[attr]?.[y]||0; return+(Math.abs(fwd)+Math.abs(rev)).toFixed(1); }),
-      backgroundColor:hexA(MAP_PALETTE[i%MAP_PALETTE.length],0.82), borderWidth:0, stack:'a',
+      data:allYears.map(y=>{
+        const tx=resultsData[trScenario]?.transmission||{};
+        const fwd=tx[c.z]?.[c.z2]?.[attr]?.[y]||0;
+        const rev=tx[c.z2]?.[c.z]?.[attr]?.[y]||0;
+        // Utilization: average of both directions (0-1 scale → ×100)
+        return trEvMetric==='utilization' ? +(((fwd+rev)/2)*100).toFixed(1) : +(Math.abs(fwd)+Math.abs(rev)).toFixed(1);
+      }),
+      backgroundColor:hexA(MAP_PALETTE[i%MAP_PALETTE.length],isHidden('trade-ev',`${c.z}↔${c.z2}`)?0.05:0.82),
+      borderWidth:0, stack:'a',
     }))};
   };
 
@@ -553,7 +584,11 @@ export default function ResultsRegionPage() {
 
   // ── JSX ─────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display:'flex', height:'calc(100vh - 46px)' }}>
+    <div style={{ display:'flex', height:'calc(100vh - 46px)' }}
+      onMouseMove={e=>{ if(!isDraggingRef.current)return; const dx=dragStartX.current-e.clientX; setPanelWidth(Math.max(380,Math.min(760,dragStartW.current+dx))); }}
+      onMouseUp={()=>{ isDraggingRef.current=false; }}
+      onMouseLeave={()=>{ isDraggingRef.current=false; }}
+    >
 
       {/* Map */}
       <div style={{ position:'relative', flex:1 }}>
@@ -589,8 +624,14 @@ export default function ResultsRegionPage() {
         )}
       </div>
 
-      {/* Right panel */}
-      <div style={{ width:560, flexShrink:0, height:'100%', overflowY:'auto', padding:'18px 16px', backgroundColor:t.panel, borderLeft:`1px solid ${t.panelBorder}` }}>
+      {/* Drag handle */}
+      <div
+        style={{ width:5, flexShrink:0, cursor:'col-resize', backgroundColor:'transparent', zIndex:10 }}
+        onMouseDown={e=>{ isDraggingRef.current=true; dragStartX.current=e.clientX; dragStartW.current=panelWidth; e.preventDefault(); }}
+      />
+
+      {/* Right panel — resizable */}
+      <div style={{ width:panelWidth, flexShrink:0, height:'100%', overflowY:'auto', padding:'18px 16px', backgroundColor:t.panel, borderLeft:`1px solid ${t.panelBorder}` }}>
 
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:'0.52rem', color:t.lblMuted, marginBottom:2 }}>
@@ -646,10 +687,10 @@ export default function ResultsRegionPage() {
             {/* Mix chart */}
             {overviewMix&&<div>
               <SectionTitle t={t} right={<div style={{display:'flex',gap:3}}><Pill active={ovMixMode==='zone'} onClick={()=>setOvMixMode('zone')}>Zone</Pill><Pill active={ovMixMode==='country'} onClick={()=>setOvMixMode('country')}>Country</Pill></div>}>Capacity mix (MW)</SectionTitle>
-              <CJChart type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}`} data={overviewMix}
+              <CJChart type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}|${[...hiddenMap['ov-mix']||[]].join(',')}`} data={{...overviewMix,datasets:overviewMix.datasets.filter(d=>!isHidden('ov-mix',d.label))}}
                 options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}
               />
-              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:5}}>{allTechfuels.map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:5}}>{allTechfuels.map(tf=><div key={tf} onClick={()=>toggleHidden('ov-mix',tf)} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted,cursor:'pointer',opacity:isHidden('ov-mix',tf)?0.28:1}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>
             </div>}
             {/* Prices by zone */}
             {Object.keys(zoneAvgPrices).length>0&&(()=>{
@@ -676,11 +717,11 @@ export default function ResultsRegionPage() {
               {scenarioList.map(s=><Pill key={s} active={evScenarios.has(s)} onClick={()=>setEvScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
             </div>
             {evolutionData?<>
-              <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={220} cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}`} data={evolutionData}
+              <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={220} cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}|${[...hiddenMap['ev-tf']||[]].join(',')}`} data={{...evolutionData,datasets:evolutionData.datasets.filter(d=>activeInd.source!=='techFuel'||!isHidden('ev-tf',d.label.split(' — ')[1]||d.label))}}
                 options={{...cjDefaults(t),scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
               />
               {activeInd.source==='costs'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{MAIN_COST_CATS.map(cat=><div key={cat} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:costColor(cat)}}/>{COST_LABELS[cat]||cat}</div>)}</div>}
-              {activeInd.source==='techFuel'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{allTechfuels.map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>}
+              {activeInd.source==='techFuel'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{allTechfuels.map(tf=><div key={tf} onClick={()=>toggleHidden('ev-tf',tf)} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted,cursor:'pointer',opacity:isHidden('ev-tf',tf)?0.28:1}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>}
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
           </div>
         )}
@@ -718,30 +759,74 @@ export default function ResultsRegionPage() {
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <select value={trScenario||''} onChange={e=>setTrScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
             </div>
-            {/* Import / Export bar + net dots */}
-            {tradeBarData&&tradeBarData.labels.length>0&&<>
-              <SectionTitle t={t}>Imports / Exports by zone (GWh) · dots = net</SectionTitle>
-              <CJChart type="bar" height={Math.min(tradeBarData.labels.length*22+24,260)} cacheKey={`tr|${trScenario}|${refYear}`} data={tradeBarData}
-                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>ctx.dataset.type==='scatter'?`Net: ${fmt(ctx.parsed.y)} GWh`:`${ctx.dataset.label}: ${fmt(Math.abs(ctx.parsed.x))} GWh`}}}}}
-              />
-              <div style={{display:'flex',gap:10,marginTop:3}}>
-                {[['#2E9EC8','Imports'],['#E8C547','Exports']].map(([c,l])=><div key={l} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.44rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:hexA(c,0.75)}}/>{l}</div>)}
-                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.44rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:'50%',backgroundColor:'#fff',border:'1px solid #888'}}/> Net</div>
-              </div>
-            </>}
-            {/* Evolution stacked by corridor */}
-            {tradeEvData&&<>
-              <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap', marginTop:4 }}>
-                <SectionTitle t={t}>Trade evolution by corridor</SectionTitle>
-                <div style={{display:'flex',gap:3,marginLeft:'auto'}}>
-                  <Pill active={trEvMetric==='volume'}   onClick={()=>setTrEvMetric('volume')}>Volume (GWh)</Pill>
-                  <Pill active={trEvMetric==='capacity'} onClick={()=>setTrEvMetric('capacity')}>Capacity (MW)</Pill>
+
+            {/* Diverging import/export bars */}
+            {tradeBarData&&tradeBarData.labels.length>0&&(()=>{
+              const zones=tradeBarData.labels;
+              return <>
+                <SectionTitle t={t}>Imports (+) / Exports (−) by zone (GWh)</SectionTitle>
+                <div style={{ display:'flex', gap:8 }}>
+                  <div style={{ flex:1 }}>
+                    <CJChart type="bar" height={Math.min(zones.length*22+24,260)}
+                      cacheKey={`tr|${trScenario}|${refYear}|${[...hiddenMap['trade-bar']||[]].join(',')}`}
+                      data={tradeBarData}
+                      options={{...cjDefaults(t),indexAxis:'y',
+                        scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},
+                        plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(Math.abs(ctx.parsed.x))} GWh`,title:ctx=>{const z=ctx[0]?.label;const imp=tradeBarData._imp?.[z]||0;const exp=tradeBarData._exp?.[z]||0;return[z,`Net: ${imp>=exp?'+':''}${fmt(imp-exp)} GWh`];}}}}}}
+                    />
+                  </div>
+                  {/* Clickable legend */}
+                  <div style={{ width:72, flexShrink:0, display:'flex', flexDirection:'column', gap:4, paddingTop:4 }}>
+                    {[{l:'Imports',c:'#2E9EC8'},{l:'Exports',c:'#E8C547'}].map(({l,c})=>(
+                      <div key={l} onClick={()=>toggleHidden('trade-bar',l)} style={{ display:'flex',alignItems:'center',gap:4,cursor:'pointer',opacity:isHidden('trade-bar',l)?0.25:1 }}>
+                        <div style={{ width:10,height:10,borderRadius:2,backgroundColor:hexA(c,0.78),flexShrink:0 }}/>
+                        <span style={{ fontSize:'0.43rem',color:t.muted }}>{l}</span>
+                      </div>
+                    ))}
+                    <div style={{ fontSize:'0.38rem',color:t.lblMuted,marginTop:4 }}>click to hide</div>
+                  </div>
                 </div>
-              </div>
-              <CJChart type="bar" height={200} cacheKey={`trev|${trScenario}|${trEvMetric}`} data={tradeEvData}
-                options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:trEvMetric==='volume'?'GWh':'MW',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:{display:true,position:'bottom',labels:{color:t.muted,font:{size:7},boxWidth:8,padding:6}}}}}
-              />
-            </>}
+              </>;
+            })()}
+
+            {/* Evolution stacked by corridor — right legend */}
+            {tradeEvData&&(()=>{
+              const allCorridors=tradeEvData.corridors||[];
+              const unit=tradeEvData.unit||'GWh';
+              return <>
+                <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap', marginTop:4 }}>
+                  <SectionTitle t={t}>Trade evolution by corridor</SectionTitle>
+                  <div style={{display:'flex',gap:3,marginLeft:'auto'}}>
+                    <Pill active={trEvMetric==='volume'}      onClick={()=>setTrEvMetric('volume')}>GWh</Pill>
+                    <Pill active={trEvMetric==='capacity'}    onClick={()=>setTrEvMetric('capacity')}>MW</Pill>
+                    <Pill active={trEvMetric==='utilization'} onClick={()=>setTrEvMetric('utilization')}>Util %</Pill>
+                  </div>
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <div style={{ flex:1 }}>
+                    <CJChart type="bar" height={200}
+                      cacheKey={`trev|${trScenario}|${trEvMetric}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
+                      data={{ labels:tradeEvData.labels, datasets:tradeEvData.datasets.filter(d=>!isHidden('trade-ev',d.label)).map(d=>({...d,backgroundColor:hexA(MAP_PALETTE[allCorridors.findIndex(c=>`${c.z}↔${c.z2}`===d.label)%MAP_PALETTE.length],0.82)})) }}
+                      options={{...cjDefaults(t),scales:{
+                        x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
+                        y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:unit,color:t.muted,font:{size:7}}},
+                      },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)} ${unit}`}}}}}
+                    />
+                  </div>
+                  {/* Right legend — clickable */}
+                  <div style={{ width:80,flexShrink:0,display:'flex',flexDirection:'column',gap:2,paddingTop:4,maxHeight:200,overflowY:'auto' }}>
+                    {allCorridors.slice(0,12).map((c,i)=>{
+                      const label=`${c.z}↔${c.z2}`;
+                      return <div key={label} onClick={()=>toggleHidden('trade-ev',label)} style={{ display:'flex',alignItems:'center',gap:3,cursor:'pointer',opacity:isHidden('trade-ev',label)?0.25:1 }}>
+                        <div style={{ width:9,height:9,borderRadius:2,backgroundColor:hexA(MAP_PALETTE[i%MAP_PALETTE.length],0.82),flexShrink:0 }}/>
+                        <span style={{ fontSize:'0.4rem',color:t.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{label}</span>
+                      </div>;
+                    })}
+                    <div style={{ fontSize:'0.38rem',color:t.lblMuted,marginTop:4 }}>click to hide</div>
+                  </div>
+                </div>
+              </>;
+            })()}
           </div>
         )}
 
