@@ -87,6 +87,21 @@ function SectionTitle({ t, children, right }) {
 function Pill({ active, onClick, children }) {
   return <button onClick={onClick} style={{fontSize:'0.44rem',fontFamily:'inherit',padding:'2px 7px',borderRadius:3,cursor:'pointer',border:`1px solid ${active?'rgba(74,143,204,0.65)':'rgba(128,160,192,0.2)'}`,backgroundColor:active?'rgba(74,143,204,0.12)':'transparent',color:active?'rgba(74,143,204,1)':'rgba(128,160,192,0.7)',fontWeight:active?600:400}}>{children}</button>;
 }
+function DownloadBtn({ url, filename, t }) {
+  const [busy, setBusy] = useState(false);
+  const handle = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(url); const text = await res.text();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text],{type:'text/csv'}));
+      a.download = filename; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),100);
+    } catch { window.open(url,'_blank'); } finally { setBusy(false); }
+  };
+  return <button onClick={handle} disabled={busy} title={filename} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.42rem',fontFamily:'inherit',padding:'3px 8px',borderRadius:3,cursor:'pointer',border:`1px solid ${t.panelBorder}`,backgroundColor:'transparent',color:t.muted,opacity:busy?0.5:1}}>
+    <span style={{fontSize:'0.6rem'}}>{busy?'…':'↓'}</span><span>{filename.replace('.csv','')}</span>
+  </button>;
+}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -499,6 +514,8 @@ export default function ResultsRegionPage() {
   if (!region) return <div style={{ padding:40, color:t.text }}>Loading…</div>;
 
   const selectStyle = { fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer' };
+  const csvUrl = (scen, file) => `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm?.branch}/epm/output/${simRun}/${scen}/output_csv/${file}`;
+  const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} t={t}/>)}</div>:null;
   const TABS = ['overview','evolution','dispatch','trade','plants'];
   const TAB_LABELS = { overview:'Overview', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants' };
 
@@ -790,6 +807,7 @@ export default function ResultsRegionPage() {
                 </div>
               </div>;
             })()}
+            <DlRow files={[[ovScenario,'pTechFuelMerged.csv'],[ovScenario,'pYearlyZoneMerged.csv'],[ovScenario,'pHourlyPrice.csv']]}/>
           </div>
         )}
 
@@ -809,6 +827,7 @@ export default function ResultsRegionPage() {
               {activeInd.source==='costs'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{MAIN_COST_CATS.map(cat=><div key={cat} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:costColor(cat)}}/>{COST_LABELS[cat]||cat}</div>)}</div>}
               {activeInd.source==='techFuel'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{allTechfuels.map(tf=><div key={tf} onClick={()=>toggleHidden('ev-tf',tf)} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted,cursor:'pointer',opacity:isHidden('ev-tf',tf)?0.28:1}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>}
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
+            <DlRow files={scenarioList.map(s=>[s,'pTechFuelMerged.csv']).slice(0,1).concat(scenarioList.map(s=>[s,'pYearlyZoneMerged.csv']).slice(0,1))}/>
           </div>
         )}
 
@@ -838,6 +857,7 @@ export default function ResultsRegionPage() {
                 <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',borderRadius:1}}/><span>Marginal cost</span></div>
               </div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
+            <DlRow files={[[dispScenario,'pDispatchComplete.csv'],[dispScenario,'pHourlyPrice.csv']]}/>
           </div>
         )}
 
@@ -916,6 +936,7 @@ export default function ResultsRegionPage() {
                 </div>
               </>;
             })()}
+            <DlRow files={[[trScenario,'pTransmissionMerged.csv']]}/>
           </div>
         )}
 
@@ -949,6 +970,7 @@ export default function ResultsRegionPage() {
               />
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:4}}>{lcoeData.datasets.map(ds=><div key={ds.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:'50%',backgroundColor:ds.backgroundColor}}/>{ds.label}</div>)}</div>
             </>}
+            <DlRow files={[[plScenario,'pPlantMerged.csv'],[plScenario,'pCostsMerged.csv']]}/>
           </div>
         )}
 
