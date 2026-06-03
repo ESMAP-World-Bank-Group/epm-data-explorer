@@ -110,6 +110,23 @@ export function processTransmissionResults(rows) {
   return out;
 }
 
+/** pCostsMerged → { zone: { category: { year: val } } } (attribute='Costs', uni=category) */
+export function processCosts(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z   = r.z || '';
+    const cat = r.uni || '';
+    const y   = String(r.y || '').replace('.0','').trim();
+    const val = parseFloat(r.value) || 0;
+    if (!z || !cat || !y || r.attribute !== 'Costs') continue;
+    if (!out[z]) out[z] = {};
+    if (!out[z][cat]) out[z][cat] = {};
+    out[z][cat][y] = (out[z][cat][y] || 0) + val;
+  }
+  return out;
+}
+
 /** pPlantMerged → [{ g, z, c, techfuel, attribute, year, value }] */
 export function processPlants(rows) {
   if (!rows?.length) return [];
