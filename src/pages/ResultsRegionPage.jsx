@@ -65,10 +65,16 @@ function hexA(hex, a) { if (!hex||hex.length<7) return `rgba(128,128,128,${a})`;
 function cjDefaults(t) { return { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:9},bodyFont:{size:9},padding:6}}, scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}}}; }
 
 function priceColor(t_) {
-  // t_ = 0-1: blue→cyan→yellow→red
-  if (t_ < 0.33) { const s=t_/0.33; return `rgb(${Math.round(59+s*196)},${Math.round(130+s*83)},${Math.round(246+s*(0-246))})` ; }
-  if (t_ < 0.66) { const s=(t_-0.33)/0.33; return `rgb(${Math.round(255)},${Math.round(213-s*68)},${0})`; }
-  const s=(t_-0.66)/0.34; return `rgb(${Math.round(255)},${Math.round(145-s*145)},${0})`;
+  // t_ = 0-1: white → steel blue → dark navy
+  const r = Math.round(255 - t_ * (255 - 13));
+  const g = Math.round(255 - t_ * (255 - 58));
+  const b = Math.round(255 - t_ * (255 - 140));
+  return `rgb(${r},${g},${b})`;
+}
+function priceBarColor(t_) {
+  // Visible on dark bg: teal → gold → orange — not priceColor which goes light
+  if (t_ < 0.5) { const s=t_*2; return `rgb(${Math.round(72+s*(232-72))},${Math.round(201+s*(197-201))},${Math.round(176+s*(67-176))})` ; }
+  const s=(t_-0.5)*2; return `rgb(${Math.round(232+s*(255-232))},${Math.round(197-s*137)},${Math.round(67-s*67)})`;
 }
 
 function CJChart({ type, data, options, height, plugins: ep, cacheKey }) {
@@ -240,14 +246,14 @@ export default function ResultsRegionPage() {
       const tv = getT(theme);
       if (bounds) map.fitBounds(bounds, { padding:60, duration:0, maxZoom:8 });
 
-      // Arrow image
+      // SDF arrow image (white triangle = inside, supports icon-color)
       const aW=14, aH=12;
       const aData = new Uint8Array(aW*aH*4).fill(0);
       for (let y=0;y<aH;y++) {
         const h=aH/2; const xMax=Math.round(y<=h?(y/h)*aW*0.85:((aH-y)/h)*aW*0.85);
-        for (let x=0;x<xMax;x++) { const i=(y*aW+x)*4; aData[i]=255;aData[i+1]=255;aData[i+2]=255;aData[i+3]=200; }
+        for (let x=0;x<xMax;x++) { const i=(y*aW+x)*4; aData[i]=255;aData[i+1]=255;aData[i+2]=255;aData[i+3]=255; }
       }
-      if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData });
+      if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData }, { sdf:true });
 
       const countries = await fetch('/data/countries_110m.geojson').then(r=>r.json());
       countries.features.forEach((f,i)=>{ f.id=i; });
@@ -262,7 +268,7 @@ export default function ResultsRegionPage() {
 
       map.addSource('zones', { type:'geojson', data:zonesGJ, generateId:true });
       map.addLayer({ id:'zone-fill',   type:'fill', source:'zones', paint:{'fill-color':fillExpr,'fill-opacity':0.22} });
-      map.addLayer({ id:'zone-hover',  type:'fill', source:'zones', filter:['==',['get','ISO_A3'],''], paint:{'fill-color':fillExpr,'fill-opacity':0.50} });
+      map.addLayer({ id:'zone-hover',  type:'fill', source:'zones', filter:['==',['get','z'],''], paint:{'fill-color':fillExpr,'fill-opacity':0.55} });
       map.addLayer({ id:'zone-border', type:'line', source:'zones', paint:{'line-color':fillExpr,'line-width':1.2,'line-opacity':0.75} });
 
       // NTC lines — empty source, updated separately
@@ -271,7 +277,8 @@ export default function ResultsRegionPage() {
         paint:{ 'line-color':['interpolate',['linear'],['get','util'],0,'#FFD700',0.5,'#FF8C00',1,'#E53935'],
           'line-width':['interpolate',['linear'],['get','vol'],0,1,500,2.5,5000,5], 'line-opacity':0.88 } });
       map.addLayer({ id:'ntc-arrows', type:'symbol', source:'ntc-results',
-        layout:{ 'icon-image':'ntc-arrow', 'icon-allow-overlap':false, 'symbol-placement':'line', 'symbol-spacing':55, 'icon-rotation-alignment':'map', 'icon-pitch-alignment':'viewport', 'icon-size':0.9 } });
+        layout:{ 'icon-image':'ntc-arrow', 'icon-allow-overlap':false, 'symbol-placement':'line', 'symbol-spacing':55, 'icon-rotation-alignment':'map', 'icon-pitch-alignment':'viewport', 'icon-size':0.9 },
+        paint:{ 'icon-color':['interpolate',['linear'],['get','util'],0,'#FFD700',0.5,'#FF8C00',1,'#E53935'] } });
 
       // Hover on NTC line
       map.on('mouseenter','ntc-bg',e=>{
@@ -280,43 +287,38 @@ export default function ResultsRegionPage() {
         popup.setLngLat(e.lngLat).setHTML(
           `<b>${p.z} ↔ ${p.z2}</b><br>` +
           `<span style="opacity:.8;font-size:0.8em">Interchange ${p.yr}: ${fmtBig(p.fwd)} GWh (fwd) / ${fmtBig(p.rev)} GWh (rev)<br>` +
-          `Utilization: ${p.util!=null?(p.util*100).toFixed(0)+'%':'—'} &nbsp;·&nbsp; Capacity: ${fmtBig(p.cap)} MW</span>`
+          `Utilization: ${p.util!=null?(parseFloat(p.util)*100).toFixed(0)+'%':'—'} &nbsp;·&nbsp; Capacity: ${fmtBig(parseFloat(p.cap)||0)} MW</span>`
         ).addTo(map);
       });
       map.on('mouseleave','ntc-bg',()=>{ map.getCanvas().style.cursor=''; popup.remove(); });
 
-      // Zone hover — rich stats
-      let hovIso=null;
+      // Zone hover — per-zone stats
+      let hovZ=null;
       map.on('mousemove','zone-fill',e=>{
         map.getCanvas().style.cursor='pointer';
-        const iso=e.features[0].properties.ISO_A3; const c=isoToCountry[iso]||iso;
-        if (iso!==hovIso) { hovIso=iso; map.setFilter('zone-hover',['==',['get','ISO_A3'],iso]); }
-        // Build zone stats from refs
+        const z=e.features[0].properties.z||''; const c=isoToCountry[e.features[0].properties.ISO_A3]||'';
+        if (z!==hovZ) { hovZ=z; map.setFilter('zone-hover',['==',['get','z'],z]); }
         const rd=resultsDataRef.current; const yr=refYearRef.current;
         const scen=ovScenarioRef.current; const sd=rd[scen]||Object.values(rd)[0];
-        const zones=zcmapRows.filter(r=>r.c===c).map(r=>r.z);
         let statsHtml='';
-        if (sd && yr) {
-          const cap = zones.reduce((s,z)=>s+Object.values(sd.techFuel[z]?.CapacityTechFuel?.[yr]||{}).reduce((a,b)=>a+b,0),0)/1000;
-          const dem = zones.reduce((s,z)=>s+(sd.yearlyZone[z]?.DemandEnergyZone?.[yr]||0),0)/1000;
-          const netImp = zones.reduce((s,z)=>s+(sd.yearlyZone[z]?.NetImport?.[yr]||0),0)/1000;
-          // Avg price (weighted)
+        if (sd && yr && z) {
+          const cap = Object.values(sd.techFuel[z]?.CapacityTechFuel?.[yr]||{}).reduce((a,b)=>a+b,0)/1000;
+          const dem = (sd.yearlyZone[z]?.DemandEnergyZone?.[yr]||0)/1000;
+          const netImp = (sd.yearlyZone[z]?.NetImport?.[yr]||0)/1000;
           const hd=hoursDataRef.current;
-          const prices=zones.map(z=>{
-            const zP=sd.price[z]||{}; let tw=0,tp=0;
-            for(const[q,days]of Object.entries(zP))for(const[d,hrs]of Object.entries(days)){const w=hd[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}
-            return tw>0?tp/tw:null;
-          }).filter(v=>v!=null);
-          const avgP=prices.length?prices.reduce((a,b)=>a+b,0)/prices.length:null;
-          statsHtml=`<br><span style="opacity:.75;font-size:0.78em">` +
+          const zP=sd.price[z]||{}; let tw=0,tp=0;
+          for(const[q,days]of Object.entries(zP))for(const[d,hrs]of Object.entries(days)){const w=hd[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}
+          const avgP=tw>0?tp/tw:null;
+          statsHtml=`<br><span style="opacity:.8;font-size:0.78em">` +
+            `${c?`Country: ${c}<br>`:''}` +
             `Installed: ${cap.toFixed(1)} GW &nbsp; Demand: ${dem.toFixed(0)} TWh<br>` +
-            `Net import: ${netImp>=0?'+':''}${netImp.toFixed(0)} TWh &nbsp;` +
-            `${avgP!=null?`Avg price: ${avgP.toFixed(1)} USD/MWh`:''}</span>`;
+            `Net import: ${netImp>=0?'+':''}${netImp.toFixed(0)} TWh` +
+            `${avgP!=null?` &nbsp; Avg price: ${avgP.toFixed(1)} $/MWh`:''}</span>`;
         }
-        popup.setLngLat(e.lngLat).setHTML(`<b>${c}</b>${statsHtml}<br><span style="opacity:.55;font-size:0.7em">click to explore</span>`).addTo(map);
+        popup.setLngLat(e.lngLat).setHTML(`<b>${z||c}</b>${statsHtml}<br><span style="opacity:.5;font-size:0.7em">click to explore country</span>`).addTo(map);
       });
-      map.on('mouseleave','zone-fill',()=>{ map.getCanvas().style.cursor=''; hovIso=null; map.setFilter('zone-hover',['==',['get','ISO_A3'],'']),popup.remove(); });
-      map.on('click','zone-fill',e=>{ const iso=e.features[0].properties.ISO_A3; const c=isoToCountry[iso]||iso; navigate(`/region/${regionId}/results/country/${encodeURIComponent(c)}`); });
+      map.on('mouseleave','zone-fill',()=>{ map.getCanvas().style.cursor=''; hovZ=null; map.setFilter('zone-hover',['==',['get','z'],'']),popup.remove(); });
+      map.on('click','zone-fill',e=>{ const c=isoToCountry[e.features[0].properties.ISO_A3]||''; navigate(`/region/${regionId}/results/country/${encodeURIComponent(c)}`); });
     });
 
     return () => { popup.remove(); dotMarkersRef.current.forEach(m=>m.remove()); dotMarkersRef.current=[]; mapRef.current?.remove(); };
@@ -468,10 +470,10 @@ export default function ResultsRegionPage() {
       const datasets=tfs.map(tf=>({label:tf,fill:true,data:seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.[tf]||0))),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0}));
       const zP=sd.price[activeDispZone]||{};
       const pd=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zP[s]?.[d]?.[`t${h+1}`]||null)));
-      if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:hexA('#E8C547',0.9),borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true});
-      // Demand overlay
-      const demandZ=sd.yearlyZone[activeDispZone]?.DemandEnergyZone?.[refYear];
-      if(demandZ){const avgHourlyDem=(demandZ*1000)/8760;datasets.push({label:'Avg demand',type:'line',data:new Array(nPts).fill(+avgHourlyDem.toFixed(1)),borderColor:hexA('#fff',0.5),borderWidth:1.2,pointRadius:0,tension:0,fill:false,borderDash:[6,3]});}
+      if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true});
+      // Actual demand from dispatch (dark red dashed)
+      const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.Demand||null)));
+      if(demData.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:demData,borderColor:'#8B0000',borderWidth:1.8,pointRadius:0,tension:0,fill:false,spanGaps:true,borderDash:[5,3]});
       const sepPlugin={id:'dSep',afterDraw:(chart)=>{
         const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
         const{top,bottom}=chartArea;const xS=scales.x;
@@ -489,7 +491,12 @@ export default function ResultsRegionPage() {
     const sp=zDisp[dispSeason];if(!sp)return{chartData:{labels:[],datasets:[]},plugin:null};
     const tfs2=[...new Set(Object.values(sp).flatMap(d=>Object.values(d).flatMap(Object.keys)))].filter(t=>t!=='Demand').sort();
     const getData=(tf)=>{if(dispDay==='avg'){const ds=Object.keys(sp);return Array.from({length:24},(_,h)=>ds.reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(ds.length,1));}return Array.from({length:24},(_,h)=>sp[dispDay]?.[`t${h+1}`]?.[tf]||0);};
-    return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:tfs2.map(tf=>({label:tf,fill:true,data:getData(tf),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0}))},plugin:null};
+    const datasets2=tfs2.map(tf=>({label:tf,fill:true,data:getData(tf),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0}));
+    const getDem=()=>{if(dispDay==='avg'){const ds=Object.keys(sp);return Array.from({length:24},(_,h)=>ds.reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.Demand||0),0)/Math.max(ds.length,1));}return Array.from({length:24},(_,h)=>sp[dispDay]?.[`t${h+1}`]?.Demand||null);};
+    const demLine=getDem(); if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1.8,pointRadius:0,tension:0,fill:false,spanGaps:true,borderDash:[5,3]});
+    const zPr=sd.price[activeDispZone]||{}; const prLine=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
+    if(prLine.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prLine,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true});
+    return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:null};
   };
 
   // ── Trade ───────────────────────────────────────────────────────────────────
@@ -505,28 +512,19 @@ export default function ResultsRegionPage() {
     return { labels:zones, datasets:[
       { label:'Imports', data:zones.map(z=>+imp[z].toFixed(1)), backgroundColor:hexA('#2E9EC8',0.75), borderWidth:0, barThickness:10 },
       { label:'Exports', data:zones.map(z=>-exp[z].toFixed(1)), backgroundColor:hexA('#E8C547',0.75), borderWidth:0, barThickness:10 },
-      { label:'Net', type:'line', data:zones.map(z=>+(imp[z]-exp[z]).toFixed(1)), borderColor:'#fff', borderWidth:2, pointRadius:4, pointBackgroundColor:zones.map(z=>(imp[z]-exp[z])>=0?'#2E9EC8':'#E8C547'), fill:false, tension:0 },
+      { label:'Net', type:'scatter', data:zones.map((z,i)=>({x:i, y:+(imp[z]-exp[z]).toFixed(1)})), borderColor:'#fff', borderWidth:1.5, pointRadius:5, pointBackgroundColor:zones.map(z=>(imp[z]-exp[z])>=0?'#2E9EC8':'#E8C547'), showLine:false },
     ]};
   };
 
   const buildTradeEvolution = () => {
-    const activeSc=scenarioList.filter(s=>evScenarios.has(s)); if(!allYears.length)return null;
-    if (!trEvSplit) {
-      // Total volume per scenario per year
-      return { labels:allYears, datasets:activeSc.map((scen,i)=>({
-        label:scen,
-        data:allYears.map(y=>{const tx=resultsData[scen]?.transmission||{};const seen=new Set();let tot=0;for(const[z,zm]of Object.entries(tx))for(const[z2,attrs]of Object.entries(zm)){const k=[z,z2].sort().join('||');if(seen.has(k))continue;seen.add(k);tot+=Math.abs(attrs[trEvMetric==='volume'?'Interchange':'TransmissionCapacity']?.[y]||0);}return+tot.toFixed(1);}),
-        borderColor:['#3B82F6','#10B981','#F59E0B','#8B5CF6'][i%4], borderWidth:2, fill:false, tension:0.3,
-      }))};
-    }
-    // Split by corridor
-    const tx0=resultsData[trScenario]?.transmission||{};
+    const tx0=resultsData[trScenario]?.transmission||{}; if(!allYears.length||!Object.keys(tx0).length)return null;
     const corridors=[]; const seen=new Set();
     for(const[z,zm] of Object.entries(tx0))for(const z2 of Object.keys(zm)){const k=[z,z2].sort().join('||');if(!seen.has(k)){seen.add(k);corridors.push({z,z2,key:k});}}
-    return { labels:allYears, datasets:corridors.slice(0,10).map((c,i)=>({
+    const attr=trEvMetric==='volume'?'Interchange':'TransmissionCapacity';
+    return { labels:allYears, datasets:corridors.slice(0,12).map((c,i)=>({
       label:`${c.z}↔${c.z2}`,
-      data:allYears.map(y=>{const tx=resultsData[trScenario]?.transmission||{};const fwd=tx[c.z]?.[c.z2]?.[trEvMetric==='volume'?'Interchange':'TransmissionCapacity']?.[y]||0;const rev=tx[c.z2]?.[c.z]?.[trEvMetric==='volume'?'Interchange':'TransmissionCapacity']?.[y]||0;return+(Math.abs(fwd)+Math.abs(rev)).toFixed(1);}),
-      borderColor:['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#0D7680','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3'][i%10], borderWidth:1.8, fill:false, tension:0.3,
+      data:allYears.map(y=>{ const tx=resultsData[trScenario]?.transmission||{}; const fwd=tx[c.z]?.[c.z2]?.[attr]?.[y]||0; const rev=tx[c.z2]?.[c.z]?.[attr]?.[y]||0; return+(Math.abs(fwd)+Math.abs(rev)).toFixed(1); }),
+      backgroundColor:hexA(MAP_PALETTE[i%MAP_PALETTE.length],0.82), borderWidth:0, stack:'a',
     }))};
   };
 
@@ -551,7 +549,7 @@ export default function ResultsRegionPage() {
   const overviewMix=buildOverviewMix(), evolutionData=buildEvolution();
   const dispResult=buildDispatch(), tradeBarData=buildTradeBar(), tradeEvData=buildTradeEvolution();
   const plantsData=buildPlantsList(), lcoeData=buildLCOEBubble();
-  const dispTechs=dispResult.chartData.datasets.filter(d=>d.label!=='Marginal cost'&&d.label!=='Avg demand').map(d=>d.label);
+  const dispTechfuels=dispResult.chartData.datasets.filter(d=>d.label!=='Marginal cost'&&d.label!=='Demand').map(d=>d.label);
 
   // ── JSX ─────────────────────────────────────────────────────────────────────
   return (
@@ -660,7 +658,7 @@ export default function ResultsRegionPage() {
               return <div>
                 <SectionTitle t={t}>Average marginal price by zone (USD/MWh)</SectionTitle>
                 <CJChart type="bar" height={Math.min(zones.length*22+24,240)} cacheKey={`pz|${ovScenario}|${refYear}`}
-                  data={{labels:zones,datasets:[{data:zones.map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:zones.map(z=>hexA(priceColor((zoneAvgPrices[z]-minPrice)/rng),0.8)),borderWidth:0,barThickness:12}]}}
+                  data={{labels:zones,datasets:[{data:zones.map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:zones.map(z=>hexA(priceBarColor((zoneAvgPrices[z]-minPrice)/rng),0.88)),borderWidth:0,barThickness:12}]}}
                   options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}
                 />
               </div>;
@@ -705,8 +703,9 @@ export default function ResultsRegionPage() {
                 options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
               />
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
-                {dispTechs.map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}
-                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:hexA('#fff',0.5),borderRadius:1}}/><span>Avg demand</span></div>
+                {dispTechfuels.map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}
+                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:'#8B0000',borderRadius:1,opacity:0.8}}/><span>Demand</span></div>
+                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:'#3B82F6',borderRadius:1}}/><span>Marginal cost</span></div>
               </div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
           </div>
@@ -718,32 +717,29 @@ export default function ResultsRegionPage() {
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <select value={trScenario||''} onChange={e=>setTrScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
-              <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              <Pill active={trViewMode==='netbar'}   onClick={()=>setTrViewMode('netbar')}>Import / Export</Pill>
-              <Pill active={trViewMode==='evolution'} onClick={()=>setTrViewMode('evolution')}>Evolution</Pill>
             </div>
-            {trViewMode==='netbar'&&tradeBarData&&tradeBarData.labels.length>0&&<>
-              <SectionTitle t={t}>Imports / Exports by zone (GWh) — line = net</SectionTitle>
-              <CJChart type="bar" height={Math.min(tradeBarData.labels.length*22+24,280)} cacheKey={`tr|${trScenario}|${refYear}`} data={tradeBarData}
-                options={{...cjDefaults(t),scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}},indexAxis:'y',plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(Math.abs(ctx.parsed.x))} GWh`}}}}}
+            {/* Import / Export bar + net dots */}
+            {tradeBarData&&tradeBarData.labels.length>0&&<>
+              <SectionTitle t={t}>Imports / Exports by zone (GWh) · dots = net</SectionTitle>
+              <CJChart type="bar" height={Math.min(tradeBarData.labels.length*22+24,260)} cacheKey={`tr|${trScenario}|${refYear}`} data={tradeBarData}
+                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>ctx.dataset.type==='scatter'?`Net: ${fmt(ctx.parsed.y)} GWh`:`${ctx.dataset.label}: ${fmt(Math.abs(ctx.parsed.x))} GWh`}}}}}
               />
               <div style={{display:'flex',gap:10,marginTop:3}}>
-                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.44rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:hexA('#2E9EC8',0.75)}}/>Imports</div>
-                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.44rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:hexA('#E8C547',0.75)}}/>Exports</div>
-                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.44rem',color:t.muted}}><div style={{width:12,height:2.5,backgroundColor:'#fff',borderRadius:1}}/>Net position</div>
+                {[['#2E9EC8','Imports'],['#E8C547','Exports']].map(([c,l])=><div key={l} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.44rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:hexA(c,0.75)}}/>{l}</div>)}
+                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.44rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:'50%',backgroundColor:'#fff',border:'1px solid #888'}}/> Net</div>
               </div>
             </>}
-            {trViewMode==='evolution'&&tradeEvData&&<>
-              <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-                <Pill active={trEvMetric==='volume'}   onClick={()=>setTrEvMetric('volume')}>Volume (GWh)</Pill>
-                <Pill active={trEvMetric==='capacity'} onClick={()=>setTrEvMetric('capacity')}>Capacity (MW)</Pill>
-                <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-                <Pill active={!trEvSplit} onClick={()=>setTrEvSplit(false)}>Total</Pill>
-                <Pill active={trEvSplit}  onClick={()=>setTrEvSplit(true)}>By corridor</Pill>
-                {trEvSplit&&<select value={trScenario||''} onChange={e=>setTrScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>}
+            {/* Evolution stacked by corridor */}
+            {tradeEvData&&<>
+              <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap', marginTop:4 }}>
+                <SectionTitle t={t}>Trade evolution by corridor</SectionTitle>
+                <div style={{display:'flex',gap:3,marginLeft:'auto'}}>
+                  <Pill active={trEvMetric==='volume'}   onClick={()=>setTrEvMetric('volume')}>Volume (GWh)</Pill>
+                  <Pill active={trEvMetric==='capacity'} onClick={()=>setTrEvMetric('capacity')}>Capacity (MW)</Pill>
+                </div>
               </div>
-              <CJChart type="line" height={200} cacheKey={`trev|${trScenario}|${trEvMetric}|${trEvSplit}|${[...evScenarios].sort().join(',')}`} data={tradeEvData}
-                options={{...cjDefaults(t),scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:trEvMetric==='volume'?'GWh':'MW',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:{display:trEvSplit,position:'bottom',labels:{color:t.muted,font:{size:8},boxWidth:10}}}}}
+              <CJChart type="bar" height={200} cacheKey={`trev|${trScenario}|${trEvMetric}`} data={tradeEvData}
+                options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:trEvMetric==='volume'?'GWh':'MW',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:{display:true,position:'bottom',labels:{color:t.muted,font:{size:7},boxWidth:8,padding:6}}}}}
               />
             </>}
           </div>
@@ -755,36 +751,30 @@ export default function ResultsRegionPage() {
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <select value={plScenario||''} onChange={e=>setPlScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
-              {!plShowBubble&&<><select value={plIndicator} onChange={e=>setPlIndicator(e.target.value)} style={selectStyle}>
+              <select value={plIndicator} onChange={e=>setPlIndicator(e.target.value)} style={selectStyle}>
                 {['CapacityPlant','EnergyPlant','CostsPlant','PlantAnnualLCOE','UtilizationPlant'].map(k=><option key={k} value={k}>{k.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</option>)}
               </select>
-              <select value={plTopN} onChange={e=>setPlTopN(+e.target.value)} style={selectStyle}>{[10,20,30,50].map(n=><option key={n} value={n}>Top {n}</option>)}</select></>}
-              <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              <Pill active={!plShowBubble} onClick={()=>setPlShowBubble(false)}>Ranking</Pill>
-              <Pill active={plShowBubble}  onClick={()=>setPlShowBubble(true)}>LCOE · Utilization</Pill>
+              <select value={plTopN} onChange={e=>setPlTopN(+e.target.value)} style={selectStyle}>{[10,20,30,50].map(n=><option key={n} value={n}>Top {n}</option>)}</select>
             </div>
-
-            {!plShowBubble&&(plantsData.length>0?<>
+            {/* Ranking */}
+            {plantsData.length>0?<>
               <SectionTitle t={t}>Top {plTopN} — {plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</SectionTitle>
-              <CJChart type="bar" height={Math.min(plantsData.length*18+24,320)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}`}
+              <CJChart type="bar" height={Math.min(plantsData.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}`}
                 data={{labels:plantsData.map(p=>p.g),datasets:[{data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.8)),borderWidth:0,barThickness:12}]}}
                 options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
               />
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:4}}>{[...new Set(plantsData.map(p=>p.techfuel))].map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>
-            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data for this run/scenario.</div>)}
-
-            {plShowBubble&&(lcoeData&&lcoeData.datasets.length>0?<>
-              <SectionTitle t={t}>LCOE vs Utilization — bubble size = capacity (MW)</SectionTitle>
-              <CJChart type="bubble" height={280} cacheKey={`lcoe|${plScenario}|${refYear}`} data={lcoeData}
+            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data for this run/scenario.</div>}
+            {/* LCOE bubble — always below */}
+            {lcoeData&&lcoeData.datasets.length>0&&<>
+              <SectionTitle t={t}>LCOE vs Utilization — bubble = capacity</SectionTitle>
+              <CJChart type="bubble" height={250} cacheKey={`lcoe|${plScenario}|${refYear}`} data={lcoeData}
                 options={{...cjDefaults(t),plugins:{...cjDefaults(t).plugins,
-                  tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return`${ctx.dataset.label}: LCOE ${d.y} $/MWh · Util ${d.x.toFixed(0)}% · Cap ${d._cap?fmt(d._cap)+' MW':''}`;}}}},
-                  scales:{
-                    x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:8}},min:0,max:105},
-                    y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:8}},min:0},
-                  }}}
+                  tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return[`${d._plant||ctx.dataset.label}`,`LCOE: ${d.y} $/MWh  ·  Util: ${d.x.toFixed(0)}%`,d._cap?`Cap: ${fmt(d._cap)} MW`:''].filter(Boolean);}}}},
+                  scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:8}},min:0,max:105},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:8}},min:0}}}}
               />
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:4}}>{lcoeData.datasets.map(ds=><div key={ds.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:'50%',backgroundColor:ds.backgroundColor}}/>{ds.label}</div>)}</div>
-            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No LCOE data (requires PlantAnnualLCOE + UtilizationPlant in pPlantMerged).</div>)}
+            </>}
           </div>
         )}
 
