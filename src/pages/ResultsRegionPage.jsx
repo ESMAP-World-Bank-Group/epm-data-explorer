@@ -268,7 +268,6 @@ export default function ResultsRegionPage() {
       }
       if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData }, { sdf:true });
 
-      setMapLoadedCount(c => c + 1);
       const countries = await fetch('/data/countries_10m.geojson').then(r=>r.json());
       countries.features.forEach((f,i)=>{ f.id=i; });
       map.addSource('countries', { type:'geojson', data:countries, generateId:false });
@@ -333,6 +332,8 @@ export default function ResultsRegionPage() {
       });
       map.on('mouseleave','zone-fill',()=>{ map.getCanvas().style.cursor=''; hovZ=null; map.setFilter('zone-hover',['==',['get','z'],'']),popup.remove(); });
       map.on('click','zone-fill',e=>{ const c=isoToCountry[e.features[0].properties.ISO_A3]||''; navigate(`/region/${regionId}/results/country/${encodeURIComponent(c)}`); });
+      // Fire AFTER all sources/layers are added so NTC update effect can find the source
+      setMapLoadedCount(c => c + 1);
     });
 
     return () => { popup.remove(); dotMarkersRef.current.forEach(m=>m.remove()); dotMarkersRef.current=[]; mapRef.current?.remove(); };
@@ -415,7 +416,22 @@ export default function ResultsRegionPage() {
   const dispAvailS     = useMemo(()=>{ const qs=new Set(); for(const z of Object.values(firstDisp)) for(const q of Object.keys(z)) qs.add(q); return[...qs].sort();},[firstDisp]);
   const dispAvailD     = useMemo(()=>{ const ds=new Set(); for(const z of Object.values(firstDisp)) for(const q of Object.values(z)) for(const d of Object.keys(q)) ds.add(d); return[...ds].sort();},[firstDisp]);
   const totalDays      = useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
-  const activeDispZone = dispZone||allZones[0]||null;
+  const activeDispZone = dispZone||'__all__';
+  // Aggregate dispatch across zones when '__all__' selected
+  const getZoneDisp = (sd, zone) => {
+    if (zone !== '__all__') return sd.dispatch[zone] || {};
+    const agg = {};
+    for (const z of allZones) {
+      for (const [q, days] of Object.entries(sd.dispatch[z]||{}))
+        for (const [d, hours] of Object.entries(days))
+          for (const [tt, tfs] of Object.entries(hours))
+            for (const [tf, val] of Object.entries(tfs)) {
+              if (!agg[q]) agg[q]={};if(!agg[q][d])agg[q][d]={};if(!agg[q][d][tt])agg[q][d][tt]={};
+              agg[q][d][tt][tf]=(agg[q][d][tt][tf]||0)+val;
+            }
+    }
+    return agg;
+  };
 
   // Zone avg prices
   const zoneAvgPrices = useMemo(()=>{
@@ -476,13 +492,13 @@ export default function ResultsRegionPage() {
   // ── Dispatch ────────────────────────────────────────────────────────────────
   const buildDispatch = () => {
     const sd=resultsData[dispScenario]; if(!sd||!activeDispZone)return{chartData:{labels:[],datasets:[]},plugin:null};
-    const zDisp=sd.dispatch[activeDispZone]||{}; const isDark=t.isDark;
+    const zDisp=getZoneDisp(sd,activeDispZone); const isDark=t.isDark;
     const seasons=dispAvailS, days=dispAvailD;
     if(dispMode==='full'&&seasons.length&&days.length){
       const nS=seasons.length,nDT=days.length,nPts=nS*nDT*24;
       const tfs=[...new Set(seasons.flatMap(q=>days.flatMap(d=>Object.values(zDisp[q]?.[d]||{}).flatMap(Object.keys))))].filter(t=>t!=='Demand').sort();
       const datasets=tfs.map(tf=>({label:tf,fill:true,data:seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.[tf]||0))),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0}));
-      const zP=sd.price[activeDispZone]||{};
+      const zP=activeDispZone==='__all__'?sd.price[allZones[0]]||{}:sd.price[activeDispZone]||{};
       const pd=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zP[s]?.[d]?.[`t${h+1}`]||null)));
       if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true});
       // Actual demand from dispatch (dark red dashed)
@@ -741,7 +757,10 @@ export default function ResultsRegionPage() {
         {hasData&&activeTab==='dispatch'&&(
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-              <select value={activeDispZone||''} onChange={e=>setDispZone(e.target.value)} style={selectStyle}>{allZones.map(z=><option key={z} value={z}>{z}</option>)}</select>
+              <select value={activeDispZone||''} onChange={e=>setDispZone(e.target.value)} style={selectStyle}>
+                <option value="__all__">All zones (aggregated)</option>
+                {allZones.map(z=><option key={z} value={z}>{z}</option>)}
+              </select>
               <select value={dispScenario||''} onChange={e=>setDispScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
             </div>

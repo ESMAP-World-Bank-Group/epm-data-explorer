@@ -89,7 +89,7 @@ export default function ResultsZonePage() {
     mapRef.current=map;
     const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
     map.on('load',async()=>{
-      setMapLoadedCount(c=>c+1);const tv=getT(theme);
+      const tv=getT(theme);
       const countries=await fetch('/data/countries_10m.geojson').then(r=>r.json());countries.features.forEach((f,i)=>{f.id=i;});
       map.addSource('countries',{type:'geojson',data:countries,generateId:false});
       map.addLayer({id:'land',type:'fill',source:'countries',paint:{'fill-color':tv.land,'fill-opacity':1}});
@@ -113,6 +113,7 @@ export default function ResultsZonePage() {
       map.on('mouseleave','zone-fill-dim',()=>{map.getCanvas().style.cursor='';popup.remove();});
       map.on('click','zone-fill-dim',e=>{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(e.features[0].properties.z||'')}`);});
       if(zoneCentroids[zoneIdDecoded]){const el=document.createElement('div');el.style.cssText=`font-size:0.55rem;font-weight:700;font-family:system-ui,sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;el.textContent=zoneIdDecoded;markerRef.current=new maplibregl.Marker({element:el,anchor:'bottom',offset:[0,-4]}).setLngLat(zoneCentroids[zoneIdDecoded]).addTo(map);}
+      setMapLoadedCount(c=>c+1);
     });
     return()=>{popup.remove();markerRef.current?.remove();markerRef.current=null;mapRef.current?.remove();};
   },[region,theme,zonesGJ,zcmapRows,zoneIdDecoded]); // eslint-disable-line

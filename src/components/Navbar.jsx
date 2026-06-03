@@ -163,8 +163,6 @@ export default function Navbar() {
         <div style={{ position: 'relative' }}>
           <a
             href={dashboardUrl}
-            target="_blank"
-            rel="noopener noreferrer"
             onMouseEnter={() => setTooltipVisible(true)}
             onMouseLeave={() => setTooltipVisible(false)}
             style={{

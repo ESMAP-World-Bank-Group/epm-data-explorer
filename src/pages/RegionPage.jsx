@@ -1516,7 +1516,7 @@ export default function RegionPage() {
   const [satLabels,       setSatLabels]       = useState(false);
   const [epmData,         setEpmData]         = useState(null);
   const [epmLoading,      setEpmLoading]      = useState(false);
-  const [pieMode,         setPieMode]         = useState('country');
+  const [pieMode,         setPieMode]         = useState('zone');
   const [mapLoaded,       setMapLoaded]       = useState(0);
 
   // Static data
