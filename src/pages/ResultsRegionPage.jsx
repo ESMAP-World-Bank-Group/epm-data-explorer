@@ -98,6 +98,7 @@ export default function ResultsRegionPage() {
 
   const containerRef  = useRef(null); const mapRef = useRef(null);
   const dotMarkersRef = useRef([]);
+  const pieMarkersRef = useRef([]);
   // Refs for map popup closures (avoid stale state)
   const resultsDataRef  = useRef({});
   const refYearRef      = useRef(null);
@@ -139,6 +140,7 @@ export default function ResultsRegionPage() {
   const [panelWidth,     setPanelWidth]     = useState(560);
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
   const [hiddenMap,      setHiddenMap]      = useState({}); // { chartId: Set<label> }
+  const [pieDispMode,    setPieDispMode]    = useState('none'); // 'none'|'capacity'|'energy'
   const isDraggingRef = useRef(false);
   const dragStartX    = useRef(0);
   const dragStartW    = useRef(0);
@@ -332,7 +334,7 @@ export default function ResultsRegionPage() {
       setMapLoadedCount(c => c + 1);
     });
 
-    return () => { popup.remove(); dotMarkersRef.current.forEach(m=>m.remove()); dotMarkersRef.current=[]; mapRef.current?.remove(); };
+    return () => { popup.remove(); dotMarkersRef.current.forEach(m=>m.remove()); dotMarkersRef.current=[]; pieMarkersRef.current.forEach(m=>m.remove()); pieMarkersRef.current=[]; mapRef.current?.remove(); };
   }, [region, theme, zonesGJ, zcmapRows]); // eslint-disable-line
 
   // ── Update NTC + price dots when data changes ────────────────────────────────
@@ -398,6 +400,42 @@ export default function ResultsRegionPage() {
       dotMarkersRef.current.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(coord).addTo(map));
     }
   }, [resultsData, refYear, ovScenario, zonesGJ, hoursData, theme, mapLoadedCount]); // eslint-disable-line
+
+  // ── Zone mix pie markers ──────────────────────────────────────────────────
+  useEffect(() => {
+    pieMarkersRef.current.forEach(m=>m.remove()); pieMarkersRef.current=[];
+    const map=mapRef.current;
+    if(!map||pieDispMode==='none'||!zonesGJ||!refYear)return;
+    const sd=resultsData[ovScenario]||Object.values(resultsData)[0]; if(!sd)return;
+    const attr=pieDispMode==='capacity'?'CapacityTechFuel':'EnergyTechFuelComplete';
+    const unitDiv=1000; const unitLbl=pieDispMode==='capacity'?'GW':'TWh';
+    const isDk=t.isDark;
+    const zcC={}; for(const f of zonesGJ.features){const z=f.properties.z;if(z){const c=computeCentroid(f.geometry);if(c)zcC[z]=c;}}
+    const SZ=44,cx=SZ/2,cy=SZ/2,oR=SZ/2-1.5,iR=oR*0.50;
+    for(const z of allZones){
+      const coord=zcC[z]; if(!coord)continue;
+      const data=sd.techFuel[z]?.[attr]?.[refYear]; if(!data)continue;
+      const entries=Object.entries(data).filter(([,v])=>v>0);
+      if(!entries.length)continue;
+      const total=entries.reduce((s,[,v])=>s+v,0); if(total<=0)continue;
+      const canvas=document.createElement('canvas');
+      canvas.width=SZ; canvas.height=SZ;
+      const ctx=canvas.getContext('2d');
+      ctx.shadowColor='rgba(0,0,0,0.35)'; ctx.shadowBlur=3; ctx.shadowOffsetY=1;
+      let ang=-Math.PI/2;
+      for(const[tf,val]of entries){const sw=(val/total)*2*Math.PI;ctx.beginPath();ctx.moveTo(cx+iR*Math.cos(ang),cy+iR*Math.sin(ang));ctx.arc(cx,cy,oR,ang,ang+sw);ctx.arc(cx,cy,iR,ang+sw,ang,true);ctx.closePath();ctx.fillStyle=techColor(tf);ctx.fill();ang+=sw;}
+      ctx.shadowColor='transparent';
+      ctx.beginPath();ctx.arc(cx,cy,iR-0.5,0,2*Math.PI);ctx.fillStyle=isDk?'rgba(15,20,30,0.88)':'rgba(245,248,252,0.92)';ctx.fill();
+      const val=total/unitDiv; const valStr=val>=10?val.toFixed(0):val.toFixed(1);
+      ctx.fillStyle=isDk?'rgba(255,255,255,0.95)':'rgba(15,30,60,0.9)';
+      ctx.font='bold 8px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(valStr,cx,cy-2.5);
+      ctx.fillStyle=isDk?'rgba(255,255,255,0.55)':'rgba(60,80,120,0.65)';
+      ctx.font='6px system-ui,sans-serif'; ctx.fillText(unitLbl,cx,cy+6);
+      canvas.title=`${z}: ${(total/unitDiv).toFixed(1)} ${unitLbl}`;
+      pieMarkersRef.current.push(new maplibregl.Marker({element:canvas,anchor:'center'}).setLngLat(coord).addTo(map));
+    }
+  }, [pieDispMode, resultsData, ovScenario, refYear, zonesGJ, allZones, mapLoadedCount, theme]); // eslint-disable-line
 
   // ── Computed ───────────────────────────────────────────────────────────────
   const zoneToCountry = useMemo(()=>Object.fromEntries(zcmapRows.map(r=>[r.z,r.c])),[zcmapRows]);
@@ -655,6 +693,14 @@ export default function ResultsRegionPage() {
                 </div>
               </div>
             )}
+            <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${hexA(t.panelBorder,0.5)}` }}>
+              <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginBottom:4 }}>Zone mix</div>
+              <div style={{ display:'flex', gap:4 }}>
+                <Pill active={pieDispMode==='none'} onClick={()=>setPieDispMode('none')}>—</Pill>
+                <Pill active={pieDispMode==='capacity'} onClick={()=>setPieDispMode('capacity')}>Cap.</Pill>
+                <Pill active={pieDispMode==='energy'} onClick={()=>setPieDispMode('energy')}>Gen.</Pill>
+              </div>
+            </div>
           </div>
         )}
       </div>
