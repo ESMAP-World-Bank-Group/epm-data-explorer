@@ -20,7 +20,7 @@ function fmtBig(n){if(!n)return'—';const a=Math.abs(n);if(a>=1e3)return`${(n/1
 function hexA(hex,a){if(!hex||hex.length<7)return`rgba(128,128,128,${a})`;const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`rgba(${r},${g},${b},${a})`;}
 function cjDefaults(t){return{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:9},bodyFont:{size:9},padding:6}},scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}}};}
 function priceColor(t_){return`rgb(${Math.round(255-t_*(255-27))},${Math.round(255-t_*(255-108))},${Math.round(255-t_*(255-168))})`}
-function priceBarColor(t_){if(t_<0.5){const s=t_*2;return`rgb(${Math.round(46+s*(232-46))},${Math.round(158+s*(197-158))},${Math.round(200+s*(71-200))})`;}const s=(t_-0.5)*2;return`rgb(${Math.round(232+s*(229-232))},${Math.round(197+s*(57-197))},${Math.round(71+s*(53-71))})`}
+function priceBarColor(t_){return`rgb(${Math.round(46+t_*(232-46))},${Math.round(158+t_*(197-158))},${Math.round(200+t_*(71-200))})`}
 
 const INDICATORS=[
   {key:'CapacityTechFuel',label:'Capacity (MW)',source:'techFuel',unit:'MW'},
@@ -305,7 +305,7 @@ export default function ResultsCountryPage() {
             </div>}
             {Object.keys(zoneAvgPrices).length>0&&<div>
               <SectionTitle t={t}>Avg marginal price by zone ($/MWh)</SectionTitle>
-              <CJChart type="bar" height={Math.min(allZones.length*22+24,200)} cacheKey={`pz-c|${ovScenario}|${refYear}`} data={{labels:allZones.filter(z=>zoneAvgPrices[z]),datasets:[{data:allZones.filter(z=>zoneAvgPrices[z]).map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:allZones.filter(z=>zoneAvgPrices[z]).map(z=>hexA(priceBarColor((zoneAvgPrices[z]-minP)/rngP),0.92)),borderWidth:0,barThickness:12}]}} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}/>
+              <CJChart type="bar" height={Math.min(allZones.length*22+24,200)} cacheKey={`pz-c|${ovScenario}|${refYear}|${theme}`} data={{labels:allZones.filter(z=>zoneAvgPrices[z]),datasets:[{data:allZones.filter(z=>zoneAvgPrices[z]).map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:allZones.filter(z=>zoneAvgPrices[z]).map(z=>hexA(priceBarColor((zoneAvgPrices[z]-minP)/rngP),0.92)),borderWidth:0,barThickness:12}]}} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}/>
               {priceVals.length>0&&<div style={{display:'flex',gap:12,marginTop:4,fontSize:'0.44rem',color:t.muted}}><span>Avg: <b style={{color:t.lbl}}>{(priceVals.reduce((a,b)=>a+b,0)/priceVals.length).toFixed(1)} $/MWh</b></span><span>Min: <b style={{color:t.lbl}}>{minP.toFixed(1)}</b></span><span>Max: <b style={{color:t.lbl}}>{maxP.toFixed(1)}</b></span></div>}
             </div>}
           </div>

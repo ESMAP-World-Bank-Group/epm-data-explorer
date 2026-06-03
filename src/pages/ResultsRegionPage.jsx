@@ -69,9 +69,8 @@ function priceColor(t_) {
   return `rgb(${Math.round(255-t_*(255-27))},${Math.round(255-t_*(255-108))},${Math.round(255-t_*(255-168))})`;
 }
 function priceBarColor(t_) {
-  // #2E9EC8 (blue) → #E8C547 (gold) → #E53935 (red) — matches trade chart palette
-  if (t_ < 0.5) { const s=t_*2; return `rgb(${Math.round(46+s*(232-46))},${Math.round(158+s*(197-158))},${Math.round(200+s*(71-200))})`; }
-  const s=(t_-0.5)*2; return `rgb(${Math.round(232+s*(229-232))},${Math.round(197+s*(57-197))},${Math.round(71+s*(53-71))})`;
+  // #2E9EC8 (trade blue, low) → #E8C547 (trade gold, high)
+  return `rgb(${Math.round(46+t_*(232-46))},${Math.round(158+t_*(197-158))},${Math.round(200+t_*(71-200))})`;
 }
 
 function CJChart({ type, data, options, height, plugins: ep, cacheKey }) {
@@ -734,7 +733,7 @@ export default function ResultsRegionPage() {
               const rng=maxPrice-minPrice||1;
               return <div>
                 <SectionTitle t={t}>Average marginal price by zone (USD/MWh)</SectionTitle>
-                <CJChart type="bar" height={Math.min(zones.length*22+24,220)} cacheKey={`pz|${ovScenario}|${refYear}`}
+                <CJChart type="bar" height={Math.min(zones.length*22+24,220)} cacheKey={`pz|${ovScenario}|${refYear}|${theme}`}
                   data={{labels:zones,datasets:[{data:zones.map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:zones.map(z=>hexA(priceBarColor((zoneAvgPrices[z]-minPrice)/rng),0.92)),borderWidth:0,barThickness:12}]}}
                   options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}
                 />
