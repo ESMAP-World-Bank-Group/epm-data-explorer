@@ -352,6 +352,8 @@ export default function EpmZonePage() {
   },[filteredPlants,supplySort]);
 
   const hasData = !!(epmData && !loading);
+  const [panelWidth, setPanelWidth] = useState(490);
+  const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   if (!region) return <div style={{ padding: 40, color: t.text }}>Loading…</div>;
 
@@ -405,7 +407,10 @@ export default function EpmZonePage() {
 
   // ── JSX ───────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display:'flex', height:'calc(100vh - 46px)' }}>
+    <div style={{ display:'flex', height:'calc(100vh - 46px)' }}
+      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(760,drStartW.current+(drStartX.current-e.clientX)))); }}
+      onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
+    >
 
       {/* Map */}
       <div style={{ position:'relative', flex:1 }}>
@@ -426,8 +431,9 @@ export default function EpmZonePage() {
         </div>
       </div>
 
+      <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
       {/* Right panel */}
-      <div style={{ width:490, flexShrink:0, height:'100%', overflowY:'auto', padding:'18px 16px',
+      <div style={{ width:panelWidth, flexShrink:0, height:'100%', overflowY:'auto', padding:'18px 16px',
         backgroundColor:t.panel, borderLeft:`1px solid ${t.panelBorder}` }}>
 
         {/* Header */}

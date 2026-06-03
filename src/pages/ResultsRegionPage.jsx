@@ -72,9 +72,9 @@ function priceColor(t_) {
   return `rgb(${r},${g},${b})`;
 }
 function priceBarColor(t_) {
-  // Visible on dark bg: teal → gold → orange — not priceColor which goes light
-  if (t_ < 0.5) { const s=t_*2; return `rgb(${Math.round(72+s*(232-72))},${Math.round(201+s*(197-201))},${Math.round(176+s*(67-176))})` ; }
-  const s=(t_-0.5)*2; return `rgb(${Math.round(232+s*(255-232))},${Math.round(197-s*137)},${Math.round(67-s*67)})`;
+  // High contrast for dark mode: bright cyan → bright gold → bright white
+  if (t_ < 0.5) { const s=t_*2; return `rgb(${Math.round(68+s*(232-68))},${Math.round(218+s*(195-218))},${Math.round(238+s*(71-238))})` ; }
+  const s=(t_-0.5)*2; return `rgb(${Math.round(232+s*(255-232))},${Math.round(195+s*(255-195))},${Math.round(71+s*(240-71))})`;
 }
 
 function CJChart({ type, data, options, height, plugins: ep, cacheKey }) {
@@ -524,16 +524,18 @@ export default function ResultsRegionPage() {
     }
     const zones=allZones.filter(z=>imp[z]+exp[z]>0.5).sort((a,b)=>(imp[b]-exp[b])-(imp[a]-exp[a]));
     if(!zones.length)return null;
-    // Diverging bars: imports (+) and exports (-) both from baseline 0 on stacked x axis
+    const net=Object.fromEntries(zones.map(z=>[z,+(imp[z]-exp[z]).toFixed(1)]));
     const visImp = !isHidden('trade-bar','Imports');
     const visExp = !isHidden('trade-bar','Exports');
     return {
       labels:zones,
       datasets:[
-        visImp&&{ label:'Imports', data:zones.map(z=>+imp[z].toFixed(1)), backgroundColor:hexA('#2E9EC8',0.78), borderWidth:0, barThickness:12 },
-        visExp&&{ label:'Exports', data:zones.map(z=>+(-exp[z]).toFixed(1)), backgroundColor:hexA('#E8C547',0.78), borderWidth:0, barThickness:12 },
+        visImp&&{ label:'Imports', data:zones.map(z=>+imp[z].toFixed(1)), backgroundColor:hexA('#2E9EC8',0.78), borderWidth:0, barThickness:12, stack:'trade' },
+        visExp&&{ label:'Exports', data:zones.map(z=>+(-exp[z]).toFixed(1)), backgroundColor:hexA('#E8C547',0.78), borderWidth:0, barThickness:12, stack:'trade' },
+        // Net dot: thin bar at net position, independent of stack
+        { label:'Net', data:zones.map(z=>net[z]), backgroundColor:'rgba(255,255,255,0.92)', borderWidth:0, barThickness:3, order:0 },
       ].filter(Boolean),
-      _imp:imp, _exp:exp,
+      _imp:imp, _exp:exp, _net:net,
     };
   };
 
@@ -554,8 +556,12 @@ export default function ResultsRegionPage() {
         // Utilization: average of both directions (0-1 scale → ×100)
         return trEvMetric==='utilization' ? +(((fwd+rev)/2)*100).toFixed(1) : +(Math.abs(fwd)+Math.abs(rev)).toFixed(1);
       }),
-      backgroundColor:hexA(MAP_PALETTE[i%MAP_PALETTE.length],isHidden('trade-ev',`${c.z}↔${c.z2}`)?0.05:0.82),
-      borderWidth:0, stack:'a',
+      backgroundColor:hexA(MAP_PALETTE[i%MAP_PALETTE.length], trEvMetric==='utilization'?0.15:(isHidden('trade-ev',`${c.z}↔${c.z2}`)?0.05:0.82)),
+      borderColor:MAP_PALETTE[i%MAP_PALETTE.length],
+      borderWidth: trEvMetric==='utilization'?2:0,
+      type: trEvMetric==='utilization'?'line':'bar',
+      fill:false, tension:0.3, pointRadius: trEvMetric==='utilization'?2:0,
+      stack: trEvMetric==='utilization'?undefined:'a',
     }))};
   };
 
@@ -698,10 +704,15 @@ export default function ResultsRegionPage() {
               const rng=maxPrice-minPrice||1;
               return <div>
                 <SectionTitle t={t}>Average marginal price by zone (USD/MWh)</SectionTitle>
-                <CJChart type="bar" height={Math.min(zones.length*22+24,240)} cacheKey={`pz|${ovScenario}|${refYear}`}
-                  data={{labels:zones,datasets:[{data:zones.map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:zones.map(z=>hexA(priceBarColor((zoneAvgPrices[z]-minPrice)/rng),0.88)),borderWidth:0,barThickness:12}]}}
+                <CJChart type="bar" height={Math.min(zones.length*22+24,220)} cacheKey={`pz|${ovScenario}|${refYear}`}
+                  data={{labels:zones,datasets:[{data:zones.map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:zones.map(z=>hexA(priceBarColor((zoneAvgPrices[z]-minPrice)/rng),0.92)),borderWidth:0,barThickness:12}]}}
                   options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}
                 />
+                <div style={{display:'flex',gap:12,marginTop:4,fontSize:'0.44rem',color:t.muted}}>
+                  <span>Avg: <b style={{color:t.lbl}}>{(priceVals.reduce((a,b)=>a+b,0)/priceVals.length).toFixed(1)} $/MWh</b></span>
+                  <span>Min: <b style={{color:t.lbl}}>{minPrice.toFixed(1)}</b></span>
+                  <span>Max: <b style={{color:t.lbl}}>{maxPrice.toFixed(1)}</b></span>
+                </div>
               </div>;
             })()}
           </div>

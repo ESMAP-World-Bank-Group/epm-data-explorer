@@ -2026,10 +2026,14 @@ export default function RegionPage() {
   const isEpmMode = !!(region.epm && epmData && (epmData.linestringGJ || epmData.zonesGJ));
   const showMap   = !region.epm || isEpmMode;
 
-  const panelWidth = 560;
+  const [panelWidth, setPanelWidth] = useState(560);
+  const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 46px)' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 46px)' }}
+      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(760,drStartW.current+(drStartX.current-e.clientX)))); }}
+      onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
+    >
 
       {/* Map */}
       {showMap && (
@@ -2080,6 +2084,9 @@ export default function RegionPage() {
           )}
         </div>
       )}
+
+      {/* Drag handle */}
+      {showMap && <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>}
 
       {/* Right panel */}
       <div style={{

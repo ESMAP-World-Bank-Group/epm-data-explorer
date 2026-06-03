@@ -459,6 +459,8 @@ export default function EpmCountryPage() {
   }, [ntcAll, zoneToCountry, countryZoneIds, refYr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasData = !!(epmData && !loading);
+  const [panelWidth, setPanelWidth] = useState(530);
+  const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
   if (!region) return <div style={{ padding: 40, color: t.text }}>Loading…</div>;
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -741,7 +743,10 @@ export default function EpmCountryPage() {
 
   // ── JSX ───────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display:'flex', height:'calc(100vh - 46px)' }}>
+    <div style={{ display:'flex', height:'calc(100vh - 46px)' }}
+      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(760,drStartW.current+(drStartX.current-e.clientX)))); }}
+      onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
+    >
 
       {/* Map */}
       <div style={{ position:'relative', flex:1 }}>
@@ -757,8 +762,9 @@ export default function EpmCountryPage() {
         </div>
       </div>
 
+      <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
       {/* Right panel */}
-      <div style={{ width:530, flexShrink:0, height:'100%', overflowY:'auto', padding:'18px 16px',
+      <div style={{ width:panelWidth, flexShrink:0, height:'100%', overflowY:'auto', padding:'18px 16px',
         backgroundColor:t.panel, borderLeft:`1px solid ${t.panelBorder}`, position:'relative' }}>
 
         {/* Header */}
