@@ -103,6 +103,37 @@ function DownloadBtn({ url, filename, t }) {
   </button>;
 }
 
+function OverviewPie({ tfs, data, total, unitDiv, unitLbl, t }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current; if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const SZ = 76, cx = SZ/2, cy = SZ/2, oR = SZ/2 - 2, iR = oR * 0.52;
+    canvas.width = Math.round(SZ*dpr); canvas.height = Math.round(SZ*dpr);
+    canvas.style.width = SZ+'px'; canvas.style.height = SZ+'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const tot = data.reduce((a,b) => a+b, 0);
+    let ang = -Math.PI/2;
+    tfs.forEach((tf, i) => {
+      const sw = (data[i]/tot)*2*Math.PI;
+      ctx.beginPath(); ctx.moveTo(cx+iR*Math.cos(ang), cy+iR*Math.sin(ang));
+      ctx.arc(cx, cy, oR, ang, ang+sw); ctx.arc(cx, cy, iR, ang+sw, ang, true);
+      ctx.closePath(); ctx.fillStyle = TECHFUEL_COLORS[tf]||EPM_FUEL_COLORS[normalizeFuel(tf)]||'#AAA'; ctx.fill();
+      ang += sw;
+    });
+    ctx.beginPath(); ctx.arc(cx, cy, iR-0.5, 0, 2*Math.PI);
+    ctx.fillStyle = t.isDark ? 'rgba(15,20,30,0.88)' : 'rgba(245,248,252,0.92)'; ctx.fill();
+    const v = (total/unitDiv); const vs = v>=10 ? v.toFixed(0) : v.toFixed(1);
+    ctx.fillStyle = t.isDark ? 'rgba(255,255,255,0.95)' : 'rgba(15,30,60,0.9)';
+    ctx.font = 'bold 10px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(vs, cx, cy-4);
+    ctx.fillStyle = t.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(60,80,120,0.6)';
+    ctx.font = '7.5px system-ui,sans-serif'; ctx.fillText(unitLbl, cx, cy+7);
+  }, [tfs, data, total, unitDiv, unitLbl, t]); // eslint-disable-line
+  return <canvas ref={ref} style={{ display:'block', flexShrink:0 }} />;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ResultsRegionPage() {
@@ -425,32 +456,42 @@ export default function ResultsRegionPage() {
     const attr=pieDispMode==='capacity'?'CapacityTechFuel':'EnergyTechFuelComplete';
     const unitDiv=1000; const unitLbl=pieDispMode==='capacity'?'GW':'TWh';
     const isDk=t.isDark;
+    const allZonesList=zcmapRows.map(r=>r.z);
     const zcC={}; for(const f of zonesGJ.features){const z=f.properties.z;if(z){const c=computeCentroid(f.geometry);if(c)zcC[z]=c;}}
-    const SZ=44,cx=SZ/2,cy=SZ/2,oR=SZ/2-1.5,iR=oR*0.50;
-    for(const z of zcmapRows.map(r=>r.z)){
+    // Pre-compute zone avg prices for center color
+    const zPrices={};
+    for(const z of allZonesList){const qmap=sd.price[z]?.[refYear]||{};let tw=0,tp=0;for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}if(tw>0)zPrices[z]=tp/tw;}
+    const pVals=Object.values(zPrices); const pMin=pVals.length?Math.min(...pVals):0; const pRng=pVals.length?Math.max(...pVals)-pMin||1:1;
+    const SZ=44,dpr=window.devicePixelRatio||1,cx=SZ/2,cy=SZ/2,oR=SZ/2-1.5,iR=oR*0.50;
+    for(const z of allZonesList){
       const coord=zcC[z]; if(!coord)continue;
       const data=sd.techFuel[z]?.[attr]?.[refYear]; if(!data)continue;
       const entries=Object.entries(data).filter(([,v])=>v>0);
       if(!entries.length)continue;
       const total=entries.reduce((s,[,v])=>s+v,0); if(total<=0)continue;
       const canvas=document.createElement('canvas');
-      canvas.width=SZ; canvas.height=SZ;
+      canvas.width=Math.round(SZ*dpr); canvas.height=Math.round(SZ*dpr);
+      canvas.style.width=SZ+'px'; canvas.style.height=SZ+'px';
       const ctx=canvas.getContext('2d');
+      ctx.scale(dpr,dpr);
       ctx.shadowColor='rgba(0,0,0,0.35)'; ctx.shadowBlur=3; ctx.shadowOffsetY=1;
       let ang=-Math.PI/2;
       for(const[tf,val]of entries){const sw=(val/total)*2*Math.PI;ctx.beginPath();ctx.moveTo(cx+iR*Math.cos(ang),cy+iR*Math.sin(ang));ctx.arc(cx,cy,oR,ang,ang+sw);ctx.arc(cx,cy,iR,ang+sw,ang,true);ctx.closePath();ctx.fillStyle=techColor(tf);ctx.fill();ang+=sw;}
       ctx.shadowColor='transparent';
-      ctx.beginPath();ctx.arc(cx,cy,iR-0.5,0,2*Math.PI);ctx.fillStyle=isDk?'rgba(15,20,30,0.88)':'rgba(245,248,252,0.92)';ctx.fill();
+      // Center: price color (same gradient as price dots)
+      const t_=zPrices[z]!=null?(zPrices[z]-pMin)/pRng:null;
+      const centerBg=t_!=null?hexA(priceColor(t_),0.92):(isDk?'rgba(15,20,30,0.88)':'rgba(245,248,252,0.92)');
+      const textC=t_!=null&&t_>0.45?'rgba(255,255,255,0.95)':(isDk?'rgba(255,255,255,0.95)':'rgba(15,30,60,0.9)');
+      const mutedC=t_!=null&&t_>0.45?'rgba(255,255,255,0.65)':(isDk?'rgba(255,255,255,0.55)':'rgba(60,80,120,0.65)');
+      ctx.beginPath();ctx.arc(cx,cy,iR-0.5,0,2*Math.PI);ctx.fillStyle=centerBg;ctx.fill();
       const val=total/unitDiv; const valStr=val>=10?val.toFixed(0):val.toFixed(1);
-      ctx.fillStyle=isDk?'rgba(255,255,255,0.95)':'rgba(15,30,60,0.9)';
-      ctx.font='bold 8px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle=textC; ctx.font='bold 8px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.fillText(valStr,cx,cy-2.5);
-      ctx.fillStyle=isDk?'rgba(255,255,255,0.55)':'rgba(60,80,120,0.65)';
-      ctx.font='6px system-ui,sans-serif'; ctx.fillText(unitLbl,cx,cy+6);
+      ctx.fillStyle=mutedC; ctx.font='6px system-ui,sans-serif'; ctx.fillText(unitLbl,cx,cy+6);
       canvas.title=`${z}: ${(total/unitDiv).toFixed(1)} ${unitLbl}`;
       pieMarkersRef.current.push(new maplibregl.Marker({element:canvas,anchor:'center'}).setLngLat(coord).addTo(map));
     }
-  }, [pieDispMode, resultsData, ovScenario, refYear, zonesGJ, zcmapRows, mapLoadedCount, theme]); // eslint-disable-line
+  }, [pieDispMode, resultsData, ovScenario, refYear, zonesGJ, zcmapRows, hoursData, mapLoadedCount, theme]); // eslint-disable-line
 
   // ── Computed ───────────────────────────────────────────────────────────────
   const zoneToCountry = useMemo(()=>Object.fromEntries(zcmapRows.map(r=>[r.z,r.c])),[zcmapRows]);
@@ -763,23 +804,29 @@ export default function ResultsRegionPage() {
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <select value={ovScenario||''} onChange={e=>setOvScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
             </div>
-            {/* KPIs */}
+            {/* KPIs + overview pie */}
             {(()=>{ const sd=resultsData[ovScenario]; if(!sd||!refYear)return null;
               const totGW=allZones.reduce((s,z)=>s+Object.values(sd.techFuel[z]?.CapacityTechFuel?.[refYear]||{}).reduce((a,b)=>a+b,0),0)/1000;
               const demTWh=allZones.reduce((s,z)=>s+(sd.yearlyZone[z]?.DemandEnergyZone?.[refYear]||0),0)/1000;
               const avgRegPrice=priceVals.length?priceVals.reduce((a,b)=>a+b,0)/priceVals.length:null;
-              return <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6 }}>
-                {[
-                  {l:`Installed ${refYear}`,v:`${totGW.toFixed(1)} GW`},
-                  {l:`Demand ${refYear}`,v:`${demTWh.toFixed(0)} TWh`},
-                  {l:`Trade volume`,v:totalTradeGWh>0?`${fmtBig(totalTradeGWh)} GWh`:'—'},
-                  {l:'Avg price',v:avgRegPrice!=null?`${avgRegPrice.toFixed(1)} $/MWh`:'—'},
-                ].map(({l,v})=>(
-                  <div key={l} style={{ border:`1px solid ${t.panelBorder}`, borderRadius:6, padding:'7px 8px' }}>
-                    <div style={{ fontSize:'0.4rem', color:t.lblMuted, marginBottom:2 }}>{l}</div>
-                    <div style={{ fontSize:'0.7rem', fontWeight:700, color:t.lbl }}>{v}</div>
-                  </div>
-                ))}
+              // Aggregated pie data
+              const pieTfMap={}; for(const z of allZones){for(const[tf,v] of Object.entries(sd.techFuel[z]?.CapacityTechFuel?.[refYear]||{}))if(v>0)pieTfMap[tf]=(pieTfMap[tf]||0)+v;}
+              const pieTfs=Object.keys(pieTfMap).filter(tf=>pieTfMap[tf]>0).sort();
+              return <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                {pieTfs.length>0&&<OverviewPie tfs={pieTfs} data={pieTfs.map(tf=>pieTfMap[tf])} total={pieTfs.reduce((s,tf)=>s+pieTfMap[tf],0)} unitDiv={1000} unitLbl="GW" t={t}/>}
+                <div style={{ flex:1, display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:6 }}>
+                  {[
+                    {l:`Installed ${refYear}`,v:`${totGW.toFixed(1)} GW`},
+                    {l:`Demand ${refYear}`,v:`${demTWh.toFixed(0)} TWh`},
+                    {l:`Trade volume`,v:totalTradeGWh>0?`${fmtBig(totalTradeGWh)} GWh`:'—'},
+                    {l:'Avg price',v:avgRegPrice!=null?`${avgRegPrice.toFixed(1)} $/MWh`:'—'},
+                  ].map(({l,v})=>(
+                    <div key={l} style={{ border:`1px solid ${t.panelBorder}`, borderRadius:6, padding:'7px 8px' }}>
+                      <div style={{ fontSize:'0.4rem', color:t.lblMuted, marginBottom:2 }}>{l}</div>
+                      <div style={{ fontSize:'0.7rem', fontWeight:700, color:t.lbl }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
               </div>;
             })()}
             {/* Mix chart */}

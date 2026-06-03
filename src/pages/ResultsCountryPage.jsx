@@ -81,6 +81,8 @@ export default function ResultsCountryPage() {
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
   const [hiddenMap,    setHiddenMap]    = useState({});
   const [panelWidth,   setPanelWidth]   = useState(520);
+  const [pieDispMode,  setPieDispMode]  = useState('none');
+  const pieMarkersRef = useRef([]);
 
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
   const toggleHidden=(id,label)=>setHiddenMap(p=>{const s=new Set(p[id]||[]);s.has(label)?s.delete(label):s.add(label);return{...p,[id]:s};});
@@ -190,7 +192,7 @@ export default function ResultsCountryPage() {
       map.on('click','zone-fill',e=>{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(e.features[0].properties.z||'')}`);});
       setMapLoadedCount(c=>c+1);
     });
-    return()=>{popup.remove();dotMarkersRef.current.forEach(m=>m.remove());dotMarkersRef.current=[];mapRef.current?.remove();};
+    return()=>{popup.remove();dotMarkersRef.current.forEach(m=>m.remove());dotMarkersRef.current=[];pieMarkersRef.current.forEach(m=>m.remove());pieMarkersRef.current=[];mapRef.current?.remove();};
   },[region,theme,zonesGJ,zcmapRows,countryZoneIds,countryIsos]); // eslint-disable-line
 
   // Update NTC
@@ -220,6 +222,45 @@ export default function ResultsCountryPage() {
     const minV=Math.min(...vals),maxV=Math.max(...vals),rng=maxV-minV||1;
     for(const[z,price]of Object.entries(prices)){const coord=zoneCentroids[z];if(!coord)continue;const el=document.createElement('div');el.style.cssText=`width:10px;height:10px;border-radius:50%;background:${priceColor((price-minV)/rng)};border:1.5px solid rgba(255,255,255,0.7);box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;`;el.title=`${z}: ${price.toFixed(1)} $/MWh`;dotMarkersRef.current.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(coord).addTo(map));}
   },[resultsData,refYear,ovScenario,zonesGJ,allZones,hoursData,theme,mapLoadedCount]); // eslint-disable-line
+
+  // ── Zone mix pie markers ──────────────────────────────────────────────────
+  useEffect(()=>{
+    pieMarkersRef.current.forEach(m=>m.remove());pieMarkersRef.current=[];
+    const map=mapRef.current;
+    if(!map||pieDispMode==='none'||!zonesGJ||!refYear)return;
+    const sd=resultsData[ovScenario]||Object.values(resultsData)[0];if(!sd)return;
+    const attr=pieDispMode==='capacity'?'CapacityTechFuel':'EnergyTechFuelComplete';
+    const unitDiv=1000;const unitLbl=pieDispMode==='capacity'?'GW':'TWh';
+    const isDk=t.isDark;
+    const zcC={};for(const f of zonesGJ.features){const z=f.properties.z;if(z){const c=computeCentroid(f.geometry);if(c)zcC[z]=c;}}
+    const zPrices={};for(const z of allZones){const qmap=sd.price[z]?.[refYear]||{};let tw=0,tp=0;for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}if(tw>0)zPrices[z]=tp/tw;}
+    const pVals=Object.values(zPrices);const pMin=pVals.length?Math.min(...pVals):0;const pRng=pVals.length?Math.max(...pVals)-pMin||1:1;
+    const SZ=44,dpr=window.devicePixelRatio||1,cx=SZ/2,cy=SZ/2,oR=SZ/2-1.5,iR=oR*0.50;
+    for(const z of allZones){
+      const coord=zcC[z];if(!coord)continue;
+      const data=sd.techFuel[z]?.[attr]?.[refYear];if(!data)continue;
+      const entries=Object.entries(data).filter(([,v])=>v>0);if(!entries.length)continue;
+      const total=entries.reduce((s,[,v])=>s+v,0);if(total<=0)continue;
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.round(SZ*dpr);canvas.height=Math.round(SZ*dpr);
+      canvas.style.width=SZ+'px';canvas.style.height=SZ+'px';
+      const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+      ctx.shadowColor='rgba(0,0,0,0.35)';ctx.shadowBlur=3;ctx.shadowOffsetY=1;
+      let ang=-Math.PI/2;
+      for(const[tf,val]of entries){const sw=(val/total)*2*Math.PI;ctx.beginPath();ctx.moveTo(cx+iR*Math.cos(ang),cy+iR*Math.sin(ang));ctx.arc(cx,cy,oR,ang,ang+sw);ctx.arc(cx,cy,iR,ang+sw,ang,true);ctx.closePath();ctx.fillStyle=techColor(tf);ctx.fill();ang+=sw;}
+      ctx.shadowColor='transparent';
+      const t_=zPrices[z]!=null?(zPrices[z]-pMin)/pRng:null;
+      const centerBg=t_!=null?hexA(priceColor(t_),0.92):(isDk?'rgba(15,20,30,0.88)':'rgba(245,248,252,0.92)');
+      const textC=t_!=null&&t_>0.45?'rgba(255,255,255,0.95)':(isDk?'rgba(255,255,255,0.95)':'rgba(15,30,60,0.9)');
+      const mutedC=t_!=null&&t_>0.45?'rgba(255,255,255,0.65)':(isDk?'rgba(255,255,255,0.55)':'rgba(60,80,120,0.65)');
+      ctx.beginPath();ctx.arc(cx,cy,iR-0.5,0,2*Math.PI);ctx.fillStyle=centerBg;ctx.fill();
+      const val=total/unitDiv;const valStr=val>=10?val.toFixed(0):val.toFixed(1);
+      ctx.fillStyle=textC;ctx.font='bold 8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(valStr,cx,cy-2.5);ctx.fillStyle=mutedC;ctx.font='6px system-ui,sans-serif';ctx.fillText(unitLbl,cx,cy+6);
+      canvas.title=`${z}: ${(total/unitDiv).toFixed(1)} ${unitLbl}`;
+      pieMarkersRef.current.push(new maplibregl.Marker({element:canvas,anchor:'center'}).setLngLat(coord).addTo(map));
+    }
+  },[pieDispMode,resultsData,ovScenario,refYear,zonesGJ,allZones,hoursData,mapLoadedCount,theme]); // eslint-disable-line
 
   if(!region)return<div style={{padding:40,color:t.text}}>Loading…</div>;
   const selectStyle={fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer'};
@@ -268,6 +309,14 @@ export default function ResultsCountryPage() {
               <div style={{background:'linear-gradient(to right, #FFFFFF, #1B6CA8)',height:5,borderRadius:3,marginBottom:2}}/>
               <div style={{display:'flex',justifyContent:'space-between'}}><span>{minP.toFixed(0)}</span><span>{maxP.toFixed(0)} $/MWh</span></div>
             </div>}
+            <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${hexA(t.panelBorder,0.5)}`}}>
+              <div style={{fontSize:'0.38rem',color:t.lblMuted,marginBottom:4}}>Zone mix</div>
+              <div style={{display:'flex',gap:4}}>
+                <Pill active={pieDispMode==='none'} onClick={()=>setPieDispMode('none')}>—</Pill>
+                <Pill active={pieDispMode==='capacity'} onClick={()=>setPieDispMode('capacity')}>Cap.</Pill>
+                <Pill active={pieDispMode==='energy'} onClick={()=>setPieDispMode('energy')}>Gen.</Pill>
+              </div>
+            </div>
           </div>
         )}
       </div>
