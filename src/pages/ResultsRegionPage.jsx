@@ -480,7 +480,7 @@ export default function ResultsRegionPage() {
       ctx.shadowColor='transparent';
       // Center: price color (same gradient as price dots)
       const t_=zPrices[z]!=null?(zPrices[z]-pMin)/pRng:null;
-      const centerBg=t_!=null?hexA(priceColor(t_),0.92):(isDk?'rgba(15,20,30,0.88)':'rgba(245,248,252,0.92)');
+      const centerBg=t_!=null?priceColor(t_).replace('rgb(','rgba(').replace(')',',0.92)'):(isDk?'rgba(15,20,30,0.88)':'rgba(245,248,252,0.92)');
       const textC=t_!=null&&t_>0.45?'rgba(255,255,255,0.95)':(isDk?'rgba(255,255,255,0.95)':'rgba(15,30,60,0.9)');
       const mutedC=t_!=null&&t_>0.45?'rgba(255,255,255,0.65)':(isDk?'rgba(255,255,255,0.55)':'rgba(60,80,120,0.65)');
       ctx.beginPath();ctx.arc(cx,cy,iR-0.5,0,2*Math.PI);ctx.fillStyle=centerBg;ctx.fill();
