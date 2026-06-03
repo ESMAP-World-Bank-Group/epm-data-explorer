@@ -417,7 +417,15 @@ export default function ResultsRegionPage() {
   const dispAvailD     = useMemo(()=>{ const ds=new Set(); for(const z of Object.values(firstDisp)) for(const q of Object.values(z)) for(const d of Object.keys(q)) ds.add(d); return[...ds].sort();},[firstDisp]);
   const totalDays      = useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
   const activeDispZone = dispZone||'__all__';
-  // Aggregate dispatch across zones when '__all__' selected
+
+  // Explicit demand lookup — zone-specific or region total (independent of generation)
+  const getDispDemand = (sd, zone, zones, s, d, h) => {
+    const key = `t${h+1}`;
+    if (zone === '__all__') return zones.reduce((sum, z) => sum + (sd.dispatch[z]?.[s]?.[d]?.[key]?.Demand || 0), 0);
+    return sd.dispatch[zone]?.[s]?.[d]?.[key]?.Demand ?? null;
+  };
+
+  // Aggregate dispatch generation (excl. Demand) across zones when '__all__' selected
   const getZoneDisp = (sd, zone) => {
     if (zone !== '__all__') return sd.dispatch[zone] || {};
     const agg = {};
@@ -502,7 +510,7 @@ export default function ResultsRegionPage() {
       const pd=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zP[s]?.[d]?.[`t${h+1}`]||null)));
       if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true});
       // Actual demand from dispatch (dark red dashed)
-      const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.Demand||null)));
+      const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{ const v=getDispDemand(sd,activeDispZone,allZones,s,d,h); return v!=null&&v>0?v:null; })));
       if(demData.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:demData,borderColor:'#8B0000',borderWidth:1.8,pointRadius:0,tension:0,fill:false,spanGaps:true,borderDash:[5,3]});
       const sepPlugin={id:'dSep',afterDraw:(chart)=>{
         const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
@@ -522,8 +530,14 @@ export default function ResultsRegionPage() {
     const tfs2=[...new Set(Object.values(sp).flatMap(d=>Object.values(d).flatMap(Object.keys)))].filter(t=>t!=='Demand').sort();
     const getData=(tf)=>{if(dispDay==='avg'){const ds=Object.keys(sp);return Array.from({length:24},(_,h)=>ds.reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(ds.length,1));}return Array.from({length:24},(_,h)=>sp[dispDay]?.[`t${h+1}`]?.[tf]||0);};
     const datasets2=tfs2.map(tf=>({label:tf,fill:true,data:getData(tf),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0}));
-    const getDem=()=>{if(dispDay==='avg'){const ds=Object.keys(sp);return Array.from({length:24},(_,h)=>ds.reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.Demand||0),0)/Math.max(ds.length,1));}return Array.from({length:24},(_,h)=>sp[dispDay]?.[`t${h+1}`]?.Demand||null);};
-    const demLine=getDem(); if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1.8,pointRadius:0,tension:0,fill:false,spanGaps:true,borderDash:[5,3]});
+    const demLine=dispAvailD.length>0
+      ?Array.from({length:24},(_,h)=>{
+          const ds=dispDay==='avg'?dispAvailD:[dispDay];
+          const vals=ds.map(d=>getDispDemand(sd,activeDispZone,allZones,dispSeason,d,h)).filter(v=>v!=null&&v>0);
+          if(!vals.length)return null;
+          return dispDay==='avg'?vals.reduce((a,b)=>a+b,0)/vals.length:vals[0];
+        })
+      :[]; if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1.8,pointRadius:0,tension:0,fill:false,spanGaps:true,borderDash:[5,3]});
     const zPr=sd.price[activeDispZone]||{}; const prLine=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
     if(prLine.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prLine,yAxisID:'yR',borderColor:'#3B82F6',borderWidth:1.5,pointRadius:0,tension:0,fill:false,spanGaps:true});
     return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:null};
