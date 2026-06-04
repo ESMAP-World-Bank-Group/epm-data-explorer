@@ -858,7 +858,7 @@ export default function ResultsRegionPage() {
                 <CJChart type="bar" height={Math.min(zones.length*22+24,220)} cacheKey={`pz|${ovScenario}|${refYear}|${theme}`}
                   data={{labels:zones,datasets:[
                     {label:'Range',data:zones.map(z=>{const r=zonePriceRange[z];return r?[+r.min.toFixed(1),+r.max.toFixed(1)]:[+zoneAvgPrices[z].toFixed(1),+zoneAvgPrices[z].toFixed(1)];}),backgroundColor:zones.map(z=>priceBarColor((zoneAvgPrices[z]-minPrice)/rng).replace('rgb(','rgba(').replace(')',',0.18)')),borderWidth:0,barThickness:10},
-                    {label:'Avg',data:zones.map(z=>+zoneAvgPrices[z].toFixed(1)),backgroundColor:zones.map(z=>priceBarColor((zoneAvgPrices[z]-minPrice)/rng).replace('rgb(','rgba(').replace(')',',0.92)')),borderWidth:0,barThickness:3},
+                    {type:'scatter',label:'Avg',data:zones.map(z=>({x:+zoneAvgPrices[z].toFixed(1),y:z})),pointStyle:'line',rotation:90,radius:6,borderWidth:2.5,borderColor:zones.map(z=>priceBarColor((zoneAvgPrices[z]-minPrice)/rng))},
                   ]}}
                   options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const z=zones[ctx.dataIndex];if(ctx.datasetIndex===0){const r=zonePriceRange[z];return r&&r.min!==r.max?`${r.min.toFixed(1)}–${r.max.toFixed(1)} $/MWh`:'';} return`Avg: ${zoneAvgPrices[z]?.toFixed(1)} $/MWh`;},title:ctx=>ctx[0]?.label||''}}}}}
                 />
