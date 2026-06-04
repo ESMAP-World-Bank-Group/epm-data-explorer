@@ -257,7 +257,7 @@ export default function EpmCountryPage() {
       const tv = getT(theme);
       if (bounds) map.fitBounds(bounds, { padding: 60, duration: 0, maxZoom: 8 });
 
-      const countries = await fetch('/data/countries_110m.geojson').then(r => r.json());
+      const countries = await fetch('/data/countries_10m.geojson').then(r => r.json());
       countries.features.forEach((f, i) => { f.id = i; });
       map.addSource('countries', { type: 'geojson', data: countries, generateId: false });
       map.addLayer({ id: 'land',    type: 'fill', source: 'countries', paint: { 'fill-color': tv.land, 'fill-opacity': 1 } });

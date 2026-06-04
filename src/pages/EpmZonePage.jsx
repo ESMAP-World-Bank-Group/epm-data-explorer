@@ -195,7 +195,7 @@ export default function EpmZonePage() {
     map.on('load', async () => {
       const tv = getT(theme);
 
-      const countries = await fetch('/data/countries_110m.geojson').then(r => r.json());
+      const countries = await fetch('/data/countries_10m.geojson').then(r => r.json());
       countries.features.forEach((f, i) => { f.id = i; });
       map.addSource('countries', { type: 'geojson', data: countries, generateId: false });
       map.addLayer({ id: 'land',    type: 'fill', source: 'countries', paint: { 'fill-color': tv.land, 'fill-opacity': 1 } });
