@@ -323,10 +323,14 @@ export default function ResultsRegionPage() {
       }
       if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData }, { sdf:true });
 
+      // CartoDB basemap for geographic detail
+      map.addSource('carto-tiles', { type:'raster', tileSize:256, attribution:'© OpenStreetMap © CARTO',
+        tiles:['a','b','c','d'].map(s=>`https://${s}.basemaps.cartocdn.com/${tv.cartoBg}/{z}/{x}/{y}@2x.png`) });
+      map.addLayer({ id:'carto-raster', type:'raster', source:'carto-tiles', paint:{'raster-opacity':1} });
       const countries = await fetch('/data/countries_10m.geojson').then(r=>r.json());
       countries.features.forEach((f,i)=>{ f.id=i; });
       map.addSource('countries', { type:'geojson', data:countries, generateId:false });
-      map.addLayer({ id:'land',    type:'fill', source:'countries', paint:{'fill-color':tv.land,'fill-opacity':1} });
+      map.addLayer({ id:'land',    type:'fill', source:'countries', paint:{'fill-color':tv.land,'fill-opacity':0} });
       map.addLayer({ id:'borders', type:'line', source:'countries', paint:{'line-color':tv.worldBdr,'line-width':tv.worldBdrW} });
 
       const isoToCountry = {};
@@ -804,6 +808,44 @@ export default function ResultsRegionPage() {
     })).filter(d=>d.data.some(v=>v>0))};
   };
 
+  // ── Dispatch Δ ────────────────────────────────────────────────────────────
+  const buildDispatchDelta = () => {
+    const cmpScen=cmpRef;
+    if(!cmpScen||cmpScen===dispScenario||!refYear||!activeDispZone)return{chartData:{labels:[],datasets:[]},plugin:null};
+    const sdA=resultsData[dispScenario],sdB=resultsData[cmpScen];
+    if(!sdA||!sdB)return{chartData:{labels:[],datasets:[]},plugin:null};
+    const zA=getZoneDisp(sdA,activeDispZone,refYear),zB=getZoneDisp(sdB,activeDispZone,refYear);
+    const seasons=dispAvailS,days=dispAvailD;
+    const mkDatasets=(tfs,getA,getB,nPts,labels)=>{
+      const ds=tfs.map(tf=>({
+        label:tf,fill:true,
+        data:Array.from({length:nPts},(_,i)=>+(getA(i,tf)-getB(i,tf)).toFixed(1)),
+        backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),
+        borderWidth:0,pointRadius:0,tension:0,stack:'gen',
+      })).filter(d=>d.data.some(v=>v!==0));
+      return{chartData:{labels,datasets:ds},plugin:null};
+    };
+    if(dispMode==='full'&&seasons.length&&days.length){
+      const nPts=seasons.length*days.length*24;
+      const tfs=[...new Set([zA,zB].flatMap(z=>seasons.flatMap(s=>days.flatMap(d=>Object.values(z[s]?.[d]||{}).flatMap(Object.keys)))))].filter(t=>t!=='Demand').sort();
+      const pts=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>[s,d,h])));
+      return mkDatasets(tfs,(i,tf)=>zA[pts[i][0]]?.[pts[i][1]]?.[`t${pts[i][2]+1}`]?.[tf]||0,(i,tf)=>zB[pts[i][0]]?.[pts[i][1]]?.[`t${pts[i][2]+1}`]?.[tf]||0,nPts,new Array(nPts).fill(''));
+    }
+    const spA=zA[dispSeason],spB=zB[dispSeason];
+    if(!spA&&!spB)return{chartData:{labels:[],datasets:[]},plugin:null};
+    const tfs=[...new Set([spA,spB].flatMap(sp=>Object.values(sp||{}).flatMap(d=>Object.values(d).flatMap(Object.keys))))].filter(t=>t!=='Demand').sort();
+    const gv=(sp,h,tf)=>dispDay==='avg'?Object.keys(sp||{}).reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(Object.keys(sp||{}).length,1):(sp?.[dispDay]?.[`t${h+1}`]?.[tf]||0);
+    return mkDatasets(tfs,(i,tf)=>gv(spA,i,tf),(i,tf)=>gv(spB,i,tf),24,Array.from({length:24},(_,i)=>`${i+1}h`));
+  };
+
+  // ── Plants compare ────────────────────────────────────────────────────────
+  const buildPlantsCompare = () => {
+    const cmpScen=cmpRef;
+    if(!cmpScen||cmpScen===plScenario||!refYear)return null;
+    const pl2=resultsData[cmpScen]?.plants||[];
+    return Object.fromEntries(pl2.filter(p=>p.attribute===plIndicator&&p.y===refYear&&p.value>0).map(p=>[p.g,p.value]));
+  };
+
   // ── Trade multi-scenario ──────────────────────────────────────────────────
   const buildTradeBarMulti = () => {
     const activeSc=scenarioList.filter(s=>trScenarios.has(s)&&resultsData[s]);
@@ -835,6 +877,8 @@ export default function ResultsRegionPage() {
   const cmpEvData=buildCmpEvolution();
   const snapData=buildSnapshot();
   const dispResult=buildDispatch();
+  const dispDeltaResult=buildDispatchDelta();
+  const plantsCompareMap=buildPlantsCompare();
   const tradeBarMultiData=buildTradeBarMulti();
   const tradeEvData=buildTradeEvolution();
   const plantsData=buildPlantsList(), lcoeData=buildLCOEBubble();
