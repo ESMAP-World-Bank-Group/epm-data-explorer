@@ -187,13 +187,13 @@ export default function ResultsRegionPage() {
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
   const [hiddenMap,      setHiddenMap]      = useState({}); // { chartId: Set<label> }
   const [pieDispMode,    setPieDispMode]    = useState('none'); // 'none'|'capacity'|'energy'
-  const [evDeltaRef,     setEvDeltaRef]     = useState(null);
-  const [evDeltaMode,    setEvDeltaMode]    = useState(false);
-  const [trCompare,      setTrCompare]      = useState(null);
-  const [trDeltaMode,    setTrDeltaMode]    = useState(false);
-  const [plCompare,      setPlCompare]      = useState(null);
-  const [dispCompare,    setDispCompare]    = useState(null);
-  const [dispDelta,      setDispDelta]      = useState(false);
+  const [cmpRef,         setCmpRef]         = useState(null);
+  const [cmpScenarios,   setCmpScenarios]   = useState(new Set());
+  const [cmpMode,        setCmpMode]        = useState('values');
+  const [trScenarios,    setTrScenarios]    = useState(new Set());
+  const [snapIndicator,  setSnapIndicator]  = useState('CapacityTechFuel');
+  const [snapView,       setSnapView]       = useState('zone');
+  const [snapScenarios,  setSnapScenarios]  = useState(new Set());
   const isDraggingRef = useRef(false);
   const dragStartX    = useRef(0);
   const dragStartW    = useRef(0);
@@ -247,8 +247,11 @@ export default function ResultsRegionPage() {
     fetchGitHubDir(region.epm.branch, `epm/output/${simRun}`).then(items => {
       const scens = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();
       setScenarioList(scens); setEvScenarios(new Set(scens));
-      if (scens.length) { setOvScenario(scens[0]); setDispScenario(scens[0]); setTrScenario(scens[0]); setPlScenario(scens[0]); setEvDeltaRef(scens[0]); }
-      setTrCompare(null); setTrDeltaMode(false); setPlCompare(null); setDispCompare(null); setDispDelta(false); setEvDeltaMode(false);
+      if (scens.length) { setOvScenario(scens[0]); setDispScenario(scens[0]); setTrScenario(scens[0]); setPlScenario(scens[0]); setCmpRef(scens[0]); }
+      setCmpScenarios(new Set(scens.slice(1)));
+      setCmpMode('values');
+      setTrScenarios(new Set(scens));
+      setSnapScenarios(new Set(scens));
     });
   }, [region, simRun]);
 
@@ -577,8 +580,8 @@ export default function ResultsRegionPage() {
   const selectStyle = { fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer' };
   const csvUrl = (scen, file) => `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm?.branch}/epm/output/${simRun}/${scen}/output_csv/${file}`;
   const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} t={t}/>)}</div>:null;
-  const TABS = ['overview','evolution','dispatch','trade','plants'];
-  const TAB_LABELS = { overview:'Overview', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants' };
+  const TABS = ['overview','snapshot','evolution','dispatch','trade','plants'];
+  const TAB_LABELS = { overview:'Overview', snapshot:'Snapshot', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants' };
 
   // ── Overview mix ────────────────────────────────────────────────────────────
   const buildOverviewMix = () => {
@@ -728,83 +731,92 @@ export default function ResultsRegionPage() {
     return { datasets:tfs.map(tf=>({ label:tf, data:points.filter(p=>p.techfuel===tf).map(p=>({ x:+p.util.toFixed(1), y:+p.lcoe.toFixed(1), r:Math.min(Math.max(Math.sqrt(p.cap)*0.6,3),20), _plant:p.g, _cap:p.cap })), backgroundColor:hexA(techColor(tf),0.65), borderColor:techColor(tf), borderWidth:1 })).filter(d=>d.data.length>0) };
   };
 
-  // ── Evolution Δ ─────────────────────────────────────────────────────────────
-  const buildEvolutionDelta = () => {
-    if(!evDeltaRef||!allYears.length)return null;
-    const compareScs=scenarioList.filter(s=>evScenarios.has(s)&&s!==evDeltaRef);
-    if(!compareScs.length)return null;
+  // ── Scenario comparison (shared across tabs) ──────────────────────────────
+  const SCEN_COLORS = ['#1B6CA8','#36B5B5','#4169E1','#D4A820','#B83838','#7048A8','#4A9E6A','#2E9EC8'];
+  const getEvVal = (scen, y, ind) => {
+    if(ind.source==='techFuel') return evZones.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]||{}).reduce((a,b)=>a+b,0),0);
+    if(ind.source==='yearlyZone') return evZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0);
+    if(ind.source==='costs') return MAIN_COST_CATS.reduce((s,cat)=>s+evZones.reduce((s2,z)=>s2+(resultsData[scen]?.costs[z]?.[cat]?.[y]||0),0),0);
+    return 0;
+  };
+  const buildCmpEvolution = () => {
+    if(!cmpRef||!allYears.length)return null;
+    const compareScs=[...cmpScenarios].filter(s=>resultsData[s]);
     const ind=activeInd;
-    const getVal=(scen,y)=>{
-      if(ind.source==='techFuel') return evZones.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]||{}).reduce((a,b)=>a+b,0),0);
-      if(ind.source==='yearlyZone') return evZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0);
-      if(ind.source==='costs') return MAIN_COST_CATS.reduce((s,cat)=>s+evZones.reduce((s2,z)=>s2+(resultsData[scen]?.costs[z]?.[cat]?.[y]||0),0),0);
-      return 0;
-    };
-    const DCOLS=['#3887C4','#4A9E6A','#D4A820','#B83838'];
-    return{labels:allYears,datasets:compareScs.map((scen,i)=>({
-      label:`Δ ${scen}`,
-      data:allYears.map(y=>+(getVal(scen,y)-getVal(evDeltaRef,y)).toFixed(0)),
-      backgroundColor:hexA(DCOLS[i%4],0.72), borderColor:DCOLS[i%4], borderWidth:1.5, barThickness:10,
+    if(cmpMode==='delta'){
+      if(!compareScs.length)return null;
+      return{labels:allYears,datasets:compareScs.map((scen,i)=>({
+        label:`Δ ${scen}`,
+        data:allYears.map(y=>+(getEvVal(scen,y,ind)-getEvVal(cmpRef,y,ind)).toFixed(0)),
+        backgroundColor:hexA(SCEN_COLORS[(i+1)%SCEN_COLORS.length],0.72),
+        borderColor:SCEN_COLORS[(i+1)%SCEN_COLORS.length], borderWidth:0, barThickness:10,
+      }))};
+    }
+    // Values: line per scenario (ref + compares)
+    const allSc=[cmpRef,...compareScs].filter(s=>resultsData[s]);
+    return{labels:allYears,datasets:allSc.map((scen,i)=>({
+      label:i===0?`${scen} (ref)`:scen,
+      data:allYears.map(y=>+(getEvVal(scen,y,ind)).toFixed(0)),
+      borderColor:SCEN_COLORS[i%SCEN_COLORS.length], backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.08),
+      borderWidth:i===0?2.5:1.5, fill:true, tension:0.3, pointRadius:0, type:'line',
+      borderDash:i===0?[]:undefined,
     }))};
   };
 
-  // ── Trade Δ ──────────────────────────────────────────────────────────────────
-  const buildTradeDelta = () => {
-    if(!trCompare||!refYear)return null;
-    const getTradeVals=(scen)=>{const tx=resultsData[scen]?.transmission||{};const imp={},exp={};for(const z of allZones){imp[z]=0;exp[z]=0;for(const[,attrs]of Object.entries(tx[z]||{}))exp[z]+=(attrs.Interchange?.[refYear]||0);for(const[z2,zm]of Object.entries(tx))if(z2!==z)imp[z]+=(zm[z]?.Interchange?.[refYear]||0);}return{imp,exp};};
-    const a=getTradeVals(trScenario), b=getTradeVals(trCompare);
-    const zones=allZones.filter(z=>Math.abs((a.imp[z]||0)-(b.imp[z]||0))+Math.abs((a.exp[z]||0)-(b.exp[z]||0))>1).sort((x,y)=>Math.abs((a.imp[y]||0)-(b.imp[y]||0))-Math.abs((a.imp[x]||0)-(b.imp[x]||0)));
+  // ── Snapshot ──────────────────────────────────────────────────────────────
+  const buildSnapshot = () => {
+    if(!refYear||!snapScenarios.size)return null;
+    const activeSc=scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]);
+    if(!activeSc.length)return null;
+    const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
+    const groups=snapView==='zone'?allZones:allCountries;
+    const getVal=(scen,grp)=>{
+      const zones=snapView==='zone'?[grp]:allZones.filter(z=>zoneToCountry[z]===grp);
+      if(ind.source==='techFuel') return Math.round(zones.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]||{}).reduce((a,b)=>a+b,0),0));
+      if(ind.source==='yearlyZone') return +(zones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[refYear]||0),0)).toFixed(2);
+      return 0;
+    };
+    return{labels:groups,datasets:activeSc.map((scen,i)=>({
+      label:scen,
+      data:groups.map(g=>getVal(scen,g)),
+      backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.78), borderWidth:0, barThickness:10,
+    })).filter(d=>d.data.some(v=>v>0))};
+  };
+
+  // ── Trade multi-scenario ──────────────────────────────────────────────────
+  const buildTradeBarMulti = () => {
+    const activeSc=scenarioList.filter(s=>trScenarios.has(s)&&resultsData[s]);
+    if(!activeSc.length||!refYear)return null;
+    const getData=(scen)=>{const tx=resultsData[scen]?.transmission||{};const imp={},exp={};for(const z of allZones){imp[z]=0;exp[z]=0;for(const[,attrs]of Object.entries(tx[z]||{}))exp[z]+=(attrs.Interchange?.[refYear]||0);for(const[z2,zm]of Object.entries(tx))if(z2!==z)imp[z]+=(zm[z]?.Interchange?.[refYear]||0);}return{imp,exp};};
+    const trData=Object.fromEntries(activeSc.map(s=>[s,getData(s)]));
+    const zones=allZones.filter(z=>activeSc.some(s=>(trData[s].imp[z]+trData[s].exp[z])>0.5)).sort((a,b)=>(trData[activeSc[0]].imp[b]-trData[activeSc[0]].exp[b])-(trData[activeSc[0]].imp[a]-trData[activeSc[0]].exp[a]));
     if(!zones.length)return null;
-    return{labels:zones,datasets:[
-      {label:'ΔImports',data:zones.map(z=>+((a.imp[z]||0)-(b.imp[z]||0)).toFixed(0)),backgroundColor:hexA('#2E9EC8',0.78),borderWidth:0,barThickness:10},
-      {label:'ΔExports',data:zones.map(z=>+((a.exp[z]||0)-(b.exp[z]||0)).toFixed(0)),backgroundColor:hexA('#E8C547',0.78),borderWidth:0,barThickness:10},
-    ],_scens:[trScenario,trCompare]};
-  };
-
-  // ── Plants compare ────────────────────────────────────────────────────────────
-  const buildPlantsCompare = () => {
-    if(!plCompare||!refYear)return null;
-    const pl2=resultsData[plCompare]?.plants||[];
-    return Object.fromEntries(pl2.filter(p=>p.attribute===plIndicator&&p.y===refYear&&p.value>0).map(p=>[p.g,p.value]));
-  };
-  const buildLCOECompare = () => {
-    if(!plCompare||!refYear)return null;
-    const pl=resultsData[plCompare]?.plants||[];
-    const byG={};
-    for(const p of pl.filter(pp=>pp.y===refYear)){if(!byG[p.g])byG[p.g]={techfuel:p.techfuel,z:p.z};byG[p.g][p.attribute]=p.value;}
-    const points=Object.entries(byG).map(([g,d])=>({g,techfuel:d.techfuel||'',lcoe:d.PlantAnnualLCOE||0,util:(d.UtilizationPlant||0)*100,cap:d.CapacityPlant||0})).filter(p=>p.lcoe>0&&p.util>0&&p.cap>0);
-    const tfs=[...new Set(points.map(p=>p.techfuel))].sort();
-    return{datasets:tfs.map(tf=>({label:`${tf} (cmp)`,data:points.filter(p=>p.techfuel===tf).map(p=>({x:+p.util.toFixed(1),y:+p.lcoe.toFixed(1),r:Math.min(Math.max(Math.sqrt(p.cap)*0.6,3),18),_plant:p.g,_cap:p.cap})),backgroundColor:hexA(techColor(tf),0.4),borderColor:techColor(tf),borderWidth:1,pointStyle:'triangle'})).filter(d=>d.data.length>0)};
-  };
-
-  // ── Dispatch Δ ────────────────────────────────────────────────────────────────
-  const buildDispatchDelta = () => {
-    if(!dispCompare||!activeDispZone||!refYear)return{chartData:{labels:[],datasets:[]},plugin:null};
-    const sdRef=resultsData[dispScenario]; const sdCmp=resultsData[dispCompare];
-    if(!sdRef||!sdCmp)return{chartData:{labels:[],datasets:[]},plugin:null};
-    const zRef=getZoneDisp(sdRef,activeDispZone,refYear); const zCmp=getZoneDisp(sdCmp,activeDispZone,refYear);
-    const seasons=dispAvailS,days=dispAvailD;
-    if(dispMode==='full'&&seasons.length&&days.length){
-      const nPts=seasons.length*days.length*24;
-      const tfs=[...new Set(seasons.flatMap(s=>days.flatMap(d=>Object.values(zRef[s]?.[d]||{}).flatMap(Object.keys))))].filter(t=>t!=='Demand').sort();
-      const datasets=tfs.map(tf=>({label:tf,fill:true,data:seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{const a=zRef[s]?.[d]?.[`t${h+1}`]?.[tf]||0;const b=zCmp[s]?.[d]?.[`t${h+1}`]?.[tf]||0;return+(a-b).toFixed(1);}))),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));
-      return{chartData:{labels:new Array(nPts).fill(''),datasets},plugin:null};
+    const IMP_COLORS=['#2E9EC8','#1B6CA8','#36B5B5','#4169E1'];
+    const EXP_COLORS=['#E8C547','#D4A820','#EDD770','#4CAFE8'];
+    const datasets=[];
+    for(let i=0;i<activeSc.length;i++){
+      const scen=activeSc[i];
+      if(!isHidden('trade-ms',`${scen}_imp`))datasets.push({label:`${scen} — Imp.`,data:zones.map(z=>+(trData[scen].imp[z]||0).toFixed(0)),backgroundColor:hexA(IMP_COLORS[i%4],0.78),borderWidth:0,barThickness:Math.max(4,12/activeSc.length),stack:scen});
+      if(!isHidden('trade-ms',`${scen}_exp`))datasets.push({label:`${scen} — Exp.`,data:zones.map(z=>+(-trData[scen].exp[z]||0).toFixed(0)),backgroundColor:hexA(EXP_COLORS[i%4],0.78),borderWidth:0,barThickness:Math.max(4,12/activeSc.length),stack:scen});
     }
-    const spR=zRef[dispSeason], spC=zCmp[dispSeason];
-    if(!spR&&!spC)return{chartData:{labels:[],datasets:[]},plugin:null};
-    const tfs2=[...new Set([...Object.values(spR||{}).flatMap(d=>Object.values(d).flatMap(Object.keys)),...Object.values(spC||{}).flatMap(d=>Object.values(d).flatMap(Object.keys))])].filter(t=>t!=='Demand').sort();
-    const getData=(tf)=>Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?null:dispDay;const a=d?spR?.[d]?.[`t${h+1}`]?.[tf]||0:Object.keys(spR||{}).reduce((s,k)=>s+(spR[k]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(Object.keys(spR||{}).length,1);const b=d?spC?.[d]?.[`t${h+1}`]?.[tf]||0:Object.keys(spC||{}).reduce((s,k)=>s+(spC[k]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(Object.keys(spC||{}).length,1);return+(a-b).toFixed(1);});
-    const ds=tfs2.map(tf=>({label:tf,fill:true,data:getData(tf),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));
-    return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:ds},plugin:null};
+    // Comparison Δ datasets when cmpMode=delta and cmpRef in trScenarios
+    if(cmpMode==='delta'&&cmpRef&&trScenarios.has(cmpRef)&&activeSc.filter(s=>s!==cmpRef).length){
+      const ref=getData(cmpRef);
+      for(const scen of activeSc.filter(s=>s!==cmpRef)){
+        datasets.push({label:`Δ ${scen} Imp.`,data:zones.map(z=>+((trData[scen].imp[z]||0)-(ref.imp[z]||0)).toFixed(0)),backgroundColor:hexA(IMP_COLORS[activeSc.indexOf(scen)%4],0.5),borderWidth:1,borderColor:IMP_COLORS[activeSc.indexOf(scen)%4],barThickness:4,stack:`delta_${scen}`});
+        datasets.push({label:`Δ ${scen} Exp.`,data:zones.map(z=>+((trData[scen].exp[z]||0)-(ref.exp[z]||0)).toFixed(0)),backgroundColor:hexA(EXP_COLORS[activeSc.indexOf(scen)%4],0.5),borderWidth:1,borderColor:EXP_COLORS[activeSc.indexOf(scen)%4],barThickness:4,stack:`delta_${scen}`});
+      }
+    }
+    return{labels:zones,datasets,_activeSc:activeSc};
   };
 
   const overviewMix=buildOverviewMix(), evolutionData=buildEvolution();
-  const evDeltaData=evDeltaMode?buildEvolutionDelta():null;
-  const dispResult=buildDispatch(), dispDeltaResult=dispCompare&&dispDelta?buildDispatchDelta():{chartData:{labels:[],datasets:[]}};
-  const tradeBarData=buildTradeBar(), tradeEvData=buildTradeEvolution();
-  const tradeDeltaData=trDeltaMode?buildTradeDelta():null;
+  const cmpEvData=buildCmpEvolution();
+  const snapData=buildSnapshot();
+  const dispResult=buildDispatch();
+  const tradeBarMultiData=buildTradeBarMulti();
+  const tradeEvData=buildTradeEvolution();
   const plantsData=buildPlantsList(), lcoeData=buildLCOEBubble();
-  const plantsCompareMap=buildPlantsCompare(), lcoeCompareData=plCompare?buildLCOECompare():null;
   const dispTechfuels=dispResult.chartData.datasets.filter(d=>d.label!=='Marginal cost'&&d.label!=='Demand').map(d=>d.label);
 
   // ── JSX ─────────────────────────────────────────────────────────────────────
@@ -955,6 +967,34 @@ export default function ResultsRegionPage() {
           </div>
         )}
 
+        {/* ════ SNAPSHOT ════ */}
+        {hasData&&activeTab==='snapshot'&&(
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+              <select value={snapIndicator} onChange={e=>setSnapIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
+              <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
+              <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
+              <Pill active={snapView==='zone'} onClick={()=>setSnapView('zone')}>Zone</Pill>
+              <Pill active={snapView==='country'} onClick={()=>setSnapView('country')}>Country</Pill>
+              <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
+              {scenarioList.map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
+            </div>
+            {snapData&&snapData.datasets.length>0?<>
+              <CJChart type="bar" height={Math.min((snapView==='zone'?allZones:allCountries).length*22+24,300)}
+                cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${[...snapScenarios].sort().join(',')}`}
+                data={snapData}
+                options={{...cjDefaults(t),indexAxis:'y',scales:{
+                  x:{stacked:false,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                  y:{stacked:false,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw} ${(INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0]).unit}`}}}}}
+              />
+              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 10px',marginTop:2}}>
+                {snapData.datasets.map((ds,i)=><div key={ds.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:SCEN_COLORS[i%SCEN_COLORS.length]}}/>{ds.label}</div>)}
+              </div>
+            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
+          </div>
+        )}
+
         {/* ════ EVOLUTION ════ */}
         {hasData&&activeTab==='evolution'&&(
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -971,22 +1011,40 @@ export default function ResultsRegionPage() {
               {activeInd.source==='costs'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{MAIN_COST_CATS.map(cat=><div key={cat} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:costColor(cat)}}/>{COST_LABELS[cat]||cat}</div>)}</div>}
               {activeInd.source==='techFuel'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{allTechfuels.map(tf=><div key={tf} onClick={()=>toggleHidden('ev-tf',tf)} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted,cursor:'pointer',opacity:isHidden('ev-tf',tf)?0.28:1}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>}
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
-            {/* Δ controls */}
+            {/* ── Compare scenarios ── */}
             {scenarioList.length>1&&(
-              <div style={{display:'flex',gap:6,alignItems:'center',borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:8,marginTop:6}}>
-                <span style={{fontSize:'0.43rem',color:t.lblMuted,flexShrink:0}}>Δ vs</span>
-                <select value={evDeltaRef||''} onChange={e=>setEvDeltaRef(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
-                <Pill active={evDeltaMode} onClick={()=>setEvDeltaMode(!evDeltaMode)}>Show Δ</Pill>
+              <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Compare</span>
+                  <div style={{display:'flex',gap:4}}>
+                    <Pill active={cmpMode==='values'} onClick={()=>setCmpMode('values')}>Values</Pill>
+                    <Pill active={cmpMode==='delta'} onClick={()=>setCmpMode('delta')}>Δ</Pill>
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={{fontSize:'0.43rem',color:t.lblMuted,flexShrink:0}}>Ref:</span>
+                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>
+                    {scenarioList.map(s=><option key={s} value={s}>{s}</option>)}
+                  </select>
+                  {scenarioList.filter(s=>s!==cmpRef).map(s=>(
+                    <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
+                  ))}
+                </div>
+                {cmpEvData&&cmpEvData.datasets.length>0&&<>
+                  <CJChart type={cmpMode==='delta'?'bar':'line'} height={160}
+                    cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${cmpMode}|${evCountry}`}
+                    data={cmpEvData}
+                    options={{...cjDefaults(t),scales:{
+                      x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
+                      y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}},
+                    },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0&&cmpMode==='delta'?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
+                  />
+                  <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
+                    {cmpEvData.datasets.map((ds,i)=><div key={ds.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:SCEN_COLORS[i%SCEN_COLORS.length]}}/>{ds.label}</div>)}
+                  </div>
+                </>}
               </div>
             )}
-            {evDeltaMode&&evDeltaData&&evDeltaData.datasets.length>0&&<>
-              <SectionTitle t={t}>Δ vs {evDeltaRef} ({activeInd.unit})</SectionTitle>
-              <CJChart type="bar" height={160} cacheKey={`ev-d|${evIndicator}|${[...evScenarios].sort().join(',')}|${evDeltaRef}|${evCountry}`}
-                data={evDeltaData}
-                options={{...cjDefaults(t),scales:{x:{stacked:false,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw.toLocaleString()}`}}}}}
-              />
-              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{evDeltaData.datasets.map(ds=><div key={ds.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:ds.borderColor}}/>{ds.label}</div>)}</div>
-            </>}
             <DlRow files={scenarioList.map(s=>[s,'pTechFuelMerged.csv']).slice(0,1).concat(scenarioList.map(s=>[s,'pYearlyZoneMerged.csv']).slice(0,1))}/>
           </div>
         )}
@@ -1001,16 +1059,6 @@ export default function ResultsRegionPage() {
               </select>
               <select value={dispScenario||''} onChange={e=>setDispScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
-              {scenarioList.length>1&&(
-                <>
-                  <span style={{fontSize:'0.43rem',color:t.lblMuted}}>vs</span>
-                  <select value={dispCompare||''} onChange={e=>setDispCompare(e.target.value||null)} style={selectStyle}>
-                    <option value="">none</option>
-                    {scenarioList.filter(s=>s!==dispScenario).map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                  {dispCompare&&<Pill active={dispDelta} onClick={()=>setDispDelta(!dispDelta)}>Show delta</Pill>}
-                </>
-              )}
             </div>
             <div style={{ display:'flex', flexWrap:'wrap', gap:3, alignItems:'center' }}>
               <Pill active={dispMode==='full'} onClick={()=>setDispMode('full')}>Full Year</Pill>
@@ -1027,12 +1075,6 @@ export default function ResultsRegionPage() {
                 <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',borderRadius:1}}/><span>Marginal cost</span></div>
               </div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
-            {dispCompare&&dispDelta&&dispDeltaResult.chartData.datasets.length>0&&<>
-              <SectionTitle t={t}>Δ {dispScenario} − {dispCompare} (MW)</SectionTitle>
-              <CJChart type="line" height={dispMode==='full'?160:120} data={dispDeltaResult.chartData} cacheKey={`disp-d|${dispScenario}|${dispCompare}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}`}
-                options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
-              />
-            </>}
             <DlRow files={[[dispScenario,'pDispatchComplete.csv'],[dispScenario,'pHourlyPrice.csv']]}/>
           </div>
         )}
@@ -1042,44 +1084,32 @@ export default function ResultsRegionPage() {
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
-              <select value={trScenario||''} onChange={e=>setTrScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
-              {scenarioList.length>1&&(
-                <>
-                  <span style={{fontSize:'0.43rem',color:t.lblMuted}}>vs</span>
-                  <select value={trCompare||''} onChange={e=>setTrCompare(e.target.value||null)} style={selectStyle}>
-                    <option value="">none</option>
-                    {scenarioList.filter(s=>s!==trScenario).map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                  {trCompare&&<Pill active={trDeltaMode} onClick={()=>setTrDeltaMode(!trDeltaMode)}>Show delta</Pill>}
-                </>
-              )}
+              <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
+              {scenarioList.map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
+              {scenarioList.length>1&&<><div style={{width:1,height:14,backgroundColor:t.panelBorder}}/><Pill active={cmpMode==='delta'} onClick={()=>setCmpMode(cmpMode==='delta'?'values':'delta')}>Δ</Pill></>}
             </div>
 
-            {/* Diverging import/export bars */}
-            {tradeBarData&&tradeBarData.labels.length>0&&(()=>{
-              const zones=tradeBarData.labels;
+            {/* Multi-scenario import/export bars */}
+            {tradeBarMultiData&&tradeBarMultiData.labels.length>0&&(()=>{
+              const zones=tradeBarMultiData.labels;
+              const activeSc=tradeBarMultiData._activeSc||[];
               return <>
                 <SectionTitle t={t}>Imports (+) / Exports (−) by zone (GWh)</SectionTitle>
-                <div style={{ display:'flex', gap:8 }}>
-                  <div style={{ flex:1 }}>
-                    <CJChart type="bar" height={Math.min(zones.length*22+24,260)}
-                      cacheKey={`tr|${trScenario}|${refYear}|${theme}|${[...hiddenMap['trade-bar']||[]].join(',')}`}
-                      data={tradeBarData}
-                      options={{...cjDefaults(t),indexAxis:'y',
-                        scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},
-                        plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(Math.abs(ctx.parsed.x))} GWh`,title:ctx=>{const z=ctx[0]?.label;const imp=tradeBarData._imp?.[z]||0;const exp=tradeBarData._exp?.[z]||0;return[z,`Net: ${imp>=exp?'+':''}${fmt(imp-exp)} GWh`];}}}}}}
-                    />
-                  </div>
-                  {/* Clickable legend */}
-                  <div style={{ width:72, flexShrink:0, display:'flex', flexDirection:'column', gap:4, paddingTop:4 }}>
-                    {[{l:'Imports',c:'#2E9EC8'},{l:'Exports',c:'#E8C547'}].map(({l,c})=>(
-                      <div key={l} onClick={()=>toggleHidden('trade-bar',l)} style={{ display:'flex',alignItems:'center',gap:4,cursor:'pointer',opacity:isHidden('trade-bar',l)?0.25:1 }}>
-                        <div style={{ width:10,height:10,borderRadius:2,backgroundColor:hexA(c,0.78),flexShrink:0 }}/>
-                        <span style={{ fontSize:'0.43rem',color:t.muted }}>{l}</span>
-                      </div>
-                    ))}
-                    <div style={{ fontSize:'0.38rem',color:t.lblMuted,marginTop:4 }}>click to hide</div>
-                  </div>
+                <CJChart type="bar" height={Math.min(zones.length*22+24,260)}
+                  cacheKey={`tr-ms|${[...trScenarios].sort().join(',')}|${refYear}|${cmpMode}|${theme}|${[...hiddenMap['trade-ms']||[]].join(',')}`}
+                  data={tradeBarMultiData}
+                  options={{...cjDefaults(t),indexAxis:'y',
+                    scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},
+                    plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${fmt(Math.abs(ctx.parsed.x))} GWh`}}}}}
+                />
+                <div style={{display:'flex',flexWrap:'wrap',gap:'3px 10px',marginTop:4}}>
+                  {tradeBarMultiData.datasets.map((ds,i)=>(
+                    <div key={ds.label} onClick={()=>toggleHidden('trade-ms',ds.label.includes('Imp.')?`${ds.label.split(' — ')[0]}_imp`:`${ds.label.split(' — ')[0]}_exp`)}
+                      style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted,cursor:'pointer',opacity:isHidden('trade-ms',ds.label.includes('Imp.')?`${ds.label.split(' — ')[0]}_imp`:`${ds.label.split(' — ')[0]}_exp`)?0.25:1}}>
+                      <div style={{width:8,height:8,borderRadius:2,backgroundColor:ds.backgroundColor}}/>{ds.label}
+                    </div>
+                  ))}
+                  <div style={{fontSize:'0.38rem',color:t.lblMuted,marginLeft:4}}>click to hide</div>
                 </div>
               </>;
             })()}
@@ -1122,17 +1152,6 @@ export default function ResultsRegionPage() {
                 </div>
               </>;
             })()}
-            {trDeltaMode&&tradeDeltaData&&tradeDeltaData.labels.length>0&&<>
-              <SectionTitle t={t}>Δ {trScenario} − {trCompare} (GWh)</SectionTitle>
-              <CJChart type="bar" height={Math.min(tradeDeltaData.labels.length*22+24,220)} cacheKey={`tr-d|${trScenario}|${trCompare}|${refYear}|${theme}`}
-                data={tradeDeltaData}
-                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:false,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw.toLocaleString()}`}}}}}
-              />
-              <div style={{display:'flex',gap:8,marginTop:4,fontSize:'0.44rem',color:t.muted}}>
-                <span style={{display:'flex',alignItems:'center',gap:3}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:hexA('#2E9EC8',0.78)}}/> ΔImports (+ = more in {trScenario})</span>
-                <span style={{display:'flex',alignItems:'center',gap:3}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:hexA('#E8C547',0.78)}}/> ΔExports</span>
-              </div>
-            </>}
             <DlRow files={[[trScenario,'pTransmissionMerged.csv']]}/>
           </div>
         )}
@@ -1143,15 +1162,6 @@ export default function ResultsRegionPage() {
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <select value={plScenario||''} onChange={e=>setPlScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
-              {scenarioList.length>1&&(
-                <>
-                  <span style={{fontSize:'0.43rem',color:t.lblMuted}}>vs</span>
-                  <select value={plCompare||''} onChange={e=>setPlCompare(e.target.value||null)} style={selectStyle}>
-                    <option value="">none</option>
-                    {scenarioList.filter(s=>s!==plScenario).map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                </>
-              )}
               <select value={plIndicator} onChange={e=>setPlIndicator(e.target.value)} style={selectStyle}>
                 {['CapacityPlant','EnergyPlant','CostsPlant','PlantAnnualLCOE','UtilizationPlant'].map(k=><option key={k} value={k}>{k.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</option>)}
               </select>
@@ -1160,20 +1170,17 @@ export default function ResultsRegionPage() {
             {/* Ranking */}
             {plantsData.length>0?<>
               <SectionTitle t={t}>Top {plTopN} — {plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</SectionTitle>
-              <CJChart type="bar" height={Math.min(plantsData.length*(plCompare?26:18)+24,260)} cacheKey={`pl|${plScenario}|${plCompare||''}|${refYear}|${plIndicator}|${plTopN}`}
-                data={{labels:plantsData.map(p=>p.g),datasets:[
-                  {label:plScenario,data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:plCompare?9:12},
-                  ...(plantsCompareMap?[{label:plCompare,data:plantsData.map(p=>+(plantsCompareMap[p.g]||0).toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.4)),borderWidth:1,borderColor:plantsData.map(p=>techColor(p.techfuel)),barThickness:5}]:[]),
-                ]}}
-                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
+              <CJChart type="bar" height={Math.min(plantsData.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}`}
+                data={{labels:plantsData.map(p=>p.g),datasets:[{label:plScenario,data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
+                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
               />
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:4}}>{[...new Set(plantsData.map(p=>p.techfuel))].map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data for this run/scenario.</div>}
             {/* LCOE bubble — always below */}
             {lcoeData&&lcoeData.datasets.length>0&&<>
-              <SectionTitle t={t}>LCOE vs Utilization — {plCompare?`● ${plScenario}  ▲ ${plCompare}`:'bubble = capacity'}</SectionTitle>
-              <CJChart type="bubble" height={250} cacheKey={`lcoe|${plScenario}|${plCompare||''}|${refYear}`}
-                data={{datasets:[...lcoeData.datasets,...(lcoeCompareData?.datasets||[])]}}
+              <SectionTitle t={t}>LCOE vs Utilization — bubble = capacity</SectionTitle>
+              <CJChart type="bubble" height={250} cacheKey={`lcoe|${plScenario}|${refYear}`}
+                data={lcoeData}
 
                 options={{...cjDefaults(t),plugins:{...cjDefaults(t).plugins,
                   tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return[`${d._plant||ctx.dataset.label}`,`LCOE: ${d.y} $/MWh  ·  Util: ${d.x.toFixed(0)}%`,d._cap?`Cap: ${fmt(d._cap)} MW`:''].filter(Boolean);}}}},
