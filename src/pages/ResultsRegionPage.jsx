@@ -849,7 +849,7 @@ export default function ResultsRegionPage() {
   // ── Dispatch Δ ────────────────────────────────────────────────────────────
   const buildDispatchDelta = () => {
     const cmpScen=cmpRef;
-    if(!cmpScen||cmpScen===dispScenario||!refYear||!activeDispZone)return{chartData:{labels:[],datasets:[]},plugin:null};
+    if(!cmpScen||cmpScen===dispScenario||!refYear||!activeDispZone||!resultsData[cmpScen])return{chartData:{labels:[],datasets:[]},plugin:null};
     const sdA=resultsData[dispScenario],sdB=resultsData[cmpScen];
     if(!sdA||!sdB)return{chartData:{labels:[],datasets:[]},plugin:null};
     const zA=getZoneDisp(sdA,activeDispZone,refYear),zB=getZoneDisp(sdB,activeDispZone,refYear);
@@ -916,7 +916,7 @@ export default function ResultsRegionPage() {
   const snapData=buildSnapshot();
   const snapDeltaData=buildSnapshotDelta();
   const dispResult=buildDispatch();
-  const dispDeltaResult=buildDispatchDelta();
+  const dispDeltaResult=(cmpRef&&cmpRef!==dispScenario&&resultsData[cmpRef])?buildDispatchDelta():{chartData:{labels:[],datasets:[]}};
   const plantsCompareMap=buildPlantsCompare();
   const tradeBarMultiData=buildTradeBarMulti();
   const tradeEvData=buildTradeEvolution();
@@ -1216,6 +1216,36 @@ export default function ResultsRegionPage() {
                 <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',borderRadius:1}}/><span>Marginal cost</span></div>
               </div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
+            {/* ── Dispatch Δ section ── */}
+            {scenarioList.length>1&&(
+              <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
+                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>
+                    {scenarioList.map(s=><option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                {cmpRef&&cmpRef!==dispScenario&&dispDeltaResult.chartData.datasets.length>0?<>
+                  <SectionTitle t={t}>Δ {dispScenario} − {cmpRef} (MW)</SectionTitle>
+                  <CJChart type="line" height={dispMode==='full'?180:130}
+                    data={dispDeltaResult.chartData}
+                    plugins={dispDeltaResult.plugin?[dispDeltaResult.plugin]:[]}
+                    cacheKey={`disp-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}`}
+                    options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},
+                      scales:{
+                        x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
+                        y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'ΔMW',color:t.muted,font:{size:7}}},
+                      },
+                      plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
+                  />
+                  <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
+                    {dispDeltaResult.chartData.datasets.map(d=><div key={d.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(d.label)}}/>{d.label}</div>)}
+                  </div>
+                </>:cmpRef&&cmpRef===dispScenario?
+                  <div style={{fontSize:'0.55rem',color:t.lblMuted}}>Select a different reference scenario.</div>:
+                  <div style={{fontSize:'0.55rem',color:t.lblMuted}}>No differences found.</div>}
+              </div>
+            )}
             <DlRow files={[[dispScenario,'pDispatchComplete.csv'],[dispScenario,'pHourlyPrice.csv']]}/>
           </div>
         )}
