@@ -749,9 +749,8 @@ export default function ResultsRegionPage() {
     if(ind.source==='techFuel'){
       // Stacked signed bars by techfuel, grouped by scenario (same visual as main chart but showing Δ)
       const tfs=allTechfuels.filter(tf=>
-        compareScs.some(scen=>evZones.some(z=>
-          (resultsData[scen]?.techFuel[z]?.[ind.key]?.[allYears[0]]?.[tf]||0)>0||
-          (resultsData[cmpRef]?.techFuel[z]?.[ind.key]?.[allYears[0]]?.[tf]||0)>0
+        [...compareScs,cmpRef].some(scen=>evZones.some(z=>
+          allYears.some(y=>(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0)>0)
         ))
       );
       const datasets=[];
@@ -762,16 +761,14 @@ export default function ResultsRegionPage() {
             const cmp=evZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0);
             return Math.round(cmp-ref);
           });
-          if(data.some(v=>v!==0)){
-            datasets.push({
-              label:multi?`${scen} — ${tf}`:tf,
-              data,
-              backgroundColor:hexA(techColor(tf),multi?0.5:0.82),
-              borderColor:techColor(tf),
-              borderWidth:multi?1:0,
-              stack:scen,
-            });
-          }
+          if(data.some(v=>v!==0))datasets.push({
+            label:multi?`${scen} — ${tf}`:tf,
+            data,
+            backgroundColor:hexA(techColor(tf),multi?0.5:0.82),
+            borderColor:techColor(tf),
+            borderWidth:multi?1:0,
+            stack:scen,
+          });
         }
       }
       return{labels:allYears,datasets};
@@ -1047,7 +1044,8 @@ export default function ResultsRegionPage() {
                     <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
                   ))}
                 </div>
-                {cmpEvData&&cmpEvData.datasets.length>0?<>
+                {(()=>{const hasSc=[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0;
+                return cmpEvData&&cmpEvData.datasets.length>0?<>
                   <CJChart type="bar" height={190}
                     cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}`}
                     data={cmpEvData}
@@ -1065,7 +1063,7 @@ export default function ResultsRegionPage() {
                     ))}
                     {[...cmpScenarios].length>1&&<span style={{fontSize:'0.38rem',color:t.lblMuted,marginLeft:4}}>grouped by scenario</span>}
                   </div>
-                </>:<div style={{fontSize:'0.55rem',color:t.lblMuted}}>Select at least one scenario to compare.</div>}
+                </>:<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{hasSc?'No differences found for this indicator between selected scenarios.':'Select at least one scenario to compare.'}</div>;})()}
               </div>
             )}
             <DlRow files={scenarioList.map(s=>[s,'pTechFuelMerged.csv']).slice(0,1).concat(scenarioList.map(s=>[s,'pYearlyZoneMerged.csv']).slice(0,1))}/>
