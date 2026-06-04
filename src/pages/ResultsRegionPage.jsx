@@ -247,8 +247,11 @@ export default function ResultsRegionPage() {
     fetchGitHubDir(region.epm.branch, `epm/output/${simRun}`).then(items => {
       const scens = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();
       setScenarioList(scens); setEvScenarios(new Set(scens));
-      if (scens.length) { setOvScenario(scens[0]); setDispScenario(scens[0]); setTrScenario(scens[0]); setPlScenario(scens[0]); setCmpRef(scens[0]); }
-      setCmpScenarios(new Set(scens.slice(1)));
+      if (scens.length) {
+        const base = scens.find(s=>/^base(line)?$/i.test(s))||scens[0];
+        setOvScenario(base); setDispScenario(base); setTrScenario(base); setPlScenario(base); setCmpRef(base);
+      }
+      setCmpScenarios(new Set(scens.filter(s=>!/^base(line)?$/i.test(s)&&s!==(scens.find(s2=>/^base(line)?$/i.test(s2))||scens[0]))));
       setCmpMode('values');
       setTrScenarios(new Set(scens));
       setSnapScenarios(new Set(scens));
@@ -596,7 +599,7 @@ export default function ResultsRegionPage() {
 
   // ── Evolution ───────────────────────────────────────────────────────────────
   const buildEvolution = () => {
-    const activeSc=scenarioList.filter(s=>evScenarios.has(s)); if(!activeSc.length||!allYears.length)return null;
+    const activeSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s))); if(!activeSc.length||!allYears.length)return null;
     const ind=activeInd;
     if (ind.source==='costs') {
       const cats=MAIN_COST_CATS.filter(cat=>activeSc.some(s=>evZones.some(z=>(resultsData[s]?.costs[z]?.[cat])||false)));
@@ -732,6 +735,8 @@ export default function ResultsRegionPage() {
   };
 
   // ── Scenario comparison (shared across tabs) ──────────────────────────────
+  const findBase = scens => scens.find(s=>/^base(line)?$/i.test(s))||scens[0];
+  const baseFirst = arr => [...arr].sort((a,b)=>(/^base(line)?$/i.test(a)?-1:/^base(line)?$/i.test(b)?1:0));
   const SCEN_COLORS = ['#1B6CA8','#36B5B5','#4169E1','#D4A820','#B83838','#7048A8','#4A9E6A','#2E9EC8'];
   const getEvVal = (scen, y, ind) => {
     if(ind.source==='techFuel') return evZones.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]||{}).reduce((a,b)=>a+b,0),0);
@@ -741,7 +746,7 @@ export default function ResultsRegionPage() {
   };
   const buildCmpEvolution = () => {
     if(!cmpRef||!allYears.length)return null;
-    const compareScs=[...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef);
+    const compareScs=baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef));
     if(!compareScs.length)return null;
     const ind=activeInd;
     const multi=compareScs.length>1;
@@ -787,7 +792,7 @@ export default function ResultsRegionPage() {
   // ── Snapshot ──────────────────────────────────────────────────────────────
   const buildSnapshot = () => {
     if(!refYear||!snapScenarios.size)return null;
-    const activeSc=scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]);
+    const activeSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));
     if(!activeSc.length)return null;
     const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
     const groups=snapView==='zone'?allZones:allCountries;
@@ -815,7 +820,7 @@ export default function ResultsRegionPage() {
 
   const buildSnapshotDelta = () => {
     if(!cmpRef||!refYear)return null;
-    const compareScs=[...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef);
+    const compareScs=baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef));
     if(!compareScs.length)return null;
     const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
     const groups=snapView==='zone'?allZones:allCountries;
@@ -881,7 +886,7 @@ export default function ResultsRegionPage() {
 
   // ── Trade multi-scenario ──────────────────────────────────────────────────
   const buildTradeBarMulti = () => {
-    const activeSc=scenarioList.filter(s=>trScenarios.has(s)&&resultsData[s]);
+    const activeSc=baseFirst(scenarioList.filter(s=>trScenarios.has(s)&&resultsData[s]));
     if(!activeSc.length||!refYear)return null;
     const getData=(scen)=>{const tx=resultsData[scen]?.transmission||{};const imp={},exp={};for(const z of allZones){imp[z]=0;exp[z]=0;for(const[,attrs]of Object.entries(tx[z]||{}))exp[z]+=(attrs.Interchange?.[refYear]||0);for(const[z2,zm]of Object.entries(tx))if(z2!==z)imp[z]+=(zm[z]?.Interchange?.[refYear]||0);}return{imp,exp};};
     const trData=Object.fromEntries(activeSc.map(s=>[s,getData(s)]));
