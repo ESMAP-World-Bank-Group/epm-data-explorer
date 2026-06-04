@@ -741,25 +741,49 @@ export default function ResultsRegionPage() {
   };
   const buildCmpEvolution = () => {
     if(!cmpRef||!allYears.length)return null;
-    const compareScs=[...cmpScenarios].filter(s=>resultsData[s]);
+    const compareScs=[...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef);
+    if(!compareScs.length)return null;
     const ind=activeInd;
-    if(cmpMode==='delta'){
-      if(!compareScs.length)return null;
-      return{labels:allYears,datasets:compareScs.map((scen,i)=>({
-        label:`Δ ${scen}`,
-        data:allYears.map(y=>+(getEvVal(scen,y,ind)-getEvVal(cmpRef,y,ind)).toFixed(0)),
-        backgroundColor:hexA(SCEN_COLORS[(i+1)%SCEN_COLORS.length],0.72),
-        borderColor:SCEN_COLORS[(i+1)%SCEN_COLORS.length], borderWidth:0, barThickness:10,
-      }))};
+    const multi=compareScs.length>1;
+
+    if(ind.source==='techFuel'){
+      // Stacked signed bars by techfuel, grouped by scenario (same visual as main chart but showing Δ)
+      const tfs=allTechfuels.filter(tf=>
+        compareScs.some(scen=>evZones.some(z=>
+          (resultsData[scen]?.techFuel[z]?.[ind.key]?.[allYears[0]]?.[tf]||0)>0||
+          (resultsData[cmpRef]?.techFuel[z]?.[ind.key]?.[allYears[0]]?.[tf]||0)>0
+        ))
+      );
+      const datasets=[];
+      for(const scen of compareScs){
+        for(const tf of tfs){
+          const data=allYears.map(y=>{
+            const ref=evZones.reduce((s,z)=>s+(resultsData[cmpRef]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0);
+            const cmp=evZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0);
+            return Math.round(cmp-ref);
+          });
+          if(data.some(v=>v!==0)){
+            datasets.push({
+              label:multi?`${scen} — ${tf}`:tf,
+              data,
+              backgroundColor:hexA(techColor(tf),multi?0.5:0.82),
+              borderColor:techColor(tf),
+              borderWidth:multi?1:0,
+              stack:scen,
+            });
+          }
+        }
+      }
+      return{labels:allYears,datasets};
     }
-    // Values: line per scenario (ref + compares)
-    const allSc=[cmpRef,...compareScs].filter(s=>resultsData[s]);
-    return{labels:allYears,datasets:allSc.map((scen,i)=>({
-      label:i===0?`${scen} (ref)`:scen,
-      data:allYears.map(y=>+(getEvVal(scen,y,ind)).toFixed(0)),
-      borderColor:SCEN_COLORS[i%SCEN_COLORS.length], backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.08),
-      borderWidth:i===0?2.5:1.5, fill:true, tension:0.3, pointRadius:0, type:'line',
-      borderDash:i===0?[]:undefined,
+
+    // yearlyZone / costs: single signed bar per scenario (no techfuel breakdown available)
+    return{labels:allYears,datasets:compareScs.map((scen,i)=>({
+      label:`Δ ${scen}`,
+      data:allYears.map(y=>+(getEvVal(scen,y,ind)-getEvVal(cmpRef,y,ind)).toFixed(1)),
+      backgroundColor:hexA(SCEN_COLORS[(i+1)%SCEN_COLORS.length],0.75),
+      borderColor:SCEN_COLORS[(i+1)%SCEN_COLORS.length],
+      borderWidth:0, stack:scen,
     }))};
   };
 
@@ -1011,18 +1035,11 @@ export default function ResultsRegionPage() {
               {activeInd.source==='costs'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{MAIN_COST_CATS.map(cat=><div key={cat} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:costColor(cat)}}/>{COST_LABELS[cat]||cat}</div>)}</div>}
               {activeInd.source==='techFuel'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{allTechfuels.map(tf=><div key={tf} onClick={()=>toggleHidden('ev-tf',tf)} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted,cursor:'pointer',opacity:isHidden('ev-tf',tf)?0.28:1}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>}
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
-            {/* ── Compare scenarios ── */}
+            {/* ── Compare scenarios (Δ vs ref, stacked by techfuel) ── */}
             {scenarioList.length>1&&(
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Compare</span>
-                  <div style={{display:'flex',gap:4}}>
-                    <Pill active={cmpMode==='values'} onClick={()=>setCmpMode('values')}>Values</Pill>
-                    <Pill active={cmpMode==='delta'} onClick={()=>setCmpMode('delta')}>Δ</Pill>
-                  </div>
-                </div>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-                  <span style={{fontSize:'0.43rem',color:t.lblMuted,flexShrink:0}}>Ref:</span>
+                  <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
                   <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>
                     {scenarioList.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
@@ -1030,19 +1047,25 @@ export default function ResultsRegionPage() {
                     <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
                   ))}
                 </div>
-                {cmpEvData&&cmpEvData.datasets.length>0&&<>
-                  <CJChart type={cmpMode==='delta'?'bar':'line'} height={160}
-                    cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${cmpMode}|${evCountry}`}
+                {cmpEvData&&cmpEvData.datasets.length>0?<>
+                  <CJChart type="bar" height={190}
+                    cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}`}
                     data={cmpEvData}
                     options={{...cjDefaults(t),scales:{
-                      x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
-                      y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}},
-                    },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0&&cmpMode==='delta'?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
+                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
+                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}},
+                    },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
                   />
                   <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
-                    {cmpEvData.datasets.map((ds,i)=><div key={ds.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:SCEN_COLORS[i%SCEN_COLORS.length]}}/>{ds.label}</div>)}
+                    {/* Show unique techfuels only (deduplicate across scenarios) */}
+                    {[...new Set(cmpEvData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>(
+                      <div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}>
+                        <div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)||SCEN_COLORS[0]}}/>{tf}
+                      </div>
+                    ))}
+                    {[...cmpScenarios].length>1&&<span style={{fontSize:'0.38rem',color:t.lblMuted,marginLeft:4}}>grouped by scenario</span>}
                   </div>
-                </>}
+                </>:<div style={{fontSize:'0.55rem',color:t.lblMuted}}>Select at least one scenario to compare.</div>}
               </div>
             )}
             <DlRow files={scenarioList.map(s=>[s,'pTechFuelMerged.csv']).slice(0,1).concat(scenarioList.map(s=>[s,'pYearlyZoneMerged.csv']).slice(0,1))}/>
