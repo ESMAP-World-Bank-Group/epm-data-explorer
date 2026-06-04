@@ -95,7 +95,6 @@ export default function ResultsZonePage() {
       const countries=await fetch('/data/countries_10m.geojson').then(r=>r.json());countries.features.forEach((f,i)=>{f.id=i;});
       map.addSource('countries',{type:'geojson',data:countries,generateId:false});
       map.addLayer({id:'land',type:'fill',source:'countries',paint:{'fill-color':tv.land,'fill-opacity':0}});
-      map.addLayer({id:'borders',type:'line',source:'countries',paint:{'line-color':tv.worldBdr,'line-width':tv.worldBdrW}});
       const isoToC={};for(const f of zonesGJ.features)isoToC[f.properties.ISO_A3]=f.properties.c;
       const uIsos=[...new Set(zonesGJ.features.map(f=>f.properties.ISO_A3))];
       const fillExpr=['match',['get','ISO_A3'],...uIsos.flatMap(iso=>[iso,colorMap[isoToC[iso]]||'#888']),'transparent'];

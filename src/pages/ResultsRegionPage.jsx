@@ -330,8 +330,7 @@ export default function ResultsRegionPage() {
       const countries = await fetch('/data/countries_10m.geojson').then(r=>r.json());
       countries.features.forEach((f,i)=>{ f.id=i; });
       map.addSource('countries', { type:'geojson', data:countries, generateId:false });
-      map.addLayer({ id:'land',    type:'fill', source:'countries', paint:{'fill-color':tv.land,'fill-opacity':0} });
-      map.addLayer({ id:'borders', type:'line', source:'countries', paint:{'line-color':tv.worldBdr,'line-width':tv.worldBdrW} });
+      map.addLayer({ id:'land', type:'fill', source:'countries', paint:{'fill-color':tv.land,'fill-opacity':0} });
 
       const isoToCountry = {};
       for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3]=f.properties.c;
