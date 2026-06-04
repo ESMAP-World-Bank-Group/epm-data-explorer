@@ -791,17 +791,54 @@ export default function ResultsRegionPage() {
     if(!activeSc.length)return null;
     const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
     const groups=snapView==='zone'?allZones:allCountries;
-    const getVal=(scen,grp)=>{
-      const zones=snapView==='zone'?[grp]:allZones.filter(z=>zoneToCountry[z]===grp);
-      if(ind.source==='techFuel') return Math.round(zones.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]||{}).reduce((a,b)=>a+b,0),0));
-      if(ind.source==='yearlyZone') return +(zones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[refYear]||0),0)).toFixed(2);
+    const multi=activeSc.length>1;
+    const getZones=grp=>snapView==='zone'?[grp]:allZones.filter(z=>zoneToCountry[z]===grp);
+    const getTf=(scen,grp,tf)=>getZones(grp).reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]?.[tf]||0),0);
+    const getTotal=(scen,grp)=>{
+      const zs=getZones(grp);
+      if(ind.source==='techFuel') return zs.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]||{}).reduce((a,b)=>a+b,0),0);
+      if(ind.source==='yearlyZone') return zs.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[refYear]||0),0);
+      if(ind.source==='costs') return MAIN_COST_CATS.reduce((s,cat)=>s+zs.reduce((s2,z)=>s2+(resultsData[scen]?.costs[z]?.[cat]?.[refYear]||0),0),0);
       return 0;
     };
-    return{labels:groups,datasets:activeSc.map((scen,i)=>({
-      label:scen,
-      data:groups.map(g=>getVal(scen,g)),
-      backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.78), borderWidth:0, barThickness:10,
-    })).filter(d=>d.data.some(v=>v>0))};
+    if(ind.source==='techFuel'){
+      const tfs=allTechfuels.filter(tf=>activeSc.some(scen=>groups.some(g=>getTf(scen,g,tf)>0)));
+      const datasets=[];
+      for(const scen of activeSc) for(const tf of tfs){
+        const data=groups.map(g=>Math.round(getTf(scen,g,tf)));
+        if(data.some(v=>v>0)) datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});
+      }
+      return{labels:groups,datasets,ind};
+    }
+    return{labels:groups,datasets:activeSc.map((scen,i)=>({label:scen,data:groups.map(g=>+(getTotal(scen,g)).toFixed(2)),backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.78),borderWidth:0,stack:scen})).filter(d=>d.data.some(v=>v>0)),ind};
+  };
+
+  const buildSnapshotDelta = () => {
+    if(!cmpRef||!refYear)return null;
+    const compareScs=[...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef);
+    if(!compareScs.length)return null;
+    const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
+    const groups=snapView==='zone'?allZones:allCountries;
+    const multi=compareScs.length>1;
+    const getZones=grp=>snapView==='zone'?[grp]:allZones.filter(z=>zoneToCountry[z]===grp);
+    const getTf=(scen,grp,tf)=>getZones(grp).reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]?.[tf]||0),0);
+    const getTotal=(scen,grp)=>{
+      const zs=getZones(grp);
+      if(ind.source==='techFuel') return zs.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]||{}).reduce((a,b)=>a+b,0),0);
+      if(ind.source==='yearlyZone') return zs.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[refYear]||0),0);
+      return 0;
+    };
+    if(ind.source==='techFuel'){
+      const tfs=allTechfuels.filter(tf=>[...compareScs,cmpRef].some(scen=>groups.some(g=>getTf(scen,g,tf)>0)));
+      const datasets=[];
+      for(const scen of compareScs) for(const tf of tfs){
+        const data=groups.map(g=>+(getTf(scen,g,tf)-getTf(cmpRef,g,tf)).toFixed(0));
+        if(data.some(v=>v!==0)) datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});
+      }
+      return{labels:groups,datasets,ind};
+    }
+    const DCOLS=['#3887C4','#4A9E6A','#D4A820','#B83838'];
+    return{labels:groups,datasets:compareScs.map((scen,i)=>({label:`Δ ${scen}`,data:groups.map(g=>+(getTotal(scen,g)-getTotal(cmpRef,g)).toFixed(2)),backgroundColor:hexA(DCOLS[i%4],0.72),borderColor:DCOLS[i%4],borderWidth:0,stack:scen})).filter(d=>d.data.some(v=>v!==0)),ind};
   };
 
   // ── Dispatch Δ ────────────────────────────────────────────────────────────
@@ -872,6 +909,7 @@ export default function ResultsRegionPage() {
   const overviewMix=buildOverviewMix(), evolutionData=buildEvolution();
   const cmpEvData=buildCmpEvolution();
   const snapData=buildSnapshot();
+  const snapDeltaData=buildSnapshotDelta();
   const dispResult=buildDispatch();
   const dispDeltaResult=buildDispatchDelta();
   const plantsCompareMap=buildPlantsCompare();
@@ -1031,6 +1069,7 @@ export default function ResultsRegionPage() {
         {/* ════ SNAPSHOT ════ */}
         {hasData&&activeTab==='snapshot'&&(
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            {/* Controls */}
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
               <select value={snapIndicator} onChange={e=>setSnapIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
@@ -1040,19 +1079,55 @@ export default function ResultsRegionPage() {
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
               {scenarioList.map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
             </div>
+            {/* Absolute chart */}
             {snapData&&snapData.datasets.length>0?<>
-              <CJChart type="bar" height={Math.min((snapView==='zone'?allZones:allCountries).length*22+24,300)}
+              <CJChart type="bar" height={220}
                 cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${[...snapScenarios].sort().join(',')}`}
-                data={snapData}
-                options={{...cjDefaults(t),indexAxis:'y',scales:{
-                  x:{stacked:false,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                  y:{stacked:false,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
-                },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw} ${(INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0]).unit}`}}}}}
+                data={{labels:snapData.labels,datasets:snapData.datasets}}
+                options={{...cjDefaults(t),scales:{
+                  x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
+                  y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
+                },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
               />
-              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 10px',marginTop:2}}>
-                {snapData.datasets.map((ds,i)=><div key={ds.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:SCEN_COLORS[i%SCEN_COLORS.length]}}/>{ds.label}</div>)}
+              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
+                {[...new Set(snapData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>(
+                  <div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}>
+                    <div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)||SCEN_COLORS[0]}}/>{tf}
+                  </div>
+                ))}
               </div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
+            {/* Δ vs ref section */}
+            {scenarioList.length>1&&(
+              <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
+                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>
+                    {scenarioList.map(s=><option key={s} value={s}>{s}</option>)}
+                  </select>
+                  {scenarioList.filter(s=>s!==cmpRef).map(s=>(
+                    <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
+                  ))}
+                </div>
+                {snapDeltaData&&snapDeltaData.datasets.length>0?<>
+                  <CJChart type="bar" height={180}
+                    cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${cmpRef}|${[...cmpScenarios].sort().join(',')}`}
+                    data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets}}
+                    options={{...cjDefaults(t),scales:{
+                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
+                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapDeltaData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
+                    },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()}`:undefined;}}}}}}
+                  />
+                  <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
+                    {[...new Set(snapDeltaData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>(
+                      <div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}>
+                        <div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)||SCEN_COLORS[0]}}/>{tf}
+                      </div>
+                    ))}
+                  </div>
+                </>:<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No differences found.':'Select at least one scenario to compare.'}</div>}
+              </div>
+            )}
           </div>
         )}
 
