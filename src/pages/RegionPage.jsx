@@ -43,12 +43,12 @@ const MAP_PALETTE = [
   '#1A5276','#7EC8E3','#14A094','#4CAFE8',
   '#EDD770','#AED6F1','#1F618D','#0A6B70',
 ];
-// Chart colors — full palette
+// Chart colors — same tasteful palette as map (blues/teals/gold, no neon)
 const CHART_PALETTE = [
-  '#3B82F6','#10B981','#F59E0B','#8B5CF6',
-  '#06B6D4','#EC4899','#84CC16','#F97316',
-  '#6366F1','#14B8A6','#A855F7','#EAB308',
-  '#22D3EE','#FB7185','#2DD4BF','#818CF8',
+  '#1B6CA8','#36B5B5','#E8C547','#4DA6FF',
+  '#4169E1','#85C1E9','#2E9EC8','#5EBCBA',
+  '#1A5276','#7EC8E3','#14A094','#4CAFE8',
+  '#EDD770','#AED6F1','#1F618D','#0A6B70',
 ];
 const ZONE_PALETTE = CHART_PALETTE; // legacy alias for chart code
 
@@ -246,11 +246,12 @@ function EpmOverviewTab({ t, epmData, region }) {
               </div>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 5 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 5 }}>
             {[
               { l: 'Countries', v: nCountries },
               { l: 'Zones', v: nZones },
-              { l: 'TX Capacity', v: `${txGW.toFixed(1)} GW` },
+              { l: 'Gen. units', v: gen.length },
+              { l: 'TX Cap.', v: `${txGW.toFixed(1)} GW` },
               { l: 'Corridors', v: uniqueNTC.length },
             ].map(({ l, v }) => (
               <div key={l} style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 5, padding: '5px 8px' }}>
@@ -609,7 +610,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
           backgroundColor: hexA('#1a5fa8',0.72), borderWidth:0 },
         { type:'line', label:'Peak (GW)', yAxisID:'yR',
           data: allYears.map(y => +((pby[y]||0)/1000).toFixed(2)),
-          borderColor:'#9B59B6', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
+          borderColor:'#7048A8', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
       ]};
     }
 
@@ -643,7 +644,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
       }),
       { type:'line', label:'Peak (GW)', yAxisID:'yR',
         data: allYears.map(y => +((pby[y]||0)/1000).toFixed(2)),
-        borderColor:'#9B59B6', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
+        borderColor:'#7048A8', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false },
     ]};
   };
 
@@ -812,7 +813,10 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
                   <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{seg}</span>
                 </div>
               ))}
-              <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+              <div style={{ display:'flex', gap:3, marginTop:5 }}>
+                <button onClick={() => setHidden(new Set())} style={{ fontSize:'0.38rem', fontFamily:'inherit', padding:'1px 5px', borderRadius:3, cursor:'pointer', border:`1px solid rgba(128,160,192,0.25)`, backgroundColor:'transparent', color:t.lblMuted }}>All</button>
+                <button onClick={() => setHidden(new Set(segments))} style={{ fontSize:'0.38rem', fontFamily:'inherit', padding:'1px 5px', borderRadius:3, cursor:'pointer', border:`1px solid rgba(128,160,192,0.25)`, backgroundColor:'transparent', color:t.lblMuted }}>None</button>
+              </div>
             </div>
           )}
         </div>
@@ -890,7 +894,10 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
                   <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
                 </div>
               ))}
-              <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+              <div style={{ display:'flex', gap:3, marginTop:5 }}>
+                <button onClick={() => setHidden(new Set())} style={{ fontSize:'0.38rem', fontFamily:'inherit', padding:'1px 5px', borderRadius:3, cursor:'pointer', border:`1px solid rgba(128,160,192,0.25)`, backgroundColor:'transparent', color:t.lblMuted }}>All</button>
+                <button onClick={() => setHidden(new Set(allZones))} style={{ fontSize:'0.38rem', fontFamily:'inherit', padding:'1px 5px', borderRadius:3, cursor:'pointer', border:`1px solid rgba(128,160,192,0.25)`, backgroundColor:'transparent', color:t.lblMuted }}>None</button>
+              </div>
             </div>
           </div>
         ) : (
@@ -1185,7 +1192,10 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
                           </div>
                         );
                       })}
-                      <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+                      <div style={{ display:'flex', gap:3, marginTop:5 }}>
+                        <button onClick={() => setVreHidden(new Set())} style={{ fontSize:'0.38rem', fontFamily:'inherit', padding:'1px 5px', borderRadius:3, cursor:'pointer', border:`1px solid rgba(128,160,192,0.25)`, backgroundColor:'transparent', color:t.lblMuted }}>All</button>
+                        <button onClick={() => setVreHidden(new Set(allZones))} style={{ fontSize:'0.38rem', fontFamily:'inherit', padding:'1px 5px', borderRadius:3, cursor:'pointer', border:`1px solid rgba(128,160,192,0.25)`, backgroundColor:'transparent', color:t.lblMuted }}>None</button>
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -1466,7 +1476,7 @@ function AboutTab({ region, t, epmData }) {
           <>
             <div>Generation units: <b style={{ color: t.lbl }}>{epmData.gen.length}</b></div>
             <div>Demand zones: <b style={{ color: t.lbl }}>{[...new Set(epmData.demand.map(r => r.zone))].length}</b></div>
-            <div>NTC corridors: <b style={{ color: t.lbl }}>{epmData.ntc.length}</b></div>
+            <div>NTC corridors: <b style={{ color: t.lbl }}>{(() => { const s=new Set(); epmData.ntc.forEach(r=>{const k=[r.z,r.z2].sort().join('||');s.add(k);}); return s.size; })()}</b></div>
             <div>Zones mapped: <b style={{ color: t.lbl }}>{epmData.zcmap.length}</b></div>
             <div>Demand profiles: <b style={{ color: t.lbl }}>{epmData.demandProfile ? Object.keys(epmData.demandProfile).length + ' zones' : 'n/a'}</b></div>
           </>
