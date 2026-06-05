@@ -1272,6 +1272,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm }) {
   const ntcYears = availableYears(epmData?.ntc || []);
   const [yr, setYr]       = useState(null);
   const [chartType, setChartType] = useState('bar'); // bar | line
+  const [ntcHidden, setNtcHidden] = useState(new Set());
 
   if (!hasEpm)              return <NotAvailable t={t} />;
   if (epmLoading)           return <LoadingBox t={t} />;
@@ -1315,54 +1316,60 @@ function TradeTab({ t, epmData, epmLoading, hasEpm }) {
 
       {/* NTC Evolution chart */}
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
           <SectionTitle t={t}>NTC evolution — top {topN} corridors (MW)</SectionTitle>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {['bar', 'line'].map(type => (
-              <button key={type} onClick={() => setChartType(type)} style={{
-                fontSize: '0.44rem', fontFamily: 'inherit', padding: '2px 5px', borderRadius: 3,
-                cursor: 'pointer', border: `1px solid ${chartType === type ? t.lbl : t.panelBorder}`,
-                backgroundColor: chartType === type ? hexA('#1a5fa8', 0.1) : 'transparent',
-                color: chartType === type ? t.lbl : t.lblMuted,
+          <div style={{ display:'flex', gap:3 }}>
+            {['bar','line'].map(type=>(
+              <button key={type} onClick={()=>setChartType(type)} style={{
+                fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3,
+                cursor:'pointer', border:`1px solid ${chartType===type?t.lbl:t.panelBorder}`,
+                backgroundColor:chartType===type?hexA('#1a5fa8',0.1):'transparent',
+                color:chartType===type?t.lbl:t.lblMuted,
               }}>{type}</button>
             ))}
           </div>
         </div>
-        <CJChart type={chartType} height={200}
-          data={{
-            labels: ntcYears,
-            datasets: topCorridors.map((r, i) => ({
-              label: `${r.z} ↔ ${r.z2}`,
-              data: ntcYears.map(y => r.years[y] || 0),
-              backgroundColor: hexA(ZONE_PALETTE[i % ZONE_PALETTE.length], 0.6),
-              borderColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
-              borderWidth: 2, pointRadius: 0, tension: 0.3,
-              fill: false,
-              stack: chartType === 'bar' ? 'a' : undefined,
-            })),
-          }}
-          options={{ ...cjDefaults(t),
-            scales: {
-              x: { stacked: chartType === 'bar', grid: { color: t.panelBorder },
-                ticks: { color: t.muted, font: { size: 8 }, maxTicksLimit: 7 } },
-              y: { stacked: chartType === 'bar', grid: { color: t.panelBorder },
-                ticks: { color: t.muted, font: { size: 8 },
-                  callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
-            },
-            plugins: { ...cjDefaults(t).plugins,
-              legend: { display: false },
-              tooltip: { ...cjDefaults(t).plugins.tooltip,
-                callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW` } } },
-          }}
-        />
-        {/* Legend */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 8px', marginTop: 4 }}>
-          {topCorridors.map((r, i) => (
-            <div key={`${r.z}-${r.z2}`} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.44rem', color: t.muted }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length] }} />
-              {r.z} ↔ {r.z2}
+        <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <CJChart type={chartType} height={200}
+              cacheKey={`ntc-ev|${chartType}|${[...ntcHidden].sort().join(',')}`}
+              data={{ labels:ntcYears, datasets:topCorridors
+                .filter(r=>!ntcHidden.has(`${r.z} ↔ ${r.z2}`))
+                .map(r=>{
+                  const i=topCorridors.indexOf(r);
+                  return{ label:`${r.z} ↔ ${r.z2}`, data:ntcYears.map(y=>r.years[y]||0),
+                    backgroundColor:hexA(ZONE_PALETTE[i%ZONE_PALETTE.length],0.6),
+                    borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],
+                    borderWidth:2, pointRadius:0, tension:0.3, fill:false,
+                    stack:chartType==='bar'?'a':undefined };
+                })
+              }}
+              options={{ ...cjDefaults(t),
+                scales:{
+                  x:{stacked:chartType==='bar',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:7}},
+                  y:{stacked:chartType==='bar',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                },
+                plugins:{...cjDefaults(t).plugins,legend:{display:false},
+                  tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW`}}},
+              }}
+            />
+          </div>
+          <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:200, overflowY:'auto' }}>
+            {topCorridors.map((r,i)=>{
+              const label=`${r.z} ↔ ${r.z2}`;
+              return (
+                <div key={label} onClick={()=>setNtcHidden(prev=>{const n=new Set(prev);n.has(label)?n.delete(label):n.add(label);return n;})}
+                  style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:ntcHidden.has(label)?0.25:1 }}>
+                  <div style={{ width:12, height:2, borderRadius:1, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], flexShrink:0 }}/>
+                  <span style={{ fontSize:'0.4rem', color:t.muted, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{label}</span>
+                </div>
+              );
+            })}
+            <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4, display:'flex', gap:6 }}>
+              <span onClick={()=>setNtcHidden(new Set(topCorridors.map(r=>`${r.z} ↔ ${r.z2}`)))} style={{cursor:'pointer',textDecoration:'underline'}}>None</span>
+              <span onClick={()=>setNtcHidden(new Set())} style={{cursor:'pointer',textDecoration:'underline'}}>All</span>
             </div>
-          ))}
+          </div>
         </div>
       </div>
 
