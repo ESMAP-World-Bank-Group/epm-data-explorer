@@ -662,22 +662,6 @@ export default function ResultsCountryPage() {
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
               {scenarioList.map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
             </div>
-            {tradeData&&tradeData.labels.length>0&&(()=>{const zones=tradeData.labels;return<>
-              <SectionTitle t={t}>Imports (+) / Exports (−) by zone (GWh)</SectionTitle>
-              <div style={{display:'flex',gap:8}}>
-                <div style={{flex:1}}>
-                  <CJChart type="bar" height={Math.min(zones.length*22+24,240)} cacheKey={`tr-c|${trScenario}|${refYear}|${theme}|${[...hiddenMap['trade-c']||[]].join(',')}`} data={tradeData}
-                    options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>ctx.dataset.label==='Net'?`Net: ${fmt(ctx.parsed.x)} GWh`:`${ctx.dataset.label}: ${fmt(Math.abs(ctx.parsed.x))} GWh`}}}}}/>
-                </div>
-                <div style={{width:68,flexShrink:0,display:'flex',flexDirection:'column',gap:4,paddingTop:4}}>
-                  {[{l:'Imports',c:'#2E9EC8'},{l:'Exports',c:'#E8C547'}].map(({l,c})=><div key={l} onClick={()=>toggleHidden('trade-c',l)} style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer',opacity:isHidden('trade-c',l)?0.25:1}}><div style={{width:10,height:10,borderRadius:2,backgroundColor:hexA(c,0.78),flexShrink:0}}/><span style={{fontSize:'0.43rem',color:t.muted}}>{l}</span></div>)}
-                  <div style={{fontSize:'0.38rem',color:t.lblMuted,marginTop:4,display:'flex',gap:6}}>
-                    <span onClick={()=>setHiddenMap(p=>({...p,'trade-c':new Set(['Imports','Exports'])}))} style={{cursor:'pointer',textDecoration:'underline'}}>None</span>
-                    <span onClick={()=>setHiddenMap(p=>({...p,'trade-c':new Set()}))} style={{cursor:'pointer',textDecoration:'underline'}}>All</span>
-                  </div>
-                </div>
-              </div>
-            </>})()}
             {tradeEvData&&(()=>{const allCorridors=tradeEvData.corridors||[];const unit=tradeEvData.unit||'GWh';return<>
               <div style={{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap',marginTop:4}}>
                 <SectionTitle t={t}>Trade evolution by corridor</SectionTitle>
@@ -709,11 +693,16 @@ export default function ResultsCountryPage() {
                   {scenarioList.filter(s=>s!==cmpRef).map(s=><Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
                 </div>
                 {tradeCmpDeltaData&&tradeCmpDeltaData.datasets.length>0?
-                  <CJChart type="bar" height={200}
-                    cacheKey={`trev-c-d|${[...trScenarios].sort().join(',')}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}|${[...hiddenMap['trev-c']||[]].join(',')}`}
-                    data={{labels:tradeCmpDeltaData.labels,datasets:tradeCmpDeltaData.datasets}}
-                    options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:`Δ${tradeCmpDeltaData.unit||'GWh'}`,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
-                  />
+                  <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <CJChart type="bar" height={200}
+                        cacheKey={`trev-c-d|${[...trScenarios].sort().join(',')}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}|${[...hiddenMap['trev-c']||[]].join(',')}`}
+                        data={{labels:tradeCmpDeltaData.labels,datasets:tradeCmpDeltaData.datasets}}
+                        options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:`Δ${tradeCmpDeltaData.unit||'GWh'}`,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
+                      />
+                    </div>
+                    {(()=>{const allCorridors=tradeEvData?.corridors||[];return makeLegend('trev-c',allCorridors.slice(0,10).map((c,i)=>({label:`${c.z}↔${c.z2}`,color:hexA(MAP_PALETTE[i%MAP_PALETTE.length],0.82)})));})()}
+                  </div>
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No corridor differences found.':'Select at least one scenario to compare.'}</div>}
               </div>
             )}
