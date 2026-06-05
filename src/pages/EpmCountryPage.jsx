@@ -162,6 +162,7 @@ export default function EpmCountryPage() {
   const [fpCountries,   setFpCountries]   = useState(null); // null = all
   const [availZone,     setAvailZone]     = useState('all');
   const [selZone,       setSelZone]       = useState('all');
+  const [mapLoadedCount,setMapLoadedCount]= useState(0);
 
   // ── Load region ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -375,6 +376,7 @@ export default function EpmCountryPage() {
       }
     });
 
+    setMapLoadedCount(c => c + 1);
     return () => {
       popup.remove();
       donutMarkersRef.current.forEach(m => m.remove());
@@ -382,6 +384,13 @@ export default function EpmCountryPage() {
       mapRef.current?.remove();
     };
   }, [region, theme, epmData, countryNameDecoded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync selZone → map highlight (covers dropdown changes + map reloads)
+  useEffect(() => {
+    const map = mapRef.current; if (!map) return;
+    const f = selZone === 'all' ? '__none__' : selZone;
+    try { map.setFilter('zone-selected', ['==', ['get', 'z'], f]); map.setFilter('zone-selected-border', ['==', ['get', 'z'], f]); } catch(e) {}
+  }, [selZone, mapLoadedCount]);
 
   // ── Computed values ───────────────────────────────────────────────────────────
 
