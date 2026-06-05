@@ -210,7 +210,9 @@ export default function ResultsRegionPage() {
   const [trScenarios,    setTrScenarios]    = useState(new Set());
   const [snapIndicator,  setSnapIndicator]  = useState('CapacityTechFuel');
   const [snapView,       setSnapView]       = useState('zone');
+  const [snapCountry,    setSnapCountry]    = useState('all');
   const [snapScenarios,  setSnapScenarios]  = useState(new Set());
+  const [plZone,         setPlZone]         = useState('all');
   const isDraggingRef = useRef(false);
   const dragStartX    = useRef(0);
   const dragStartW    = useRef(0);
@@ -744,7 +746,7 @@ export default function ResultsRegionPage() {
 
   // ── Plants ──────────────────────────────────────────────────────────────────
   const buildPlantsList = () => {
-    const pl=(resultsData[plScenario]?.plants||[]).filter(p=>p.attribute===plIndicator&&p.y===refYear&&p.value>0).sort((a,b)=>b.value-a.value).slice(0,plTopN);
+    const pl=(resultsData[plScenario]?.plants||[]).filter(p=>p.attribute===plIndicator&&p.y===refYear&&p.value>0&&(plZone==='all'||p.z===plZone)).sort((a,b)=>b.value-a.value).slice(0,plTopN);
     return pl;
   };
 
@@ -755,7 +757,7 @@ export default function ResultsRegionPage() {
     // Build per refYear
     const byG={};
     for(const p of pl.filter(pp=>pp.y===refYear)){ if(!byG[p.g])byG[p.g]={techfuel:p.techfuel,z:p.z}; byG[p.g][p.attribute]=p.value; }
-    const points=Object.entries(byG).map(([g,d])=>({g,techfuel:d.techfuel||'',zone:d.z||'',lcoe:d.PlantAnnualLCOE||0,util:(d.UtilizationPlant||0)*100,cap:d.CapacityPlant||0})).filter(p=>p.lcoe>0&&p.util>0&&p.cap>0);
+    const points=Object.entries(byG).map(([g,d])=>({g,techfuel:d.techfuel||'',zone:d.z||'',lcoe:d.PlantAnnualLCOE||0,util:(d.UtilizationPlant||0)*100,cap:d.CapacityPlant||0})).filter(p=>p.lcoe>0&&p.util>0&&p.cap>0&&(plZone==='all'||p.zone===plZone));
     const tfs=[...new Set(points.map(p=>p.techfuel))].sort();
     return { datasets:tfs.map(tf=>({ label:tf, data:points.filter(p=>p.techfuel===tf).map(p=>({ x:+p.util.toFixed(1), y:+p.lcoe.toFixed(1), r:Math.min(Math.max(Math.sqrt(p.cap)*0.6,3),20), _plant:p.g, _cap:p.cap })), backgroundColor:hexA(techColor(tf),0.65), borderColor:techColor(tf), borderWidth:1 })).filter(d=>d.data.length>0) };
   };
@@ -843,7 +845,7 @@ export default function ResultsRegionPage() {
     const activeSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));
     if(!activeSc.length)return null;
     const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
-    const groups=snapView==='zone'?allZones:allCountries;
+    const groups=snapView==='zone'?(snapCountry!=='all'?allZones.filter(z=>zoneToCountry[z]===snapCountry):allZones):allCountries;
     const multi=activeSc.length>1;
     const getZones=grp=>snapView==='zone'?[grp]:allZones.filter(z=>zoneToCountry[z]===grp);
     const getTf=(scen,grp,tf)=>getZones(grp).reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]?.[tf]||0),0);
@@ -882,7 +884,7 @@ export default function ResultsRegionPage() {
     const compareScs=baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef));
     if(!compareScs.length)return null;
     const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
-    const groups=snapView==='zone'?allZones:allCountries;
+    const groups=snapView==='zone'?(snapCountry!=='all'?allZones.filter(z=>zoneToCountry[z]===snapCountry):allZones):allCountries;
     const multi=compareScs.length>1;
     const getZones=grp=>snapView==='zone'?[grp]:allZones.filter(z=>zoneToCountry[z]===grp);
     const getTf=(scen,grp,tf)=>getZones(grp).reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]?.[tf]||0),0);
@@ -1199,6 +1201,7 @@ export default function ResultsRegionPage() {
               <select value={snapIndicator} onChange={e=>setSnapIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
+              <select value={snapCountry} onChange={e=>setSnapCountry(e.target.value)} style={selectStyle}><option value="all">All countries</option>{allCountries.map(c=><option key={c} value={c}>{c}</option>)}</select>
               <Pill active={snapView==='zone'} onClick={()=>setSnapView('zone')}>Zone</Pill>
               <Pill active={snapView==='country'} onClick={()=>setSnapView('country')}>Country</Pill>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
@@ -1246,6 +1249,7 @@ export default function ResultsRegionPage() {
                         },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()}`:undefined;}}}}}}
                       />
                     </div>
+                    {makeLegend('snap-tf',[...new Set(snapDeltaData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
                   </div>
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No differences found.':'Select at least one scenario to compare.'}</div>}
               </div>
@@ -1308,6 +1312,8 @@ export default function ResultsRegionPage() {
                         },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
                       />
                     </div>
+                    {activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
+                    {activeInd.source==='costs'&&makeLegend('ev-cost',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:costColor(tf)})))}
                   </div>
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{hasSc?'No differences found for this indicator between selected scenarios.':'Select at least one scenario to compare.'}</div>;})()}
               </div>
@@ -1374,6 +1380,7 @@ export default function ResultsRegionPage() {
                           plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
                       />
                     </div>
+                    {makeLegend('disp-tf',dispDeltaResult.chartData.datasets.map(d=>({label:d.label,color:techColor(d.label)})))}
                   </div>
                 </>:cmpRef&&cmpRef===dispScenario?
                   <div style={{fontSize:'0.55rem',color:t.lblMuted}}>Select a different reference scenario.</div>:
@@ -1470,6 +1477,7 @@ export default function ResultsRegionPage() {
                 {['CapacityPlant','EnergyPlant','CostsPlant','PlantAnnualLCOE','UtilizationPlant'].map(k=><option key={k} value={k}>{k.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</option>)}
               </select>
               <select value={plTopN} onChange={e=>setPlTopN(+e.target.value)} style={selectStyle}>{[10,20,30,50].map(n=><option key={n} value={n}>Top {n}</option>)}</select>
+              <select value={plZone} onChange={e=>setPlZone(e.target.value)} style={selectStyle}><option value="all">All zones</option>{allZones.map(z=><option key={z} value={z}>{z}</option>)}</select>
             </div>
             {/* Ranking */}
             {plantsData.length>0?<>
