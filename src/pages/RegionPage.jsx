@@ -1355,8 +1355,8 @@ function TradeTab({ t, epmData, epmLoading, hasEpm }) {
             />
           </div>
           <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:200, overflowY:'auto' }}>
-            {topCorridors.map((r,i)=>{
-              const label=`${r.z} ↔ ${r.z2}`;
+            {corridors.map((r,i)=>{
+              const label=r.label;
               return (
                 <div key={label} onClick={()=>setNtcHidden(prev=>{const n=new Set(prev);n.has(label)?n.delete(label):n.add(label);return n;})}
                   style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:ntcHidden.has(label)?0.25:1 }}>
@@ -1366,7 +1366,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm }) {
               );
             })}
             <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4, display:'flex', gap:6 }}>
-              <span onClick={()=>setNtcHidden(new Set(topCorridors.map(r=>`${r.z} ↔ ${r.z2}`)))} style={{cursor:'pointer',textDecoration:'underline'}}>None</span>
+              <span onClick={()=>setNtcHidden(new Set(corridors.map(r=>r.label)))} style={{cursor:'pointer',textDecoration:'underline'}}>None</span>
               <span onClick={()=>setNtcHidden(new Set())} style={{cursor:'pointer',textDecoration:'underline'}}>All</span>
             </div>
           </div>
@@ -1389,7 +1389,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm }) {
             cacheKey={`ntc-yr|${refYr}|${[...ntcHidden].sort().join(',')}`}
             data={{ labels:visCor.map(r=>r.label),
               datasets:[{data:visCor.map(r=>r.mw),
-                backgroundColor:visCor.map(r=>{const i=topCorridors.findIndex(c=>c.z===r.z&&c.z2===r.z2);return ZONE_PALETTE[(i>=0?i:corridors.indexOf(r))%ZONE_PALETTE.length];}),
+                backgroundColor:visCor.map(r=>ZONE_PALETTE[corridors.indexOf(r)%ZONE_PALETTE.length]),
                 borderWidth:0, barThickness:12}] }}
             options={{ ...cjDefaults(t), indexAxis:'y',
               scales:{
