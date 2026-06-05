@@ -521,23 +521,27 @@ export default function EpmZonePage() {
             {fuelData.length > 0 && (
               <div>
                 <SectionTitle t={t}>Existing capacity by fuel (MW)</SectionTitle>
-                <CJChart type="bar" height={Math.min(fuelData.length*22+24,200)}
-                  data={{ labels:fuelData.map(d=>d.fuel), datasets:[{
-                    data:fuelData.map(d=>d.mw), backgroundColor:fuelData.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'),
-                    borderWidth:0, barThickness:12 }] }}
-                  options={{ ...cjDefaults(t), indexAxis:'y',
-                    scales:{
-                      x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                      y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
-                    }}}
-                />
-                <div style={{ display:'flex', flexWrap:'wrap', gap:'3px 10px', marginTop:4 }}>
-                  {fuelData.map(d=>(
-                    <div key={d.fuel} style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.43rem', color:t.muted }}>
-                      <div style={{ width:8, height:8, borderRadius:2, backgroundColor:EPM_FUEL_COLORS[d.fuel]||'#aaa' }}/>
-                      {d.fuel} ({fmt(d.mw)} MW)
-                    </div>
-                  ))}
+                <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <CJChart type="bar" height={Math.min(fuelData.length*22+24,200)}
+                      data={{ labels:fuelData.map(d=>d.fuel), datasets:[{
+                        data:fuelData.map(d=>d.mw), backgroundColor:fuelData.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'),
+                        borderWidth:0, barThickness:12 }] }}
+                      options={{ ...cjDefaults(t), indexAxis:'y',
+                        scales:{
+                          x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                          y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                        }}}
+                    />
+                  </div>
+                  <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:200, overflowY:'auto' }}>
+                    {fuelData.map(d=>(
+                      <div key={d.fuel} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                        <div style={{ width:8, height:8, borderRadius:2, backgroundColor:EPM_FUEL_COLORS[d.fuel]||'#aaa', flexShrink:0 }}/>
+                        <span style={{ fontSize:'0.4rem', color:t.muted, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{d.fuel}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -557,24 +561,38 @@ export default function EpmZonePage() {
                   if(r.type==='peak')   pby[y]=(pby[y]||0)+(r.years[y]||0);
                 }
                 return (
-                  <CJChart type="bar" height={175}
-                    data={{ labels:allYears, datasets:[
-                      { type:'bar', label:'Energy (GWh)', yAxisID:'yL',
-                        data:allYears.map(y=>Math.round(eby[y]||0)),
-                        backgroundColor:hexA('#1a5fa8',0.72), borderWidth:0 },
-                      { type:'line', label:'Peak (GW)', yAxisID:'yR',
-                        data:allYears.map(y=>+((pby[y]||0)/1000).toFixed(2)),
-                        borderColor:'#FF6B6B', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
-                    ]}}
-                    options={{ ...cjDefaults(t),
-                      scales:{
-                        x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:7}},
-                        yL:{type:'linear',position:'left',title:{display:true,text:'GWh',color:t.muted,font:{size:7}},
-                          grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},
-                        yR:{type:'linear',position:'right',title:{display:true,text:'GW',color:t.muted,font:{size:7}},
-                          grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}}},
-                      }}}
-                  />
+                  <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <CJChart type="bar" height={175}
+                        data={{ labels:allYears, datasets:[
+                          { type:'bar', label:'Energy (GWh)', yAxisID:'yL',
+                            data:allYears.map(y=>Math.round(eby[y]||0)),
+                            backgroundColor:hexA('#1a5fa8',0.72), borderWidth:0 },
+                          { type:'line', label:'Peak (GW)', yAxisID:'yR',
+                            data:allYears.map(y=>+((pby[y]||0)/1000).toFixed(2)),
+                            borderColor:'#FF6B6B', borderWidth:2.5, pointRadius:2, tension:0.3, fill:false },
+                        ]}}
+                        options={{ ...cjDefaults(t),
+                          scales:{
+                            x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:7}},
+                            yL:{type:'linear',position:'left',title:{display:true,text:'GWh',color:t.muted,font:{size:7}},
+                              grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},
+                            yR:{type:'linear',position:'right',title:{display:true,text:'GW',color:t.muted,font:{size:7}},
+                              grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}}},
+                          }}}
+                      />
+                    </div>
+                    <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:3, paddingTop:4 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+                        <div style={{ width:12, height:8, borderRadius:1, backgroundColor:hexA('#1a5fa8',0.72), flexShrink:0 }}/>
+                        <span style={{ fontSize:'0.4rem', color:t.muted }}>Energy (GWh)</span>
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+                        <div style={{ width:12, height:2, borderRadius:1, backgroundColor:'#FF6B6B', flexShrink:0 }}/>
+                        <span style={{ fontSize:'0.4rem', color:t.muted }}>Peak (GW)</span>
+                      </div>
+                    </div>
+                  </div>
                 );
               })() : <div style={{ color:t.lblMuted, fontSize:'0.58rem' }}>No demand data.</div>}
             </div>
@@ -670,24 +688,29 @@ export default function EpmZonePage() {
               return (
                 <div>
                   <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
-                  <CJChart type="bar" height={Math.min(fd.length*22+24,200)}
-                    data={{ labels:fd.map(d=>d.fuel), datasets:[
-                      { label:'Existing', data:fd.map(d=>d.ex), backgroundColor:fd.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'), borderWidth:0, barThickness:12, stack:'a' },
-                      { label:'Committed', data:fd.map(d=>d.co), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.55)), borderWidth:0, barThickness:12, stack:'a' },
-                      { label:'Candidate', data:fd.map(d=>d.ca), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.22)), borderWidth:0, barThickness:12, stack:'a' },
-                    ]}}
-                    options={{ ...cjDefaults(t), indexAxis:'y',
-                      scales:{
-                        x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                        y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
-                      }}}
-                  />
-                  <div style={{ display:'flex', gap:10, marginTop:4 }}>
-                    {[['Existing',1.0],['Committed',0.55],['Candidate',0.22]].map(([lbl,op])=>(
-                      <div key={lbl} style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.44rem', color:t.muted }}>
-                        <div style={{ width:8, height:8, borderRadius:2, backgroundColor:`rgba(100,140,200,${op})` }}/>{lbl}
-                      </div>
-                    ))}
+                  <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <CJChart type="bar" height={Math.min(fd.length*22+24,200)}
+                        data={{ labels:fd.map(d=>d.fuel), datasets:[
+                          { label:'Existing', data:fd.map(d=>d.ex), backgroundColor:fd.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'), borderWidth:0, barThickness:12, stack:'a' },
+                          { label:'Committed', data:fd.map(d=>d.co), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.55)), borderWidth:0, barThickness:12, stack:'a' },
+                          { label:'Candidate', data:fd.map(d=>d.ca), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.22)), borderWidth:0, barThickness:12, stack:'a' },
+                        ]}}
+                        options={{ ...cjDefaults(t), indexAxis:'y',
+                          scales:{
+                            x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                            y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                          }}}
+                      />
+                    </div>
+                    <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:3, paddingTop:4 }}>
+                      {[['Existing',1.0],['Committed',0.55],['Candidate',0.22]].map(([lbl,op])=>(
+                        <div key={lbl} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                          <div style={{ width:8, height:8, borderRadius:2, backgroundColor:`rgba(100,140,200,${op})`, flexShrink:0 }}/>
+                          <span style={{ fontSize:'0.4rem', color:t.muted }}>{lbl}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               );
@@ -870,28 +893,32 @@ export default function EpmZonePage() {
                   const qCols = Object.keys(zoneAv[keys[0]]||{}).filter(k=>/^Q\d+$/.test(k)).sort();
                   return (
                     <>
-                      <CJChart type="bar" height={160}
-                        data={{ labels:qCols,
-                          datasets:keys.map((k,i)=>({
-                            label: zoneAv[k].fuel&&zoneAv[k].fuel!==''?zoneAv[k].fuel:zoneAv[k].tech||k,
-                            data:qCols.map(q=>+(zoneAv[k][q]||0).toFixed(3)),
-                            backgroundColor:hexA(EPM_FUEL_COLORS[normalizeFuel(zoneAv[k].fuel||zoneAv[k].tech||'')]||ZONE_PALETTE[i%ZONE_PALETTE.length],0.75),
-                            borderWidth:0, barThickness:10,
-                          }))}}
-                        options={{ ...cjDefaults(t),
-                          scales:{
-                            x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},
-                            y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},
-                              title:{display:true,text:'Availability factor',color:t.muted,font:{size:7}}},
-                          }}}
-                      />
-                      <div style={{ display:'flex', flexWrap:'wrap', gap:'3px 10px', marginTop:2 }}>
-                        {keys.map((k,i)=>{ const entry=zoneAv[k]; const label=entry.fuel&&entry.fuel!==''?entry.fuel:entry.tech||k; return (
-                          <div key={k} style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.43rem', color:t.muted }}>
-                            <div style={{ width:8, height:8, borderRadius:2, backgroundColor:hexA(EPM_FUEL_COLORS[normalizeFuel(entry.fuel||entry.tech||'')]||ZONE_PALETTE[i%ZONE_PALETTE.length],0.75) }}/>
-                            {label}
-                          </div>
-                        );})}
+                      <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <CJChart type="bar" height={160}
+                            data={{ labels:qCols,
+                              datasets:keys.map((k,i)=>({
+                                label: zoneAv[k].fuel&&zoneAv[k].fuel!==''?zoneAv[k].fuel:zoneAv[k].tech||k,
+                                data:qCols.map(q=>+(zoneAv[k][q]||0).toFixed(3)),
+                                backgroundColor:hexA(EPM_FUEL_COLORS[normalizeFuel(zoneAv[k].fuel||zoneAv[k].tech||'')]||ZONE_PALETTE[i%ZONE_PALETTE.length],0.75),
+                                borderWidth:0, barThickness:10,
+                              }))}}
+                            options={{ ...cjDefaults(t),
+                              scales:{
+                                x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},
+                                y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},
+                                  title:{display:true,text:'Availability factor',color:t.muted,font:{size:7}}},
+                              }}}
+                          />
+                        </div>
+                        <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:160, overflowY:'auto' }}>
+                          {keys.map((k,i)=>{ const entry=zoneAv[k]; const label=entry.fuel&&entry.fuel!==''?entry.fuel:entry.tech||k; return (
+                            <div key={k} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                              <div style={{ width:8, height:8, borderRadius:2, backgroundColor:hexA(EPM_FUEL_COLORS[normalizeFuel(entry.fuel||entry.tech||'')]||ZONE_PALETTE[i%ZONE_PALETTE.length],0.75), flexShrink:0 }}/>
+                              <span style={{ fontSize:'0.4rem', color:t.muted, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{label}</span>
+                            </div>
+                          );})}
+                        </div>
                       </div>
                     </>
                   );

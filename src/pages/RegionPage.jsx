@@ -279,31 +279,36 @@ function EpmOverviewTab({ t, epmData, region }) {
               ))}
             </div>
           </div>
-          <CJChart type="bar" height={Math.min(mixLabels.length * 22 + 24, 280)}
-            data={{
-              labels: mixLabels,
-              datasets: allFuels.map(fuel => ({
-                label: fuel,
-                data: mixLabels.map(l => Math.round(mixData[l]?.[fuel] || 0)),
-                backgroundColor: EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other,
-                borderWidth: 0, barThickness: 14, stack: 'a',
-              })),
-            }}
-            options={{ ...cjDefaults(t), indexAxis: 'y',
-              scales: {
-                x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 }, callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
-                y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
-              },
-              plugins: { ...cjDefaults(t).plugins, legend: { display: false },
-                tooltip: { ...cjDefaults(t).plugins.tooltip, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW` } } },
-            }}
-          />
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 8px', marginTop: 6 }}>
-            {allFuels.map(f => (
-              <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.44rem', color: t.muted }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: EPM_FUEL_COLORS[f] || '#aaa' }} />{f}
-              </div>
-            ))}
+          <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <CJChart type="bar" height={Math.min(mixLabels.length * 22 + 24, 280)}
+                data={{
+                  labels: mixLabels,
+                  datasets: allFuels.map(fuel => ({
+                    label: fuel,
+                    data: mixLabels.map(l => Math.round(mixData[l]?.[fuel] || 0)),
+                    backgroundColor: EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other,
+                    borderWidth: 0, barThickness: 14, stack: 'a',
+                  })),
+                }}
+                options={{ ...cjDefaults(t), indexAxis: 'y',
+                  scales: {
+                    x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 }, callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
+                    y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+                  },
+                  plugins: { ...cjDefaults(t).plugins, legend: { display: false },
+                    tooltip: { ...cjDefaults(t).plugins.tooltip, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW` } } },
+                }}
+              />
+            </div>
+            <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:280, overflowY:'auto' }}>
+              {allFuels.map(f => (
+                <div key={f} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                  <div style={{ width:8, height:8, borderRadius:2, backgroundColor:EPM_FUEL_COLORS[f]||'#aaa', flexShrink:0 }}/>
+                  <span style={{ fontSize:'0.4rem', color:t.muted, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{f}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

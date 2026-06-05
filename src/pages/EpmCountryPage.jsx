@@ -847,22 +847,26 @@ export default function EpmCountryPage() {
               <SectionTitle t={t}>Capacity mix by zone (MW)</SectionTitle>
               {mixLabels.length > 0 ? (
                 <>
-                  <CJChart type="bar" height={Math.min(mixHeight, 260)}
-                    data={mixData}
-                    options={{ ...cjDefaults(t), indexAxis:'y',
-                      scales: {
-                        x: { stacked:true, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v} },
-                        y: { stacked:true, grid:{display:false}, ticks:{color:t.muted,font:{size:8}} },
-                      }, plugins:{...cjDefaults(t).plugins, tooltip:{...cjDefaults(t).plugins.tooltip,
-                        callbacks:{label:c=>` ${c.dataset.label}: ${fmt(c.parsed.x)} MW`}}} }}
-                  />
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:'3px 10px', marginTop:5 }}>
-                    {presentFuelsInMix.map(f=>(
-                      <div key={f} style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.43rem', color:t.muted }}>
-                        <div style={{ width:8, height:8, borderRadius:2, backgroundColor:EPM_FUEL_COLORS[f]||'#aaa' }}/>
-                        {f}
-                      </div>
-                    ))}
+                  <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <CJChart type="bar" height={Math.min(mixHeight, 260)}
+                        data={mixData}
+                        options={{ ...cjDefaults(t), indexAxis:'y',
+                          scales: {
+                            x: { stacked:true, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v} },
+                            y: { stacked:true, grid:{display:false}, ticks:{color:t.muted,font:{size:8}} },
+                          }, plugins:{...cjDefaults(t).plugins, tooltip:{...cjDefaults(t).plugins.tooltip,
+                            callbacks:{label:c=>` ${c.dataset.label}: ${fmt(c.parsed.x)} MW`}}} }}
+                      />
+                    </div>
+                    <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:260, overflowY:'auto' }}>
+                      {presentFuelsInMix.map(f=>(
+                        <div key={f} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                          <div style={{ width:8, height:8, borderRadius:2, backgroundColor:EPM_FUEL_COLORS[f]||'#aaa', flexShrink:0 }}/>
+                          <span style={{ fontSize:'0.4rem', color:t.muted, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{f}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </>
               ) : <div style={{ color:t.lblMuted, fontSize:'0.58rem' }}>No generation data.</div>}
@@ -929,7 +933,10 @@ export default function EpmCountryPage() {
                           <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
                         </div>
                       ))}
-                      <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+                      <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4, display:'flex', gap:6 }}>
+                        <span onClick={()=>setDemandHidden(new Set(demandZones))} style={{cursor:'pointer',textDecoration:'underline'}}>None</span>
+                        <span onClick={()=>setDemandHidden(new Set())} style={{cursor:'pointer',textDecoration:'underline'}}>All</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1012,24 +1019,29 @@ export default function EpmCountryPage() {
               return (
                 <div>
                   <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
-                  <CJChart type="bar" height={Math.min(fd.length*22+24,200)}
-                    data={{ labels:fd.map(d=>d.fuel), datasets:[
-                      { label:'Existing', data:fd.map(d=>d.ex), backgroundColor:fd.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'), borderWidth:0, barThickness:12, stack:'a' },
-                      { label:'Committed', data:fd.map(d=>d.co), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.55)), borderWidth:0, barThickness:12, stack:'a' },
-                      { label:'Candidate', data:fd.map(d=>d.ca), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.22)), borderWidth:0, barThickness:12, stack:'a' },
-                    ]}}
-                    options={{ ...cjDefaults(t), indexAxis:'y',
-                      scales:{
-                        x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                        y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
-                      }}}
-                  />
-                  <div style={{ display:'flex', gap:10, marginTop:4 }}>
-                    {[['Existing',1.0],['Committed',0.55],['Candidate',0.22]].map(([lbl,op])=>(
-                      <div key={lbl} style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.44rem', color:t.muted }}>
-                        <div style={{ width:8, height:8, borderRadius:2, backgroundColor:`rgba(100,140,200,${op})` }}/>{lbl}
-                      </div>
-                    ))}
+                  <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <CJChart type="bar" height={Math.min(fd.length*22+24,200)}
+                        data={{ labels:fd.map(d=>d.fuel), datasets:[
+                          { label:'Existing', data:fd.map(d=>d.ex), backgroundColor:fd.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'), borderWidth:0, barThickness:12, stack:'a' },
+                          { label:'Committed', data:fd.map(d=>d.co), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.55)), borderWidth:0, barThickness:12, stack:'a' },
+                          { label:'Candidate', data:fd.map(d=>d.ca), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.22)), borderWidth:0, barThickness:12, stack:'a' },
+                        ]}}
+                        options={{ ...cjDefaults(t), indexAxis:'y',
+                          scales:{
+                            x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                            y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                          }}}
+                      />
+                    </div>
+                    <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:3, paddingTop:4 }}>
+                      {[['Existing',1.0],['Committed',0.55],['Candidate',0.22]].map(([lbl,op])=>(
+                        <div key={lbl} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                          <div style={{ width:8, height:8, borderRadius:2, backgroundColor:`rgba(100,140,200,${op})`, flexShrink:0 }}/>
+                          <span style={{ fontSize:'0.4rem', color:t.muted }}>{lbl}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               );
@@ -1204,7 +1216,10 @@ export default function EpmCountryPage() {
                                 </div>
                               );
                             })}
-                            <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+                            <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4, display:'flex', gap:6 }}>
+                              <span onClick={()=>setVreHidden(new Set(['__avg__',...countryZoneIds]))} style={{cursor:'pointer',textDecoration:'underline'}}>None</span>
+                              <span onClick={()=>setVreHidden(new Set())} style={{cursor:'pointer',textDecoration:'underline'}}>All</span>
+                            </div>
                           </div>
                         </div>
                       ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No {VRE_DISPLAY[activeVreTech]||activeVreTech} data available.</div>;
