@@ -854,7 +854,7 @@ export default function ResultsRegionPage() {
         const getGrpVal=(grp,key)=>getZones(grp).reduce((s,z)=>s+(tv[z]?.[key]||0),0);
         datasets.push({label:`${activeSc.length>1?scen+' — ':''}Imp.`,type:'bar',data:groups.map(g=>+getGrpVal(g,'imp').toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
         datasets.push({label:`${activeSc.length>1?scen+' — ':''}Exp.`,type:'bar',data:groups.map(g=>+(-getGrpVal(g,'exp')).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Net`,type:'scatter',data:groups.map((g,gi)=>({x:gi,y:+getGrpVal(g,'net').toFixed(0)})),borderColor:col,backgroundColor:col,borderWidth:1.5,pointStyle:'circle',radius:4,stack:undefined});
+        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Net`,type:'line',showLine:false,data:groups.map(g=>+getGrpVal(g,'net').toFixed(0)),borderWidth:0,pointRadius:3,pointStyle:'circle',pointBackgroundColor:col,pointBorderColor:col,fill:false});
       }
       return{labels:groups,datasets,ind};
     }
@@ -893,7 +893,7 @@ export default function ResultsRegionPage() {
         const dImp=groups.map(g=>+getD(g,'imp').toFixed(0)); const dExp=groups.map(g=>+getD(g,'exp').toFixed(0)); const dNet=groups.map(g=>+getD(g,'net').toFixed(0));
         if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
         if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'scatter',data:groups.map((g,gi)=>({x:gi,y:+getD(g,'net').toFixed(0)})),borderColor:col,backgroundColor:col,borderWidth:1.5,pointStyle:'circle',radius:4});
+        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'line',showLine:false,data:groups.map(g=>+getD(g,'net').toFixed(0)),borderWidth:0,pointRadius:3,pointStyle:'circle',pointBackgroundColor:col,pointBorderColor:col,fill:false});
       }
       return{labels:groups,datasets,ind};
     }
@@ -975,15 +975,22 @@ export default function ResultsRegionPage() {
     if(!cmpRef||!allYears.length||!resultsData[cmpRef])return null;
     const compareScs=baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef));
     if(!compareScs.length)return null;
+    // Sync metric with upper chart
+    const attr=trEvMetric==='capacity'?'TransmissionCapacity':trEvMetric==='utilization'?'InterconUtilization':'Interchange';
+    const unit=trEvMetric==='volume'?'GWh':trEvMetric==='capacity'?'MW':'%';
     const tx0=resultsData[trScenario]?.transmission||{};
-    const seen=new Set(); const corridors=[];
-    for(const[z,zm] of Object.entries(tx0)) for(const z2 of Object.keys(zm)){const k=[z,z2].sort().join('||');if(!seen.has(k)){seen.add(k);corridors.push({z,z2,key:k});}}
+    const seen=new Set(); const allCorridors=[];
+    for(const[z,zm] of Object.entries(tx0)) for(const z2 of Object.keys(zm)){const k=[z,z2].sort().join('||');if(!seen.has(k)){seen.add(k);allCorridors.push({z,z2,key:k});}}
+    // Sync hidden corridors with upper chart
+    const corridors=allCorridors.slice(0,12).filter(c=>!isHidden('trade-ev',`${c.z}↔${c.z2}`));
     if(!corridors.length)return null;
-    const getVol=(scen,c,y)=>{const tx=resultsData[scen]?.transmission||{};return Math.abs(tx[c.z]?.[c.z2]?.Interchange?.[y]||0)+Math.abs(tx[c.z2]?.[c.z]?.Interchange?.[y]||0);};
-    const topC=corridors.slice(0,12);
-    return{labels:allYears,corridors:topC,datasets:compareScs.flatMap((scen,i)=>topC.map((c,ci)=>{
-      const data=allYears.map(y=>+(getVol(scen,c,y)-getVol(cmpRef,c,y)).toFixed(0));
-      return{label:`${compareScs.length>1?scen+' — ':''}${c.z}↔${c.z2}`,data,backgroundColor:hexA(MAP_PALETTE[ci%MAP_PALETTE.length],0.72),borderColor:MAP_PALETTE[ci%MAP_PALETTE.length],borderWidth:0,stack:scen};
+    const getVal=(scen,c,y)=>{const tx=resultsData[scen]?.transmission||{};
+      if(trEvMetric==='utilization') return (((tx[c.z]?.[c.z2]?.[attr]?.[y]||0)+(tx[c.z2]?.[c.z]?.[attr]?.[y]||0))/2)*100;
+      return Math.abs(tx[c.z]?.[c.z2]?.[attr]?.[y]||0)+Math.abs(tx[c.z2]?.[c.z]?.[attr]?.[y]||0);
+    };
+    return{labels:allYears,unit,datasets:compareScs.flatMap((scen,i)=>corridors.map((c,ci)=>{
+      const data=allYears.map(y=>+(getVal(scen,c,y)-getVal(cmpRef,c,y)).toFixed(trEvMetric==='utilization'?1:0));
+      return{label:`${compareScs.length>1?scen+' — ':''}${c.z}↔${c.z2}`,data,backgroundColor:hexA(MAP_PALETTE[allCorridors.findIndex(a=>a.key===c.key)%MAP_PALETTE.length],0.72),borderColor:MAP_PALETTE[allCorridors.findIndex(a=>a.key===c.key)%MAP_PALETTE.length],borderWidth:0,stack:scen};
     })).filter(d=>d.data.some(v=>v!==0))};
   };
 
@@ -1379,23 +1386,16 @@ export default function ResultsRegionPage() {
                     <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
                   ))}
                 </div>
-                {tradeCmpDeltaData&&tradeCmpDeltaData.datasets.length>0?<>
+                {tradeCmpDeltaData&&tradeCmpDeltaData.datasets.length>0?
                   <CJChart type="bar" height={200}
-                    cacheKey={`trev-d|${trScenario}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}`}
+                    cacheKey={`trev-d|${trScenario}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
                     data={{labels:tradeCmpDeltaData.labels,datasets:tradeCmpDeltaData.datasets}}
                     options={{...cjDefaults(t),scales:{
                       x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
-                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:'ΔGWh',color:t.muted,font:{size:7}}},
+                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:`Δ${tradeCmpDeltaData.unit||'GWh'}`,color:t.muted,font:{size:7}}},
                     },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
                   />
-                  <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
-                    {[...new Set((tradeCmpDeltaData.corridors||[]).map(c=>`${c.z}↔${c.z2}`))].map((label,i)=>(
-                      <div key={label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}>
-                        <div style={{width:8,height:8,borderRadius:2,backgroundColor:hexA(MAP_PALETTE[i%MAP_PALETTE.length],0.82)}}/>{label}
-                      </div>
-                    ))}
-                  </div>
-                </>:<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No corridor differences found.':'Select at least one scenario to compare.'}</div>}
+                :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No corridor differences found.':'Select at least one scenario to compare.'}</div>}
               </div>
             )}
             <DlRow files={[[trScenario,'pTransmissionMerged.csv']]}/>
