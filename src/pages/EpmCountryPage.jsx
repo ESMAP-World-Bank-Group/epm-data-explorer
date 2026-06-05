@@ -388,10 +388,11 @@ export default function EpmCountryPage() {
   const zcmapRows      = epmData?.zcmap || [];
   const zoneToCountry  = useMemo(() => Object.fromEntries(zcmapRows.map(r => [r.z, r.c])), [zcmapRows]);
   const countryZoneIds = useMemo(() => zcmapRows.filter(r => r.c === countryNameDecoded).map(r => r.z), [zcmapRows, countryNameDecoded]);
+  const visZoneIds     = useMemo(() => selZone ? countryZoneIds.filter(z=>z===selZone) : countryZoneIds, [selZone, countryZoneIds]);
   const allCountries   = useMemo(() => [...new Set(zcmapRows.map(r => r.c))].sort(), [zcmapRows]);
 
   const allGen        = epmData?.gen || [];
-  const countryGen    = useMemo(() => allGen.filter(r => countryZoneIds.includes(r.zone)), [allGen, countryZoneIds]);
+  const countryGen    = useMemo(() => allGen.filter(r => visZoneIds.includes(r.zone)), [allGen, visZoneIds]);
   const existingGen   = useMemo(() => countryGen.filter(r => r.status === 1), [countryGen]);
   const allExisting   = useMemo(() => allGen.filter(r => r.status === 1), [allGen]);
 
@@ -402,7 +403,7 @@ export default function EpmCountryPage() {
   const allYears  = availableYears(epmData?.demand || []);
   const refYr     = allYears.find(y => y === '2024') || allYears[0];
 
-  const countryDemand = useMemo(() => (epmData?.demand||[]).filter(r=>countryZoneIds.includes(r.zone)), [epmData, countryZoneIds]);
+  const countryDemand = useMemo(() => (epmData?.demand||[]).filter(r=>visZoneIds.includes(r.zone)), [epmData, visZoneIds]);
   const peakGW        = countryDemand.filter(r=>r.type==='peak').reduce((s,r)=>s+(r.years[refYr]||0),0)/1000;
   const energyTWh     = countryDemand.filter(r=>r.type==='energy').reduce((s,r)=>s+(r.years[refYr]||0),0)/1000;
 
@@ -536,7 +537,7 @@ export default function EpmCountryPage() {
   const availSeasons     = firstZoneWithPf ? Object.keys(pf[firstZoneWithPf]).sort() : [];
   const availDaytypes    = firstZoneWithPf && availSeasons[0] ? Object.keys(pf[firstZoneWithPf][availSeasons[0]]||{}).sort() : [];
   const totalDaysPf      = Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0) || 365;
-  const allVreTechs      = [...new Set(countryZoneIds.flatMap(z=>Object.keys(vp[z]||{})))].sort();
+  const allVreTechs      = [...new Set(visZoneIds.flatMap(z=>Object.keys(vp[z]||{})))].sort();
   const activeVreTech    = allVreTechs.includes(vreTech) ? vreTech : (allVreTechs[0]||'');
   const firstZoneWithVre = countryZoneIds.find(z=>vp[z]?.[activeVreTech]);
   const vreAvailSeasons  = firstZoneWithVre ? Object.keys(vp[firstZoneWithVre][activeVreTech]).sort() : [];
@@ -587,7 +588,7 @@ export default function EpmCountryPage() {
       if (!firstZoneWithPf || !availDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
       const nDT = availDaytypes.length, nS = availSeasons.length;
       const nPts = nS * nDT * 24;
-      const zoneDs = countryZoneIds.flatMap((z,i) => {
+      const zoneDs = visZoneIds.flatMap((z,i) => {
         if (demandHidden.has(z)) return [];
         const data = [];
         for (const s of availSeasons) for (const d of availDaytypes) {
@@ -599,7 +600,7 @@ export default function EpmCountryPage() {
       });
       const avgData = [];
       for (const s of availSeasons) for (const d of availDaytypes) {
-        const profs = countryZoneIds.map(z=>pf[z]?.[s]?.[d]).filter(Boolean);
+        const profs = visZoneIds.map(z=>pf[z]?.[s]?.[d]).filter(Boolean);
         for (let h=0;h<24;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
       }
       const avgDs = showAvg ? { label:'avg', data:avgData, borderColor:'#1a5fa8', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true } : null;
@@ -637,8 +638,8 @@ export default function EpmCountryPage() {
       if(demandDay==='avg'){const days=Object.keys(sp);return days.length?Array.from({length:24},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null;}
       return sp[demandDay]||null;
     };
-    const zoneLines = countryZoneIds.flatMap((z,i)=>{if(demandHidden.has(z))return[];const p=getP(z);return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[];});
-    const allProf = countryZoneIds.map(z=>getP(z)).filter(Boolean);
+    const zoneLines = visZoneIds.flatMap((z,i)=>{if(demandHidden.has(z))return[];const p=getP(z);return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[];});
+    const allProf = visZoneIds.map(z=>getP(z)).filter(Boolean);
     const avgLine = (showAvg&&allProf.length)?{label:'avg',data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length),borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.35,fill:false}:null;
     return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
   };
@@ -652,7 +653,7 @@ export default function EpmCountryPage() {
     if (vreProfileMode === 'full') {
       if (!firstZoneWithVre || !vreAvailDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
       const nDT=vreAvailDaytypes.length, nS=vreAvailSeasons.length, nPts=nS*nDT*24;
-      const zoneDs = countryZoneIds.flatMap((z,i)=>{
+      const zoneDs = visZoneIds.flatMap((z,i)=>{
         if(vreHidden.has(z)) return [];
         const data=[];
         for(const s of vreAvailSeasons) for(const d of vreAvailDaytypes){const p=vp[z]?.[tech]?.[s]?.[d];data.push(...(p?p:new Array(24).fill(null)));}
@@ -661,7 +662,7 @@ export default function EpmCountryPage() {
       });
       const avgData=[];
       for(const s of vreAvailSeasons) for(const d of vreAvailDaytypes){
-        const profs=countryZoneIds.map(z=>vp[z]?.[tech]?.[s]?.[d]).filter(Boolean);
+        const profs=visZoneIds.map(z=>vp[z]?.[tech]?.[s]?.[d]).filter(Boolean);
         for(let h=0;h<24;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
       }
       const techColor=VRE_COLOR[tech]||'#1E9AF5';
@@ -688,8 +689,8 @@ export default function EpmCountryPage() {
 
     // Single season
     const getP=(zone)=>{const sp=vp[zone]?.[tech]?.[vreSeason];if(!sp)return null;if(vreDay==='avg'){const days=Object.keys(sp);return days.length?Array.from({length:24},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null;}return sp[vreDay]||null;};
-    const zoneLines=countryZoneIds.flatMap((z,i)=>{if(vreHidden.has(z))return[];const p=getP(z);return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[];});
-    const allProf=countryZoneIds.map(z=>getP(z)).filter(Boolean);
+    const zoneLines=visZoneIds.flatMap((z,i)=>{if(vreHidden.has(z))return[];const p=getP(z);return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[];});
+    const allProf=visZoneIds.map(z=>getP(z)).filter(Boolean);
     const techColor=VRE_COLOR[tech]||'#1E9AF5';
     const avgLine=(showAvgV&&allProf.length)?{label:`${VRE_DISPLAY[tech]||tech} avg`,data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length),borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.35,fill:false}:null;
     return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
