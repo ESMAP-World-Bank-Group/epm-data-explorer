@@ -925,12 +925,12 @@ export default function EpmCountryPage() {
                     />
                   </div>
                   {demandSeg==='zone' && demandZones.length>0 && (
-                    <div style={{ width:100, flexShrink:0, display:'flex', flexDirection:'column', gap:3, paddingTop:4 }}>
+                    <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:175, overflowY:'auto' }}>
                       {demandZones.map((z,i)=>(
                         <div key={z} onClick={()=>toggleDemandHidden(z)}
-                          style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:demandHidden.has(z)?0.3:1 }}>
-                          <div style={{ width:10, height:10, borderRadius:2, flexShrink:0, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length] }}/>
-                          <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
+                          style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:demandHidden.has(z)?0.25:1 }}>
+                          <div style={{ width:8, height:8, borderRadius:2, flexShrink:0, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length] }}/>
+                          <span style={{ fontSize:'0.4rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
                         </div>
                       ))}
                       <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4, display:'flex', gap:6 }}>
@@ -984,18 +984,21 @@ export default function EpmCountryPage() {
                           }}}
                       />
                     </div>
-                    <div style={{ width:96, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:demandProfileMode==='full'?205:160, overflowY:'auto' }}>
-                      <div onClick={()=>toggleDemandHidden('__avg__')} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:demandHidden.has('__avg__')?0.25:1 }}>
-                        <div style={{ width:12, height:2.5, backgroundColor:'#1a5fa8', borderRadius:1 }}/>
-                        <span style={{ fontSize:'0.43rem', color:t.muted, fontWeight:600 }}>avg</span>
+                    <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:demandProfileMode==='full'?205:160, overflowY:'auto' }}>
+                      <div onClick={()=>toggleDemandHidden('__avg__')} style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:demandHidden.has('__avg__')?0.25:1 }}>
+                        <div style={{ width:12, height:2, backgroundColor:'#1a5fa8', borderRadius:1, flexShrink:0 }}/>
+                        <span style={{ fontSize:'0.4rem', color:t.muted, fontWeight:600 }}>avg</span>
                       </div>
                       {countryZoneIds.map((z,i)=>(
-                        <div key={z} onClick={()=>toggleDemandHidden(z)} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:demandHidden.has(z)?0.25:1 }}>
-                          <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
-                          <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
+                        <div key={z} onClick={()=>toggleDemandHidden(z)} style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:demandHidden.has(z)?0.25:1 }}>
+                          <div style={{ width:12, height:2, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1, flexShrink:0 }}/>
+                          <span style={{ fontSize:'0.4rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
                         </div>
                       ))}
-                      <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4 }}>click to hide</div>
+                      <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginTop:4, display:'flex', gap:6 }}>
+                        <span onClick={()=>setDemandHidden(new Set(['__avg__',...countryZoneIds]))} style={{cursor:'pointer',textDecoration:'underline'}}>None</span>
+                        <span onClick={()=>setDemandHidden(new Set())} style={{cursor:'pointer',textDecoration:'underline'}}>All</span>
+                      </div>
                     </div>
                   </div>
                 ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No profile data.</div>;
@@ -1201,18 +1204,18 @@ export default function EpmCountryPage() {
                                 }}}
                             />
                           </div>
-                          <div style={{ width:96, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:vreProfileMode==='full'?205:160, overflowY:'auto' }}>
+                          <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:vreProfileMode==='full'?205:160, overflowY:'auto' }}>
                             <div onClick={()=>setVreHidden(s=>{const n=new Set(s);n.has('__avg__')?n.delete('__avg__'):n.add('__avg__');return n;})}
-                              style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has('__avg__')?0.25:1 }}>
-                              <div style={{ width:12, height:2.5, backgroundColor:VRE_COLOR[activeVreTech]||'#1E9AF5', borderRadius:1 }}/>
-                              <span style={{ fontSize:'0.43rem', color:t.muted, fontWeight:600 }}>avg</span>
+                              style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:vreHidden.has('__avg__')?0.25:1 }}>
+                              <div style={{ width:12, height:2, backgroundColor:VRE_COLOR[activeVreTech]||'#1E9AF5', borderRadius:1, flexShrink:0 }}/>
+                              <span style={{ fontSize:'0.4rem', color:t.muted, fontWeight:600 }}>avg</span>
                             </div>
                             {countryZoneIds.map((z,i)=>{
                               if(!vp[z]?.[activeVreTech]) return null;
                               return (
-                                <div key={z} onClick={()=>toggleVreHidden(z)} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', opacity:vreHidden.has(z)?0.25:1 }}>
-                                  <div style={{ width:12, height:2.5, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1 }}/>
-                                  <span style={{ fontSize:'0.43rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
+                                <div key={z} onClick={()=>toggleVreHidden(z)} style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:vreHidden.has(z)?0.25:1 }}>
+                                  <div style={{ width:12, height:2, backgroundColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderRadius:1, flexShrink:0 }}/>
+                                  <span style={{ fontSize:'0.4rem', color:t.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{z}</span>
                                 </div>
                               );
                             })}
@@ -1293,21 +1296,25 @@ export default function EpmCountryPage() {
                   const fd = buildFuelPriceData();
                   return fd.datasets.length > 0 ? (
                     <>
-                      <CJChart type="line" height={170} data={fd}
-                        options={{ ...cjDefaults(t),
-                          scales: {
-                            x: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:7},maxTicksLimit:8} },
-                            y: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}},
-                              title:{display:true,text:'USD/MBtu',color:t.muted,font:{size:7}} },
-                          } }}
-                      />
-                      <div style={{ display:'flex', flexWrap:'wrap', gap:'3px 10px', marginTop:2 }}>
-                        {fd.datasets.map((ds,i)=>(
-                          <div key={ds.label} style={{ display:'flex', alignItems:'center', gap:3, fontSize:'0.43rem', color:t.muted }}>
-                            <div style={{ width:12, height:2.5, borderRadius:1, backgroundColor:typeof ds.borderColor==='string'?ds.borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length] }}/>
-                            {ds.label}
-                          </div>
-                        ))}
+                      <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <CJChart type="line" height={170} data={fd}
+                            options={{ ...cjDefaults(t),
+                              scales: {
+                                x: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:7},maxTicksLimit:8} },
+                                y: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}},
+                                  title:{display:true,text:'USD/MBtu',color:t.muted,font:{size:7}} },
+                              } }}
+                          />
+                        </div>
+                        <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:170, overflowY:'auto' }}>
+                          {fd.datasets.map((ds,i)=>(
+                            <div key={ds.label} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                              <div style={{ width:12, height:2, borderRadius:1, backgroundColor:typeof ds.borderColor==='string'?ds.borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length], flexShrink:0 }}/>
+                              <span style={{ fontSize:'0.4rem', color:t.muted, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{ds.label}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </>
                   ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No fuel price data available.</div>;
