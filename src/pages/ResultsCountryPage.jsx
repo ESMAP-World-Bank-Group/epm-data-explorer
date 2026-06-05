@@ -90,6 +90,7 @@ export default function ResultsCountryPage() {
   const [cmpScenarios, setCmpScenarios] = useState(new Set());
   const [trScenarios,  setTrScenarios]  = useState(new Set());
   const [plZone,       setPlZone]       = useState('all');
+  const [selZone,      setSelZone]      = useState('all');
   const [pieDispMode,  setPieDispMode]  = useState('none');
   const pieMarkersRef = useRef([]);
 
@@ -129,6 +130,7 @@ export default function ResultsCountryPage() {
   const countryZoneIds = useMemo(()=>zcmapRows.filter(r=>r.c===countryDecoded).map(r=>r.z),[zcmapRows,countryDecoded]);
   const countryIsos = useMemo(()=>zonesGJ?[...new Set(zonesGJ.features.filter(f=>countryZoneIds.includes(f.properties.z)).map(f=>f.properties.ISO_A3))]:[]  ,[zonesGJ,countryZoneIds]);
   const allZones = countryZoneIds;
+  const visZones = selZone==='all'?allZones:allZones.filter(z=>z===selZone);
   const hasData = Object.keys(resultsData).length>0;
   const allYears = useMemo(()=>{const f=Object.values(resultsData)[0];return f?resultYears(f.techFuel):[];},[resultsData]);
   const activeInd = useMemo(()=>INDICATORS.find(i=>i.key===evIndicator)||INDICATORS[0],[evIndicator]);
@@ -184,6 +186,8 @@ export default function ResultsCountryPage() {
       map.addLayer({id:'zone-fill-dim',type:'fill',source:'zones',filter:['!',['in',['get','ISO_A3'],['literal',countryIsos]]],paint:{'fill-color':fillExpr,'fill-opacity':0.08}});
       map.addLayer({id:'zone-fill',type:'fill',source:'zones',filter:['in',['get','ISO_A3'],['literal',countryIsos]],paint:{'fill-color':fillExpr,'fill-opacity':0.32}});
       map.addLayer({id:'zone-hover',type:'fill',source:'zones',filter:['==',['get','z'],''],paint:{'fill-color':fillExpr,'fill-opacity':0.60}});
+      map.addLayer({id:'zone-selected',type:'fill',source:'zones',filter:['==',['get','z'],'__none__'],paint:{'fill-color':fillExpr,'fill-opacity':0.45}});
+      map.addLayer({id:'zone-selected-border',type:'line',source:'zones',filter:['==',['get','z'],'__none__'],paint:{'line-color':'rgba(255,255,255,0.9)','line-width':2.5}});
       map.addLayer({id:'zone-border',type:'line',source:'zones',filter:['in',['get','ISO_A3'],['literal',countryIsos]],paint:{'line-color':fillExpr,'line-width':1.5,'line-opacity':0.9}});
       // NTC lines source (updated separately)
       const aW=14,aH=12;const aData=new Uint8Array(aW*aH*4).fill(0);
@@ -204,11 +208,18 @@ export default function ResultsCountryPage() {
         popup.setLngLat(e.lngLat).setHTML(`<b>${z}</b>${statsHtml}`).addTo(map);
       });
       map.on('mouseleave','zone-fill',()=>{map.getCanvas().style.cursor='';hovZ=null;map.setFilter('zone-hover',['==',['get','z'],'']),popup.remove();});
-      map.on('click','zone-fill',e=>{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(e.features[0].properties.z||'')}`);});
+      map.on('click','zone-fill',e=>{const z=e.features[0].properties.z||'';if(countryZoneIds.includes(z)){setSelZone(prev=>prev===z?'all':z);}else{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(z)}`);} });
       setMapLoadedCount(c=>c+1);
     });
     return()=>{popup.remove();dotMarkersRef.current.forEach(m=>m.remove());dotMarkersRef.current=[];pieMarkersRef.current.forEach(m=>m.remove());pieMarkersRef.current=[];mapRef.current?.remove();};
   },[region,theme,zonesGJ,zcmapRows,countryZoneIds,countryIsos]); // eslint-disable-line
+
+  // Update selected zone highlight
+  useEffect(()=>{
+    const map=mapRef.current;if(!map)return;
+    const f=selZone==='all'?'__none__':selZone;
+    try{map.setFilter('zone-selected',['==',['get','z'],f]);map.setFilter('zone-selected-border',['==',['get','z'],f]);}catch(e){}
+  },[selZone,mapLoadedCount]);
 
   // Update NTC
   useEffect(()=>{
@@ -291,7 +302,7 @@ export default function ResultsCountryPage() {
     const activeSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));
     if(!activeSc.length||!refYear)return null;
     const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
-    const groups=allZones; const multi=activeSc.length>1;
+    const groups=visZones; const multi=activeSc.length>1;
     const getTf=(scen,z,tf)=>resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]?.[tf]||0;
     const getTotal=(scen,z)=>{if(ind.source==='techFuel')return Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]||{}).reduce((a,b)=>a+b,0);if(ind.source==='yearlyZone')return resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[refYear]||0;return 0;};
     if(ind.source==='techFuel'){const tfs=allTechfuels.filter(tf=>activeSc.some(s=>groups.some(z=>getTf(s,z,tf)>0)));const datasets=[];for(const scen of activeSc)for(const tf of tfs){const data=groups.map(z=>Math.round(getTf(scen,z,tf)));if(data.some(v=>v>0))datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});}return{labels:groups,datasets,ind};}
@@ -302,7 +313,7 @@ export default function ResultsCountryPage() {
     const compareScs=baseFirst(scenarioList.filter(s=>cmpScenarios.has(s)&&s!==cmpRef&&resultsData[s]));
     if(!compareScs.length)return null;
     const ind=INDICATORS.find(i=>i.key===snapIndicator)||INDICATORS[0];
-    const groups=allZones; const multi=compareScs.length>1;
+    const groups=visZones; const multi=compareScs.length>1;
     const getTf=(scen,z,tf)=>resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]?.[tf]||0;
     const getTotal=(scen,z)=>{if(ind.source==='techFuel')return Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]||{}).reduce((a,b)=>a+b,0);if(ind.source==='yearlyZone')return resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[refYear]||0;return 0;};
     if(ind.source==='techFuel'){const tfs=allTechfuels.filter(tf=>[...compareScs,cmpRef].some(s=>groups.some(z=>getTf(s,z,tf)>0)));const datasets=[];for(const scen of compareScs)for(const tf of tfs){const data=groups.map(z=>+(getTf(scen,z,tf)-getTf(cmpRef,z,tf)).toFixed(0));if(data.some(v=>v!==0))datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});}return{labels:groups,datasets,ind};}
@@ -314,8 +325,8 @@ export default function ResultsCountryPage() {
     const compareScs=baseFirst(scenarioList.filter(s=>cmpScenarios.has(s)&&s!==cmpRef&&resultsData[s]));
     if(!compareScs.length)return null;
     const ind=activeInd; const multi=compareScs.length>1;
-    if(ind.source==='techFuel'){const tfs=allTechfuels;const datasets=[];for(const scen of compareScs)for(const tf of tfs){const data=allYears.map(y=>Math.round(allZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0)-(resultsData[cmpRef]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0)));if(data.some(v=>v!==0))datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});}return{labels:allYears,datasets};}
-    if(ind.source==='yearlyZone'){return{labels:allYears,datasets:compareScs.map((scen,i)=>({label:scen,data:allYears.map(y=>+(allZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0)-(resultsData[cmpRef]?.yearlyZone[z]?.[ind.key]?.[y]||0),0)).toFixed(2)),backgroundColor:hexA(SCEN_COLORS[(i+1)%SCEN_COLORS.length],0.75),borderColor:SCEN_COLORS[(i+1)%SCEN_COLORS.length],borderWidth:1,fill:false,tension:0.3,type:'line'})).filter(d=>d.data.some(v=>v!==0))};}
+    if(ind.source==='techFuel'){const tfs=allTechfuels;const datasets=[];for(const scen of compareScs)for(const tf of tfs){const data=allYears.map(y=>Math.round(visZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0)-(resultsData[cmpRef]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0)));if(data.some(v=>v!==0))datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});}return{labels:allYears,datasets};}
+    if(ind.source==='yearlyZone'){return{labels:allYears,datasets:compareScs.map((scen,i)=>({label:scen,data:allYears.map(y=>+(visZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0)-(resultsData[cmpRef]?.yearlyZone[z]?.[ind.key]?.[y]||0),0)).toFixed(2)),backgroundColor:hexA(SCEN_COLORS[(i+1)%SCEN_COLORS.length],0.75),borderColor:SCEN_COLORS[(i+1)%SCEN_COLORS.length],borderWidth:1,fill:false,tension:0.3,type:'line'})).filter(d=>d.data.some(v=>v!==0))};}
     return null;
   };
   const buildDispatchDelta=()=>{
@@ -351,21 +362,21 @@ export default function ResultsCountryPage() {
     return{labels:allYears,unit,datasets:compareScs.flatMap((scen,si)=>corridors.map((c)=>{const ci2=allCorridors.findIndex(a=>a.key===c.key);const col=MAP_PALETTE[ci2%MAP_PALETTE.length];const data=allYears.map(y=>+(getVal(scen,c,y)-getVal(cmpRef,c,y)).toFixed(isUtil?1:0));if(isUtil)return{label:`${compareScs.length>1?scen+' — ':''}${c.z}↔${c.z2}`,data,type:'line',borderColor:col,backgroundColor:hexA(col,0.1),borderWidth:2,fill:false,tension:0.3,pointRadius:0};return{label:`${compareScs.length>1?scen+' — ':''}${c.z}↔${c.z2}`,data,backgroundColor:hexA(col,0.72),borderColor:col,borderWidth:0,stack:scen};})).filter(d=>d.data.some(v=>v!==0))};
   };
 
-  const buildMix=()=>{const sd=resultsData[ovScenario];if(!sd||!refYear)return null;const zones=allZones.filter(z=>sd.techFuel[z]?.CapacityTechFuel?.[refYear]);if(!zones.length)return null;const tfs=allTechfuels.filter(tf=>zones.some(z=>(sd.techFuel[z]?.CapacityTechFuel?.[refYear]?.[tf]||0)>0));return{labels:zones,datasets:tfs.filter(tf=>!isHidden('mix-c',tf)).map(tf=>({label:tf,data:zones.map(z=>Math.round(sd.techFuel[z]?.CapacityTechFuel?.[refYear]?.[tf]||0)),backgroundColor:techColor(tf),borderWidth:0,barThickness:14,stack:'a'}))};};
+  const buildMix=()=>{const sd=resultsData[ovScenario];if(!sd||!refYear)return null;const zones=visZones.filter(z=>sd.techFuel[z]?.CapacityTechFuel?.[refYear]);if(!zones.length)return null;const tfs=allTechfuels.filter(tf=>zones.some(z=>(sd.techFuel[z]?.CapacityTechFuel?.[refYear]?.[tf]||0)>0));return{labels:zones,datasets:tfs.filter(tf=>!isHidden('mix-c',tf)).map(tf=>({label:tf,data:zones.map(z=>Math.round(sd.techFuel[z]?.CapacityTechFuel?.[refYear]?.[tf]||0)),backgroundColor:techColor(tf),borderWidth:0,barThickness:14,stack:'a'}))};};
 
-  const buildEvolution=()=>{const activeSc=scenarioList.filter(s=>evScenarios.has(s));if(!activeSc.length||!allYears.length)return null;const ind=activeInd;if(ind.source==='yearlyZone')return{labels:allYears,datasets:activeSc.map((s,i)=>({label:s,data:allYears.map(y=>+allZones.reduce((acc,z)=>acc+(resultsData[s]?.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)),backgroundColor:hexA(['#3B82F6','#10B981','#F59E0B','#8B5CF6'][i%4],0.75),borderColor:['#3B82F6','#10B981','#F59E0B','#8B5CF6'][i%4],borderWidth:2,fill:false,tension:0.3,type:'line'}))};const tfs=allTechfuels.filter(tf=>!isHidden('ev-c',tf));const datasets=[];for(const scen of activeSc)for(const tf of tfs){datasets.push({label:`${scen} — ${tf}`,data:allYears.map(y=>Math.round(allZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0))),backgroundColor:hexA(techColor(tf),activeSc.length>1?0.5:0.85),borderColor:techColor(tf),borderWidth:activeSc.length>1?1:0,stack:scen});}return{labels:allYears,datasets};};
+  const buildEvolution=()=>{const activeSc=scenarioList.filter(s=>evScenarios.has(s));if(!activeSc.length||!allYears.length)return null;const ind=activeInd;if(ind.source==='yearlyZone')return{labels:allYears,datasets:activeSc.map((s,i)=>({label:s,data:allYears.map(y=>+visZones.reduce((acc,z)=>acc+(resultsData[s]?.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)),backgroundColor:hexA(['#3B82F6','#10B981','#F59E0B','#8B5CF6'][i%4],0.75),borderColor:['#3B82F6','#10B981','#F59E0B','#8B5CF6'][i%4],borderWidth:2,fill:false,tension:0.3,type:'line'}))};const tfs=allTechfuels.filter(tf=>!isHidden('ev-c',tf));const datasets=[];for(const scen of activeSc)for(const tf of tfs){datasets.push({label:`${scen} — ${tf}`,data:allYears.map(y=>Math.round(visZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0))),backgroundColor:hexA(techColor(tf),activeSc.length>1?0.5:0.85),borderColor:techColor(tf),borderWidth:activeSc.length>1?1:0,stack:scen});}return{labels:allYears,datasets};};
 
   const buildDispatch=()=>{const sd=resultsData[dispScenario];if(!sd||!activeDispZone||!refYear)return{chartData:{labels:[],datasets:[]},plugin:null};const zDisp=getZoneDisp(sd,activeDispZone,refYear);const isDark=t.isDark;const mcColor=isDark?'rgba(255,255,255,0.88)':'#1E3A8A';const seasons=dispAvailS,days=dispAvailD;if(dispMode==='full'&&seasons.length&&days.length){const nS=seasons.length,nDT=days.length,nPts=nS*nDT*24;const tfs=[...new Set(seasons.flatMap(q=>days.flatMap(d=>Object.values(zDisp[q]?.[d]||{}).flatMap(Object.keys))))].filter(t=>t!=='Demand').sort();const datasets=tfs.map(tf=>({label:tf,fill:true,data:seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.[tf]||0))),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));const zP=sd.price[activeDispZone]?.[refYear]||{};const pd=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zP[s]?.[d]?.[`t${h+1}`]||null)));if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:mcColor,borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});const dem=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{const v=getDispDemand(sd,activeDispZone,allZones,refYear,s,d,h);return v!=null&&v>0?v:null;})));if(dem.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:dem,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});const sepPlugin={id:'cSep',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca)return;const dL=(data,yK,col,lw=1.5)=>{if(!data.some(v=>v!=null)||!sc[yK])return;ctx.save();ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.setLineDash([]);let mv=false;data.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc[yK].getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();};dL(dem,'y','#CC0000');dL(pd,'yR',mcColor,1);},afterDraw:(chart)=>{const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;const{top,bottom}=chartArea;const xS=scales.x;const dC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const sC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';const tC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';for(let si=0;si<nS;si++){const ss=si*nDT*24;ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(seasons[si],xS.getPixelForValue(ss+nDT*12),top-2);ctx.restore();for(let di=0;di<nDT;di++){const dts=ss+di*24;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?sC:dC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}const midX=xS.getPixelForValue(dts+12);const w=hoursData?.[seasons[si]]?.[days[di]]||0;const pct=w>0?` (${((w/totalDays)*100).toFixed(0)}%)`:'';ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=tC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${days[di]}${pct}`,0,0);ctx.restore();}}}};return{chartData:{labels:new Array(nPts).fill(''),datasets},plugin:sepPlugin};}
   const sp=zDisp[dispSeason];if(!sp)return{chartData:{labels:[],datasets:[]},plugin:null};const tfs2=[...new Set(Object.values(sp).flatMap(d=>Object.values(d).flatMap(Object.keys)))].filter(t=>t!=='Demand').sort();const getData=(tf)=>{if(dispDay==='avg'){const ds=Object.keys(sp);return Array.from({length:24},(_,h)=>ds.reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(ds.length,1));}return Array.from({length:24},(_,h)=>sp[dispDay]?.[`t${h+1}`]?.[tf]||0);};const datasets2=tfs2.map(tf=>({label:tf,fill:true,data:getData(tf),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));const demL=dispAvailD.length>0?Array.from({length:24},(_,h)=>{const ds=dispDay==='avg'?dispAvailD:[dispDay];const vals=ds.map(d=>getDispDemand(sd,activeDispZone,allZones,refYear,dispSeason,d,h)).filter(v=>v!=null&&v>0);if(!vals.length)return null;return dispDay==='avg'?vals.reduce((a,b)=>a+b,0)/vals.length:vals[0];}):[];if(demL.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demL,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});const prL=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return sd.price[activeDispZone]?.[refYear]?.[dispSeason]?.[d]?.[`t${h+1}`]||null;});if(prL.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prL,yAxisID:'yR',borderColor:mcColor,borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});const linePlugin=(demL.some(v=>v)||prL.some(v=>v!=null))?{id:'lineS',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca)return;const dL=(data,yK,col,lw=1.5)=>{if(!data.some(v=>v!=null)||!sc[yK])return;ctx.save();ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.setLineDash([]);let mv=false;data.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc[yK].getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();};dL(demL,'y','#CC0000');dL(prL,'yR',mcColor,1);}}:null;return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:linePlugin};};
 
-  const buildTrade=()=>{const tx=resultsData[trScenario]?.transmission||{};if(!refYear)return null;const imp={},exp={};for(const z of allZones){imp[z]=0;exp[z]=0;for(const[z2,attrs]of Object.entries(tx[z]||{}))exp[z]+=(attrs.Interchange?.[refYear]||0);for(const[z2,zm]of Object.entries(tx))if(z2!==z)imp[z]+=(zm[z]?.Interchange?.[refYear]||0);}const zones=allZones.filter(z=>imp[z]+exp[z]>0.5).sort((a,b)=>(imp[b]-exp[b])-(imp[a]-exp[a]));if(!zones.length)return null;const net=Object.fromEntries(zones.map(z=>[z,+(imp[z]-exp[z]).toFixed(1)]));return{labels:zones,datasets:[!isHidden('trade-c','Imports')&&{label:'Imports',data:zones.map(z=>+imp[z].toFixed(1)),backgroundColor:hexA('#2E9EC8',0.78),borderWidth:0,barThickness:12,stack:'t'},!isHidden('trade-c','Exports')&&{label:'Exports',data:zones.map(z=>+(-exp[z]).toFixed(1)),backgroundColor:hexA('#E8C547',0.78),borderWidth:0,barThickness:12,stack:'t'},{label:'Net',data:zones.map(z=>net[z]),backgroundColor:t.isDark?'rgba(255,255,255,0.92)':'#1E3A8A',borderWidth:0,barThickness:3,order:0}].filter(Boolean),_imp:imp,_exp:exp,_net:net};};
+  const buildTrade=()=>{const tx=resultsData[trScenario]?.transmission||{};if(!refYear)return null;const imp={},exp={};for(const z of visZones){imp[z]=0;exp[z]=0;for(const[z2,attrs]of Object.entries(tx[z]||{}))exp[z]+=(attrs.Interchange?.[refYear]||0);for(const[z2,zm]of Object.entries(tx))if(z2!==z)imp[z]+=(zm[z]?.Interchange?.[refYear]||0);}const zones=allZones.filter(z=>imp[z]+exp[z]>0.5).sort((a,b)=>(imp[b]-exp[b])-(imp[a]-exp[a]));if(!zones.length)return null;const net=Object.fromEntries(zones.map(z=>[z,+(imp[z]-exp[z]).toFixed(1)]));return{labels:zones,datasets:[!isHidden('trade-c','Imports')&&{label:'Imports',data:zones.map(z=>+imp[z].toFixed(1)),backgroundColor:hexA('#2E9EC8',0.78),borderWidth:0,barThickness:12,stack:'t'},!isHidden('trade-c','Exports')&&{label:'Exports',data:zones.map(z=>+(-exp[z]).toFixed(1)),backgroundColor:hexA('#E8C547',0.78),borderWidth:0,barThickness:12,stack:'t'},{label:'Net',data:zones.map(z=>net[z]),backgroundColor:t.isDark?'rgba(255,255,255,0.92)':'#1E3A8A',borderWidth:0,barThickness:3,order:0}].filter(Boolean),_imp:imp,_exp:exp,_net:net};};
 
   const buildTradeEv=()=>{
     const activeSc=baseFirst(scenarioList.filter(s=>trScenarios.has(s)&&resultsData[s]));
     if(!activeSc.length||!allYears.length)return null;
     const tx0=resultsData[activeSc[0]]?.transmission||{};
     const corridors=[];const seen=new Set();
-    for(const[z,zm]of Object.entries(tx0))for(const z2 of Object.keys(zm)){if(!allZones.includes(z)&&!allZones.includes(z2))continue;const k=[z,z2].sort().join('||');if(!seen.has(k)){seen.add(k);corridors.push({z,z2,key:k});}}
+    for(const[z,zm]of Object.entries(tx0))for(const z2 of Object.keys(zm)){if(!allZones.includes(z)&&!allZones.includes(z2))continue;if(selZone!=='all'&&z!==selZone&&z2!==selZone)continue;const k=[z,z2].sort().join('||');if(!seen.has(k)){seen.add(k);corridors.push({z,z2,key:k});}}
     if(!corridors.length)return null;
     const attr=trEvMetric==='volume'?'Interchange':trEvMetric==='capacity'?'TransmissionCapacity':'InterconUtilization';
     const unit=trEvMetric==='volume'?'GWh':trEvMetric==='capacity'?'MW':'%';
@@ -460,6 +471,17 @@ export default function ResultsCountryPage() {
           {TABS.map(tab=><button key={tab} onClick={()=>setActiveTab(tab)} style={{fontSize:'0.5rem',fontFamily:'inherit',padding:'6px 11px',border:'none',borderBottom:activeTab===tab?`2px solid ${t.lbl}`:'2px solid transparent',backgroundColor:'transparent',color:activeTab===tab?t.lbl:t.lblMuted,cursor:'pointer',fontWeight:activeTab===tab?600:400,textTransform:'capitalize'}}>{tab}</button>)}
         </div>
         {loadingData&&<div style={{padding:'24px 0',textAlign:'center',color:t.lblMuted,fontSize:'0.6rem'}}>Loading…</div>}
+        {hasData&&allZones.length>1&&(
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,fontSize:'0.44rem',color:t.muted}}>
+            <span style={{color:t.lblMuted}}>Zone:</span>
+            <select value={selZone} onChange={e=>setSelZone(e.target.value)} style={selectStyle}>
+              <option value="all">All zones</option>
+              {allZones.map(z=><option key={z} value={z}>{z}</option>)}
+            </select>
+            {selZone!=='all'&&<span onClick={()=>setSelZone('all')} style={{cursor:'pointer',color:t.lblMuted,padding:'1px 5px',border:`1px solid ${t.panelBorder}`,borderRadius:3,fontSize:'0.42rem'}}>✕ all</span>}
+            <span style={{color:t.lblMuted,fontSize:'0.4rem',marginLeft:2}}>or click zone on map</span>
+          </div>
+        )}
 
         {/* ── OVERVIEW ── */}
         {hasData&&activeTab==='overview'&&(
