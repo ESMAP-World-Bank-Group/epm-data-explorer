@@ -854,7 +854,7 @@ export default function ResultsRegionPage() {
         const getGrpVal=(grp,key)=>getZones(grp).reduce((s,z)=>s+(tv[z]?.[key]||0),0);
         datasets.push({label:`${activeSc.length>1?scen+' — ':''}Imp.`,type:'bar',data:groups.map(g=>+getGrpVal(g,'imp').toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
         datasets.push({label:`${activeSc.length>1?scen+' — ':''}Exp.`,type:'bar',data:groups.map(g=>+(-getGrpVal(g,'exp')).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Net`,type:'bar',data:groups.map(g=>+getGrpVal(g,'net').toFixed(0)),backgroundColor:col,borderWidth:0,barThickness:2,order:-1});
+        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Net`,type:'scatter',data:groups.map(g=>({x:g,y:+getGrpVal(g,'net').toFixed(0)})),pointStyle:'line',rotation:0,pointRadius:9,pointBorderColor:col,pointBorderWidth:2.5,borderColor:col,backgroundColor:'transparent',order:-1});
       }
       return{labels:groups,datasets,ind};
     }
@@ -893,7 +893,7 @@ export default function ResultsRegionPage() {
         const dImp=groups.map(g=>+getD(g,'imp').toFixed(0)); const dExp=groups.map(g=>+getD(g,'exp').toFixed(0)); const dNet=groups.map(g=>+getD(g,'net').toFixed(0));
         if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
         if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'bar',data:groups.map(g=>+getD(g,'net').toFixed(0)),backgroundColor:col,borderWidth:0,barThickness:2,order:-1});
+        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'scatter',data:groups.map(g=>({x:g,y:+getD(g,'net').toFixed(0)})),pointStyle:'line',rotation:0,pointRadius:9,pointBorderColor:col,pointBorderWidth:2.5,borderColor:col,backgroundColor:'transparent',order:-1});
       }
       return{labels:groups,datasets,ind};
     }
@@ -1373,7 +1373,10 @@ export default function ResultsRegionPage() {
                         <span style={{ fontSize:'0.4rem',color:t.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{label}</span>
                       </div>;
                     })}
-                    <div style={{ fontSize:'0.38rem',color:t.lblMuted,marginTop:4 }}>click to hide</div>
+                    <div style={{ fontSize:'0.38rem',color:t.lblMuted,marginTop:4,display:'flex',gap:6 }}>
+                      <span style={{cursor:'pointer',textDecoration:'underline'}} onClick={()=>setHiddenMap(prev=>({...prev,'trade-ev':new Set(allCorridors.slice(0,12).map(c=>`${c.z}↔${c.z2}`))}))}>None</span>
+                      <span style={{cursor:'pointer',textDecoration:'underline'}} onClick={()=>setHiddenMap(prev=>({...prev,'trade-ev':new Set()}))}>All</span>
+                    </div>
                   </div>
                 </div>
               </>;
