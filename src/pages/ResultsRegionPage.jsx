@@ -55,6 +55,7 @@ const INDICATORS = [
   { key:'Costs',                        label:'Costs total (m USD)',       source:'yearlyZone', unit:'m USD' },
   { key:'CapexInvestmentComponent',     label:'CAPEX (m USD)',             source:'yearlyZone', unit:'m USD' },
   { key:'GenCostsPerMWh',               label:'Gen Cost (USD/MWh)',        source:'yearlyZone', unit:'USD/MWh' },
+  { key:'Trade',                         label:'Trade (GWh)',               source:'trade',      unit:'GWh' },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -609,7 +610,16 @@ export default function ResultsRegionPage() {
       return { labels:allYears, datasets };
     }
     if (ind.source==='yearlyZone') {
-      return { labels:allYears, datasets:activeSc.map((scen,i)=>({ label:scen, data:allYears.map(y=>+evZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)), backgroundColor:hexA(['#3B82F6','#10B981','#F59E0B','#8B5CF6'][i%4],0.75), borderColor:['#3B82F6','#10B981','#F59E0B','#8B5CF6'][i%4], borderWidth:2, fill:false, tension:0.3, type:'line' })) };
+      return { labels:allYears, datasets:activeSc.map((scen,i)=>({ label:scen, data:allYears.map(y=>+evZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)), backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.75), borderColor:SCEN_COLORS[i%SCEN_COLORS.length], borderWidth:2, fill:false, tension:0.3, type:'line' })) };
+    }
+    if(ind.source==='trade'){
+      const datasets=[];
+      for(let i=0;i<activeSc.length;i++){const scen=activeSc[i];const col=SCEN_COLORS[i%SCEN_COLORS.length];
+        datasets.push({label:`${scen} — Imp.`,type:'bar',data:allYears.map(y=>+(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.imp,0)).toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
+        datasets.push({label:`${scen} — Exp.`,type:'bar',data:allYears.map(y=>+(-(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.exp,0))).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
+        datasets.push({label:`${scen} — Net`,type:'line',data:allYears.map(y=>+(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.net,0)).toFixed(0)),borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,stack:undefined});
+      }
+      return{labels:allYears,datasets};
     }
     const tfs=allTechfuels.filter(tf=>activeSc.some(s=>evZones.some(z=>(resultsData[s]?.techFuel[z]?.[ind.key]?.[allYears[0]]?.[tf]||0)>0)));
     const datasets=[]; for(const scen of activeSc) for(const tf of tfs) { datasets.push({ label:`${scen} — ${tf}`, data:allYears.map(y=>Math.round(evZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0))), backgroundColor:hexA(techColor(tf),activeSc.length>1?0.5:0.85), borderColor:techColor(tf), borderWidth:activeSc.length>1?1:0, stack:scen }); }
@@ -744,6 +754,15 @@ export default function ResultsRegionPage() {
     if(ind.source==='costs') return MAIN_COST_CATS.reduce((s,cat)=>s+evZones.reduce((s2,z)=>s2+(resultsData[scen]?.costs[z]?.[cat]?.[y]||0),0),0);
     return 0;
   };
+  // Trade helper: {imp, exp, net} per zone for a given year
+  const getTradeVals = (scen, zones, y) => {
+    const tx=resultsData[scen]?.transmission||{};
+    return Object.fromEntries(zones.map(z=>{
+      const imp=Object.values(tx).reduce((s,zm)=>s+(zm[z]?.Interchange?.[y]||0),0);
+      const exp=Object.values(tx[z]||{}).reduce((s,attrs)=>s+(attrs.Interchange?.[y]||0),0);
+      return[z,{imp:+imp.toFixed(1),exp:+exp.toFixed(1),net:+(imp-exp).toFixed(1)}];
+    }));
+  };
   const buildCmpEvolution = () => {
     if(!cmpRef||!allYears.length)return null;
     const compareScs=baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef));
@@ -779,6 +798,19 @@ export default function ResultsRegionPage() {
       return{labels:allYears,datasets};
     }
 
+    if(ind.source==='trade'){
+      const datasets=[];
+      for(let i=0;i<compareScs.length;i++){const scen=compareScs[i];const col=SCEN_COLORS[(i+1)%SCEN_COLORS.length];
+        const tvCmp=y=>getTradeVals(scen,evZones,y); const tvRef=y=>getTradeVals(cmpRef,evZones,y);
+        const dImp=allYears.map(y=>+(Object.values(tvCmp(y)).reduce((s,v)=>s+v.imp,0)-Object.values(tvRef(y)).reduce((s,v)=>s+v.imp,0)).toFixed(0));
+        const dExp=allYears.map(y=>+(Object.values(tvCmp(y)).reduce((s,v)=>s+v.exp,0)-Object.values(tvRef(y)).reduce((s,v)=>s+v.exp,0)).toFixed(0));
+        const dNet=allYears.map(y=>+(Object.values(tvCmp(y)).reduce((s,v)=>s+v.net,0)-Object.values(tvRef(y)).reduce((s,v)=>s+v.net,0)).toFixed(0));
+        if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
+        if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
+        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'line',data:dNet,borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false});
+      }
+      return{labels:allYears,datasets};
+    }
     // yearlyZone / costs: single signed bar per scenario (no techfuel breakdown available)
     return{labels:allYears,datasets:compareScs.map((scen,i)=>({
       label:`Δ ${scen}`,
@@ -815,6 +847,17 @@ export default function ResultsRegionPage() {
       }
       return{labels:groups,datasets,ind};
     }
+    if(ind.source==='trade'){
+      const datasets=[];
+      for(let i=0;i<activeSc.length;i++){const scen=activeSc[i];const col=SCEN_COLORS[i%SCEN_COLORS.length];
+        const tv=getTradeVals(scen,allZones,refYear);
+        const getGrpVal=(grp,key)=>getZones(grp).reduce((s,z)=>s+(tv[z]?.[key]||0),0);
+        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Imp.`,type:'bar',data:groups.map(g=>+getGrpVal(g,'imp').toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
+        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Exp.`,type:'bar',data:groups.map(g=>+(-getGrpVal(g,'exp')).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
+        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Net`,type:'scatter',data:groups.map((g,gi)=>({x:gi,y:+getGrpVal(g,'net').toFixed(0)})),borderColor:col,backgroundColor:col,borderWidth:2,pointStyle:'line',rotation:90,radius:7,stack:undefined});
+      }
+      return{labels:groups,datasets,ind};
+    }
     return{labels:groups,datasets:activeSc.map((scen,i)=>({label:scen,data:groups.map(g=>+(getTotal(scen,g)).toFixed(2)),backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.78),borderWidth:0,stack:scen})).filter(d=>d.data.some(v=>v>0)),ind};
   };
 
@@ -839,6 +882,18 @@ export default function ResultsRegionPage() {
       for(const scen of compareScs) for(const tf of tfs){
         const data=groups.map(g=>+(getTf(scen,g,tf)-getTf(cmpRef,g,tf)).toFixed(0));
         if(data.some(v=>v!==0)) datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});
+      }
+      return{labels:groups,datasets,ind};
+    }
+    if(ind.source==='trade'){
+      const datasets=[];
+      for(let i=0;i<compareScs.length;i++){const scen=compareScs[i];const col=SCEN_COLORS[(i+1)%SCEN_COLORS.length];
+        const tvCmp=getTradeVals(scen,allZones,refYear); const tvRef=getTradeVals(cmpRef,allZones,refYear);
+        const getD=(grp,key)=>getZones(grp).reduce((s,z)=>s+((tvCmp[z]?.[key]||0)-(tvRef[z]?.[key]||0)),0);
+        const dImp=groups.map(g=>+getD(g,'imp').toFixed(0)); const dExp=groups.map(g=>+getD(g,'exp').toFixed(0)); const dNet=groups.map(g=>+getD(g,'net').toFixed(0));
+        if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
+        if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
+        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'scatter',data:groups.map((g,gi)=>({x:gi,y:+getD(g,'net').toFixed(0)})),borderColor:col,backgroundColor:col,borderWidth:2,pointStyle:'line',rotation:90,radius:7});
       }
       return{labels:groups,datasets,ind};
     }
