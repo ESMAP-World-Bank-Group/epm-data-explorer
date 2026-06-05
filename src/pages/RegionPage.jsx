@@ -1731,7 +1731,12 @@ export default function RegionPage() {
           });
           map.on('click', 'zone-fill', e => {
             const iso = e.features[0].properties.ISO_A3;
-            setSelIso(prev => prev === iso ? null : iso);
+            setSelIso(prev => {
+              const next = prev === iso ? null : iso;
+              const f = next || '__none__';
+              try { map.setFilter('country-selected', ['==', ['get', 'ISO_A3'], f]); map.setFilter('country-selected-border', ['==', ['get', 'ISO_A3'], f]); } catch(err) {}
+              return next;
+            });
           });
         } else if (lsgj) {
           // Fallback: country fill from world source (no zones.geojson)
@@ -1951,13 +1956,6 @@ export default function RegionPage() {
       mapRef.current?.remove();
     };
   }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Update country highlight on map
-  useEffect(() => {
-    const map = mapRef.current; if (!map) return;
-    const f = selIso || '__none__';
-    try { map.setFilter('country-selected', ['==', ['get', 'ISO_A3'], f]); map.setFilter('country-selected-border', ['==', ['get', 'ISO_A3'], f]); } catch(e) {}
-  }, [selIso]);
 
   // Basemap switcher
   useEffect(() => {

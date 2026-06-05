@@ -149,7 +149,6 @@ export default function EpmCountryPage() {
 
   // ── Supply state ────────────────────────────────────────────────────────────
   const [statusFilter,  setStatusFilter]  = useState(new Set([1]));
-  const [zoneFilter,    setZoneFilter]    = useState('all');
   const [supplySort,    setSupplySort]    = useState({ col: 'capacity', dir: 'desc' });
   const [selectedPlant, setSelectedPlant] = useState(null);
 
@@ -309,7 +308,13 @@ export default function EpmCountryPage() {
         });
         map.on('click', 'zone-fill', e => {
           const z = e.features[0].properties.z || '';
-          setSelZone(prev => prev === z ? null : z);
+          setSelZone(prev => {
+            const next = prev === z ? null : z;
+            const f = next || '__none__';
+            try { map.setFilter('zone-selected', ['==', ['get', 'z'], f]); map.setFilter('zone-selected-border', ['==', ['get', 'z'], f]); } catch(err) {}
+            return next;
+          });
+          setSelectedPlant(null);
         });
       }
 
@@ -378,16 +383,6 @@ export default function EpmCountryPage() {
     };
   }, [region, theme, epmData, countryNameDecoded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update zone highlight on map
-  useEffect(() => {
-    const map = mapRef.current; if (!map) return;
-    const f = selZone || '__none__';
-    try { map.setFilter('zone-selected', ['==', ['get', 'z'], f]); map.setFilter('zone-selected-border', ['==', ['get', 'z'], f]); } catch(e) {}
-  }, [selZone]);
-
-  // Sync selZone → supply zone filter
-  useEffect(() => { setZoneFilter(selZone || 'all'); setSelectedPlant(null); }, [selZone]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Computed values ───────────────────────────────────────────────────────────
 
   const zcmapRows      = epmData?.zcmap || [];
@@ -448,7 +443,7 @@ export default function EpmCountryPage() {
   const demandZones = useMemo(() => [...new Set(countryDemand.map(r=>r.zone))].sort(), [countryDemand]);
   const zoneColors  = useMemo(() => Object.fromEntries(demandZones.map((z,i)=>[z,ZONE_PALETTE[i%ZONE_PALETTE.length]])), [demandZones]);
 
-  const filteredPlants = useMemo(() => countryGen.filter(r=>statusFilter.has(r.status) && (zoneFilter==='all'||r.zone===zoneFilter)), [countryGen, statusFilter, zoneFilter]);
+  const filteredPlants = useMemo(() => countryGen.filter(r=>statusFilter.has(r.status) && (selZone===null||r.zone===selZone)), [countryGen, statusFilter, selZone]);
   const sortedPlants   = useMemo(() => {
     const { col, dir } = supplySort;
     return [...filteredPlants].sort((a,b) => {
@@ -1078,7 +1073,7 @@ export default function EpmCountryPage() {
                 </Pill>
               ))}
               <div style={{ height:14, width:1, backgroundColor:t.panelBorder, margin:'0 2px' }}/>
-              <select value={zoneFilter} onChange={e=>{setZoneFilter(e.target.value);setSelectedPlant(null);}} style={{
+              <select value={selZone||'all'} onChange={e=>{setSelZone(e.target.value==='all'?null:e.target.value);setSelectedPlant(null);}} style={{
                 fontSize:'0.44rem', fontFamily:'inherit', padding:'3px 6px', borderRadius:3,
                 border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' }}>
                 <option value="all">All zones</option>
