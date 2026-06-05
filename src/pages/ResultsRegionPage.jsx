@@ -854,7 +854,7 @@ export default function ResultsRegionPage() {
         const getGrpVal=(grp,key)=>getZones(grp).reduce((s,z)=>s+(tv[z]?.[key]||0),0);
         datasets.push({label:`${activeSc.length>1?scen+' — ':''}Imp.`,type:'bar',data:groups.map(g=>+getGrpVal(g,'imp').toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
         datasets.push({label:`${activeSc.length>1?scen+' — ':''}Exp.`,type:'bar',data:groups.map(g=>+(-getGrpVal(g,'exp')).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Net`,type:'line',showLine:false,data:groups.map(g=>+getGrpVal(g,'net').toFixed(0)),borderWidth:0,pointRadius:3,pointStyle:'circle',pointBackgroundColor:col,pointBorderColor:col,fill:false});
+        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Net`,type:'bar',data:groups.map(g=>+getGrpVal(g,'net').toFixed(0)),backgroundColor:col,borderWidth:0,barThickness:2,order:-1});
       }
       return{labels:groups,datasets,ind};
     }
@@ -893,7 +893,7 @@ export default function ResultsRegionPage() {
         const dImp=groups.map(g=>+getD(g,'imp').toFixed(0)); const dExp=groups.map(g=>+getD(g,'exp').toFixed(0)); const dNet=groups.map(g=>+getD(g,'net').toFixed(0));
         if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
         if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'line',showLine:false,data:groups.map(g=>+getD(g,'net').toFixed(0)),borderWidth:0,pointRadius:3,pointStyle:'circle',pointBackgroundColor:col,pointBorderColor:col,fill:false});
+        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'bar',data:groups.map(g=>+getD(g,'net').toFixed(0)),backgroundColor:col,borderWidth:0,barThickness:2,order:-1});
       }
       return{labels:groups,datasets,ind};
     }
@@ -988,9 +988,13 @@ export default function ResultsRegionPage() {
       if(trEvMetric==='utilization') return (((tx[c.z]?.[c.z2]?.[attr]?.[y]||0)+(tx[c.z2]?.[c.z]?.[attr]?.[y]||0))/2)*100;
       return Math.abs(tx[c.z]?.[c.z2]?.[attr]?.[y]||0)+Math.abs(tx[c.z2]?.[c.z]?.[attr]?.[y]||0);
     };
+    const isUtil=trEvMetric==='utilization';
     return{labels:allYears,unit,datasets:compareScs.flatMap((scen,i)=>corridors.map((c,ci)=>{
-      const data=allYears.map(y=>+(getVal(scen,c,y)-getVal(cmpRef,c,y)).toFixed(trEvMetric==='utilization'?1:0));
-      return{label:`${compareScs.length>1?scen+' — ':''}${c.z}↔${c.z2}`,data,backgroundColor:hexA(MAP_PALETTE[allCorridors.findIndex(a=>a.key===c.key)%MAP_PALETTE.length],0.72),borderColor:MAP_PALETTE[allCorridors.findIndex(a=>a.key===c.key)%MAP_PALETTE.length],borderWidth:0,stack:scen};
+      const ci2=allCorridors.findIndex(a=>a.key===c.key);
+      const col=MAP_PALETTE[ci2%MAP_PALETTE.length];
+      const data=allYears.map(y=>+(getVal(scen,c,y)-getVal(cmpRef,c,y)).toFixed(isUtil?1:0));
+      if(isUtil) return{label:`${compareScs.length>1?scen+' — ':''}${c.z}↔${c.z2}`,data,type:'line',borderColor:col,backgroundColor:hexA(col,0.1),borderWidth:2,fill:false,tension:0.3,pointRadius:0};
+      return{label:`${compareScs.length>1?scen+' — ':''}${c.z}↔${c.z2}`,data,backgroundColor:hexA(col,0.72),borderColor:col,borderWidth:0,stack:scen};
     })).filter(d=>d.data.some(v=>v!==0))};
   };
 
@@ -1171,7 +1175,7 @@ export default function ResultsRegionPage() {
                 options={{...cjDefaults(t),scales:{
                   x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
                   y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
-                },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
+                },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
               />
               <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
                 {[...new Set(snapData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>(
@@ -1200,7 +1204,7 @@ export default function ResultsRegionPage() {
                     options={{...cjDefaults(t),scales:{
                       x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
                       y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapDeltaData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
-                    },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()}`:undefined;}}}}}}
+                    },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()}`:undefined;}}}}}}
                   />
                   <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
                     {[...new Set(snapDeltaData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>(
