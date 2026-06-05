@@ -326,6 +326,16 @@ function EpmOverviewTab({ t, epmData, region }) {
 }
 
 // ── Supply tab ────────────────────────────────────────────────────────────────
+function SupPill({ active, color, onClick, children }) {
+  return (
+    <button onClick={onClick} style={{ fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 8px', borderRadius:3, cursor:'pointer',
+      border:`1px solid ${active?(color||'rgba(74,143,204,0.65)'):'rgba(128,160,192,0.2)'}`,
+      backgroundColor:active?hexA(color||'#4a8fcc',0.12):'transparent',
+      color:active?(color||'rgba(74,143,204,1)'):'rgba(128,160,192,0.7)', fontWeight:active?600:400, display:'flex', alignItems:'center', gap:4 }}>
+      {children}
+    </button>
+  );
+}
 
 function EpmSupplyTab({ t, epmData, region }) {
   const { gen, zcmap } = epmData;
@@ -399,51 +409,40 @@ function EpmSupplyTab({ t, epmData, region }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Status toggles */}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span style={{ fontSize: '0.48rem', color: t.lblMuted }}>Show:</span>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
         {statusConfig.map(({ s, label, color }) => (
-          <button key={s} onClick={() => toggleStatus(s)} style={{
-            fontSize: '0.48rem', fontFamily: 'inherit', padding: '3px 8px', borderRadius: 4,
-            cursor: 'pointer', border: `1px solid ${visStatuses.has(s) ? color : t.panelBorder}`,
-            backgroundColor: visStatuses.has(s) ? hexA(color, 0.15) : 'transparent',
-            color: visStatuses.has(s) ? t.lbl : t.lblMuted, fontWeight: visStatuses.has(s) ? 600 : 400,
-          }}>{label}</button>
+          <SupPill key={s} active={visStatuses.has(s)} color={color} onClick={() => toggleStatus(s)}>
+            <span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', backgroundColor:color }}/>
+            {label}
+          </SupPill>
         ))}
       </div>
 
       {/* Chart by fuel */}
       <div>
         <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
-        <CJChart type="bar" height={Math.min(fuelChartData.length * 22 + 24, 260)}
-          data={{
-            labels: fuelChartData.map(d => d.fuel),
-            datasets: [
-              { label: 'Existing',  data: fuelChartData.map(d => d.ex),
-                backgroundColor: fuelChartData.map(d => EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other),
-                borderWidth: 0, barThickness: 12, stack: 'a' },
-              { label: 'Committed', data: fuelChartData.map(d => d.co),
-                backgroundColor: fuelChartData.map(d => hexA(EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other, 0.5)),
-                borderWidth: 0, barThickness: 12, stack: 'a' },
-              { label: 'Candidate', data: fuelChartData.map(d => d.ca),
-                backgroundColor: fuelChartData.map(d => hexA(EPM_FUEL_COLORS[d.fuel] || EPM_FUEL_COLORS.other, 0.22)),
-                borderWidth: 0, barThickness: 12, stack: 'a' },
-            ],
-          }}
-          options={{ ...cjDefaults(t), indexAxis: 'y',
-            scales: {
-              x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
-                callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
-              y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
-            },
-          }}
-        />
-        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          {[['Existing', 1.0, '#1a5fa8'], ['Committed', 0.5, '#e07b00'], ['Candidate', 0.22, '#888']].map(([lbl, op, c]) => (
-            <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 3,
-              fontSize: '0.44rem', color: t.muted }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: c, opacity: op }} />{lbl}
-            </div>
-          ))}
+        <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <CJChart type="bar" height={Math.min(fuelChartData.length * 22 + 24, 260)}
+              data={{ labels: fuelChartData.map(d => d.fuel), datasets: [
+                { label:'Existing',  data:fuelChartData.map(d=>d.ex), backgroundColor:fuelChartData.map(d=>EPM_FUEL_COLORS[d.fuel]||EPM_FUEL_COLORS.other), borderWidth:0, barThickness:12, stack:'a' },
+                { label:'Committed', data:fuelChartData.map(d=>d.co), backgroundColor:fuelChartData.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||EPM_FUEL_COLORS.other,0.5)), borderWidth:0, barThickness:12, stack:'a' },
+                { label:'Candidate', data:fuelChartData.map(d=>d.ca), backgroundColor:fuelChartData.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||EPM_FUEL_COLORS.other,0.22)), borderWidth:0, barThickness:12, stack:'a' },
+              ]}}
+              options={{ ...cjDefaults(t), indexAxis:'y', scales: {
+                x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+              }}}
+            />
+          </div>
+          <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:3, paddingTop:4 }}>
+            {[['Existing',1.0,'#1a5fa8'],['Committed',0.5,'#e07b00'],['Candidate',0.22,'#888']].map(([lbl,op,c])=>(
+              <div key={lbl} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                <div style={{ width:8, height:8, borderRadius:2, backgroundColor:c, opacity:op, flexShrink:0 }}/>
+                <span style={{ fontSize:'0.4rem', color:t.muted }}>{lbl}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -477,85 +476,73 @@ function EpmSupplyTab({ t, epmData, region }) {
 
       {/* Plant database */}
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
           <SectionTitle t={t}>Plant database ({sorted.length})</SectionTitle>
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search…"
-            style={{ fontSize: '0.48rem', fontFamily: 'inherit', padding: '2px 6px', borderRadius: 4,
-              border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.lbl,
-              width: 90, outline: 'none' }} />
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
+            style={{ fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 6px', borderRadius:3,
+              border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.lbl, width:90, outline:'none' }}/>
         </div>
-        {/* Sort chips */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-          {['capacity', 'name', 'zone', 'country', 'fuel'].map(col => (
-            <button key={col} onClick={() => setSortCol(col)} style={{
-              fontSize: '0.44rem', fontFamily: 'inherit', padding: '1px 5px', borderRadius: 3,
-              cursor: 'pointer', border: `1px solid ${sortCol === col ? t.lbl : t.panelBorder}`,
-              backgroundColor: sortCol === col ? hexA('#1a5fa8', 0.12) : 'transparent',
-              color: sortCol === col ? t.lbl : t.lblMuted,
-            }}>{col}</button>
-          ))}
-        </div>
-        <div style={{ maxHeight: 300, overflowY: 'auto', border: `1px solid ${t.panelBorder}`, borderRadius: 6 }}>
+        <div style={{ border:`1px solid ${t.panelBorder}`, borderRadius:6, overflow:'hidden' }}>
           {/* Header */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 55px 55px 48px 40px',
-            padding: '3px 8px', backgroundColor: hexA(t.panelBorder, 0.4),
-            fontSize: '0.41rem', color: t.lblMuted, fontWeight: 600, position: 'sticky', top: 0 }}>
-            <span>Name</span><span>Zone</span><span>Country</span><span>Fuel</span><span style={{ textAlign: 'right' }}>MW</span>
-          </div>
-          {sorted.slice(0, 300).map(r => {
-            const isSel = selectedPlant?.g === r.g && selectedPlant?.zone === r.zone;
-            const statusOpacity = r.status === 1 ? 1 : r.status === 2 ? 0.6 : 0.3;
-            return (
-              <div key={`${r.g}-${r.zone}-${r.status}`}
-                onClick={() => setSelectedPlant(isSel ? null : r)}
-                style={{ display: 'grid', gridTemplateColumns: '1fr 55px 55px 48px 40px',
-                  padding: '4px 8px', borderBottom: `1px solid ${t.panelBorder}`,
-                  cursor: 'pointer', fontSize: '0.5rem', alignItems: 'center',
-                  opacity: statusOpacity,
-                  backgroundColor: isSel ? hexA('#1a5fa8', 0.08) : 'transparent',
-                }}>
-                <span style={{ color: t.lbl, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.g}</span>
-                <span style={{ color: t.muted, fontSize: '0.43rem' }}>{r.zone}</span>
-                <span style={{ color: t.muted, fontSize: '0.43rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{zoneToCountry[r.zone] || '—'}</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 1, backgroundColor: EPM_FUEL_COLORS[r.fuel] || '#aaa' }} />
-                  <span style={{ color: t.muted, fontSize: '0.43rem' }}>{r.fuel}</span>
-                </span>
-                <span style={{ color: t.lbl, textAlign: 'right', fontWeight: 600 }}>{fmt(r.capacity)}</span>
-              </div>
-            );
-          })}
-        </div>
-        {sorted.length > 200 && (
-          <div style={{ fontSize: '0.44rem', color: t.lblMuted, marginTop: 3 }}>
-            Showing 200 of {sorted.length} — use search to filter
-          </div>
-        )}
-        {/* Detail panel */}
-        {selectedPlant && (
-          <div style={{ marginTop: 8, border: `1px solid ${t.panelBorder}`, borderRadius: 6,
-            padding: '10px 12px', fontSize: '0.52rem', lineHeight: 1.7 }}>
-            <div style={{ fontWeight: 700, color: t.lbl, marginBottom: 6, fontSize: '0.58rem' }}>{selectedPlant.g}</div>
-            {[
-              ['Zone', selectedPlant.zone],
-              ['Country', zoneToCountry[selectedPlant.zone] || '—'],
-              ['Fuel', selectedPlant.fuel],
-              ['Tech', selectedPlant.tech],
-              ['Status', STATUS_LABEL[selectedPlant.status]],
-              ['Capacity', `${fmt(selectedPlant.capacity)} MW`],
-              ['Comm. year', selectedPlant.stYr || '—'],
-              ['Retire year', selectedPlant.retrYr || '—'],
-              ['Heat rate', selectedPlant.heatRate ? `${selectedPlant.heatRate.toFixed(2)} GJ/MWh` : '—'],
-              ['Capex', selectedPlant.capex != null && selectedPlant.capex > 0 ? `${fmt(selectedPlant.capex)} USD/kW` : '—'],
-              ['FOM', selectedPlant.fom != null && selectedPlant.fom > 0 ? `${fmt(selectedPlant.fom)} USD/MW/yr` : '—'],
-              ['VOM', selectedPlant.vom != null && selectedPlant.vom > 0 ? `${selectedPlant.vom.toFixed(2)} USD/MWh` : '—'],
-            ].map(([label, value]) => (
-              <div key={label} style={{ display: 'grid', gridTemplateColumns: '90px 1fr', borderBottom: `1px solid ${t.panelBorder}`, padding: '2px 0' }}>
-                <span style={{ color: t.lblMuted }}>{label}</span>
-                <span style={{ color: t.lbl }}>{value}</span>
-              </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 52px 52px 48px 52px',
+            padding:'4px 8px', backgroundColor:hexA(t.panelBorder,0.4), borderBottom:`1px solid ${t.panelBorder}`, position:'sticky', top:0 }}>
+            {[['name','Name'],['zone','Zone'],['country','Country'],['fuel','Fuel'],['capacity','MW']].map(([col,lbl])=>(
+              <span key={col} onClick={()=>setSortCol(col)} style={{ fontSize:'0.41rem', color:sortCol===col?t.lbl:t.lblMuted, fontWeight:sortCol===col?700:400, cursor:'pointer', textAlign:col==='capacity'?'right':'left', userSelect:'none' }}>
+                {lbl}{sortCol===col?' ↓':''}
+              </span>
             ))}
+          </div>
+          {/* Rows */}
+          <div style={{ maxHeight:360, overflowY:'auto' }}>
+            {sorted.slice(0,300).map(r=>{
+              const key=`${r.g}-${r.zone}-${r.status}`;
+              const isSel=selectedPlant?.g===r.g&&selectedPlant?.zone===r.zone;
+              const sc=statusConfig.find(s=>s.s===r.status);
+              return (
+                <div key={key}>
+                  <div onClick={()=>setSelectedPlant(isSel?null:r)}
+                    onMouseEnter={e=>{if(!isSel)e.currentTarget.style.backgroundColor=hexA('#1a5fa8',0.04);}}
+                    onMouseLeave={e=>{if(!isSel)e.currentTarget.style.backgroundColor='transparent';}}
+                    style={{ display:'grid', gridTemplateColumns:'1fr 52px 52px 48px 52px',
+                      padding:'5px 8px', borderBottom:`1px solid ${t.panelBorder}`, cursor:'pointer',
+                      fontSize:'0.5rem', alignItems:'center', backgroundColor:isSel?hexA('#1a5fa8',0.08):'transparent' }}>
+                    <span style={{ color:t.lbl, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.g}</span>
+                    <span style={{ color:t.muted, fontSize:'0.43rem' }}>{r.zone}</span>
+                    <span style={{ color:t.muted, fontSize:'0.43rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{zoneToCountry[r.zone]||'—'}</span>
+                    <span style={{ display:'flex', alignItems:'center', gap:3 }}>
+                      <span style={{ display:'inline-block', width:7, height:7, borderRadius:1, backgroundColor:EPM_FUEL_COLORS[r.fuel]||'#aaa' }}/>
+                      <span style={{ color:t.muted, fontSize:'0.43rem' }}>{r.fuel}</span>
+                    </span>
+                    <span style={{ display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end' }}>
+                      <span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', backgroundColor:sc?.color||'#aaa' }}/>
+                      <span style={{ color:t.lbl, fontWeight:600 }}>{fmt(r.capacity)}</span>
+                    </span>
+                  </div>
+                  {isSel&&(
+                    <div style={{ padding:'8px 12px', backgroundColor:hexA('#1a5fa8',0.05), borderBottom:`1px solid ${t.panelBorder}`, fontSize:'0.5rem' }}>
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'6px 10px' }}>
+                        {[
+                          {l:'Technology',v:r.tech||'—'},{l:'Status',v:sc?.label||'—'},
+                          {l:'Start year',v:r.stYr||'—'},{l:'Retire year',v:r.retrYr||'—'},
+                          {l:'Capex ($/kW)',v:r.capex>0?fmt(r.capex):'—'},{l:'FOM ($/MW/yr)',v:r.fom>0?fmt(r.fom):'—'},
+                          {l:'VOM ($/MWh)',v:r.vom>0?r.vom.toFixed(2):'—'},{l:'Heat rate',v:r.heatRate?r.heatRate.toFixed(2):'—'},
+                        ].map(({l,v})=>(
+                          <div key={l}>
+                            <div style={{ fontSize:'0.39rem', color:t.lblMuted, marginBottom:1 }}>{l}</div>
+                            <div style={{ color:t.lbl, fontWeight:600 }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {sorted.length > 300 && (
+          <div style={{ fontSize:'0.44rem', color:t.lblMuted, marginTop:3 }}>
+            Showing 300 of {sorted.length} — use search to filter
           </div>
         )}
       </div>
@@ -1534,6 +1521,7 @@ export default function RegionPage() {
   const [pieMode,         setPieMode]         = useState('zone');
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(560);
+  const [selIso,          setSelIso]          = useState(null);
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   // Static data
@@ -1714,6 +1702,12 @@ export default function RegionPage() {
           map.addLayer({ id: 'zone-hover', type: 'fill', source: 'zones',
             filter: ['==', ['get', 'ISO_A3'], ''],
             paint: { 'fill-color': fillExpr, 'fill-opacity': 0.55 } });
+          map.addLayer({ id: 'country-selected', type: 'fill', source: 'zones',
+            filter: ['==', ['get', 'ISO_A3'], '__none__'],
+            paint: { 'fill-color': fillExpr, 'fill-opacity': 0.45 } });
+          map.addLayer({ id: 'country-selected-border', type: 'line', source: 'zones',
+            filter: ['==', ['get', 'ISO_A3'], '__none__'],
+            paint: { 'line-color': 'rgba(255,255,255,0.9)', 'line-width': 2.5 } });
           map.addLayer({ id: 'zone-border', type: 'line', source: 'zones',
             paint: { 'line-color': fillExpr, 'line-width': 1.2, 'line-opacity': 0.75 } });
 
@@ -1731,8 +1725,7 @@ export default function RegionPage() {
           });
           map.on('click', 'zone-fill', e => {
             const iso = e.features[0].properties.ISO_A3;
-            const c = isoToCountry[iso] || iso;
-            navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`);
+            setSelIso(prev => prev === iso ? null : iso);
           });
         } else if (lsgj) {
           // Fallback: country fill from world source (no zones.geojson)
@@ -1952,6 +1945,13 @@ export default function RegionPage() {
       mapRef.current?.remove();
     };
   }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update country highlight on map
+  useEffect(() => {
+    const map = mapRef.current; if (!map) return;
+    const f = selIso || '__none__';
+    try { map.setFilter('country-selected', ['==', ['get', 'ISO_A3'], f]); map.setFilter('country-selected-border', ['==', ['get', 'ISO_A3'], f]); } catch(e) {}
+  }, [selIso]);
 
   // Basemap switcher
   useEffect(() => {

@@ -162,6 +162,7 @@ export default function EpmCountryPage() {
   const [vreHidden,     setVreHidden]     = useState(new Set());
   const [fpCountries,   setFpCountries]   = useState(null); // null = all
   const [availZone,     setAvailZone]     = useState('all');
+  const [selZone,       setSelZone]       = useState(null);
 
   // ── Load region ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -285,6 +286,10 @@ export default function EpmCountryPage() {
           paint: { 'fill-color': fillExpr, 'fill-opacity': 0.35 } });
         map.addLayer({ id: 'zone-hover', type: 'fill', source: 'zones',
           filter: ['==', ['get', 'z'], ''], paint: { 'fill-color': fillExpr, 'fill-opacity': 0.60 } });
+        map.addLayer({ id: 'zone-selected', type: 'fill', source: 'zones',
+          filter: ['==', ['get', 'z'], '__none__'], paint: { 'fill-color': fillExpr, 'fill-opacity': 0.45 } });
+        map.addLayer({ id: 'zone-selected-border', type: 'line', source: 'zones',
+          filter: ['==', ['get', 'z'], '__none__'], paint: { 'line-color': 'rgba(255,255,255,0.9)', 'line-width': 2.5 } });
         map.addLayer({ id: 'zone-border', type: 'line', source: 'zones',
           filter: ['in', ['get', 'ISO_A3'], ['literal', countryIsos]],
           paint: { 'line-color': fillExpr, 'line-width': 1.5, 'line-opacity': 0.9 } });
@@ -295,14 +300,17 @@ export default function EpmCountryPage() {
           const z = e.features[0].properties.z;
           if (z !== hovZ) { hovZ = z; map.setFilter('zone-hover', ['==', ['get', 'z'], z]); }
           popup.setLngLat(e.lngLat)
-            .setHTML(`<b>${z}</b><br><span style="opacity:.65;font-size:0.7em">click to explore zone</span>`)
+            .setHTML(`<b>${z}</b><br><span style="opacity:.65;font-size:0.7em">click to select / deselect</span>`)
             .addTo(map);
         });
         map.on('mouseleave', 'zone-fill', () => {
           map.getCanvas().style.cursor = '';
           hovZ = null; map.setFilter('zone-hover', ['==', ['get', 'z'], '']); popup.remove();
         });
-        map.on('click', 'zone-fill', e => navigate(`/region/${regionId}/zone/${encodeURIComponent(e.features[0].properties.z)}`));
+        map.on('click', 'zone-fill', e => {
+          const z = e.features[0].properties.z || '';
+          setSelZone(prev => prev === z ? null : z);
+        });
       }
 
       if (Object.keys(zoneCentroids).length > 0 || linestringGJ) {
@@ -369,6 +377,16 @@ export default function EpmCountryPage() {
       mapRef.current?.remove();
     };
   }, [region, theme, epmData, countryNameDecoded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update zone highlight on map
+  useEffect(() => {
+    const map = mapRef.current; if (!map) return;
+    const f = selZone || '__none__';
+    try { map.setFilter('zone-selected', ['==', ['get', 'z'], f]); map.setFilter('zone-selected-border', ['==', ['get', 'z'], f]); } catch(e) {}
+  }, [selZone]);
+
+  // Sync selZone → supply zone filter
+  useEffect(() => { setZoneFilter(selZone || 'all'); setSelectedPlant(null); }, [selZone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Computed values ───────────────────────────────────────────────────────────
 
