@@ -161,7 +161,7 @@ export default function EpmCountryPage() {
   const [vreHidden,     setVreHidden]     = useState(new Set());
   const [fpCountries,   setFpCountries]   = useState(null); // null = all
   const [availZone,     setAvailZone]     = useState('all');
-  const [selZone,       setSelZone]       = useState(null);
+  const [selZone,       setSelZone]       = useState('all');
 
   // ── Load region ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -309,8 +309,8 @@ export default function EpmCountryPage() {
         map.on('click', 'zone-fill', e => {
           const z = e.features[0].properties.z || '';
           setSelZone(prev => {
-            const next = prev === z ? null : z;
-            const f = next || '__none__';
+            const next = prev === z ? 'all' : z;
+            const f = next === 'all' ? '__none__' : next;
             try { map.setFilter('zone-selected', ['==', ['get', 'z'], f]); map.setFilter('zone-selected-border', ['==', ['get', 'z'], f]); } catch(err) {}
             return next;
           });
@@ -388,7 +388,7 @@ export default function EpmCountryPage() {
   const zcmapRows      = epmData?.zcmap || [];
   const zoneToCountry  = useMemo(() => Object.fromEntries(zcmapRows.map(r => [r.z, r.c])), [zcmapRows]);
   const countryZoneIds = useMemo(() => zcmapRows.filter(r => r.c === countryNameDecoded).map(r => r.z), [zcmapRows, countryNameDecoded]);
-  const visZoneIds     = useMemo(() => selZone ? countryZoneIds.filter(z=>z===selZone) : countryZoneIds, [selZone, countryZoneIds]);
+  const visZoneIds     = useMemo(() => selZone==='all' ? countryZoneIds : countryZoneIds.filter(z=>z===selZone), [selZone, countryZoneIds]);
   const allCountries   = useMemo(() => [...new Set(zcmapRows.map(r => r.c))].sort(), [zcmapRows]);
 
   const allGen        = epmData?.gen || [];
@@ -444,7 +444,7 @@ export default function EpmCountryPage() {
   const demandZones = useMemo(() => [...new Set(countryDemand.map(r=>r.zone))].sort(), [countryDemand]);
   const zoneColors  = useMemo(() => Object.fromEntries(demandZones.map((z,i)=>[z,ZONE_PALETTE[i%ZONE_PALETTE.length]])), [demandZones]);
 
-  const filteredPlants = useMemo(() => countryGen.filter(r=>statusFilter.has(r.status) && (selZone===null||r.zone===selZone)), [countryGen, statusFilter, selZone]);
+  const filteredPlants = useMemo(() => countryGen.filter(r=>statusFilter.has(r.status) && (selZone==='all'||r.zone===selZone)), [countryGen, statusFilter, selZone]);
   const sortedPlants   = useMemo(() => {
     const { col, dir } = supplySort;
     return [...filteredPlants].sort((a,b) => {
@@ -806,6 +806,21 @@ export default function EpmCountryPage() {
 
         {loading && <div style={{ padding:'24px 0', textAlign:'center', color:t.lblMuted, fontSize:'0.6rem' }}>Loading EPM data…</div>}
 
+        {/* Zone selector badge */}
+        {hasData && countryZoneIds.length > 1 && (
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, fontSize:'0.44rem', color:t.muted }}>
+            <span style={{ color:t.lblMuted }}>Zone:</span>
+            <select value={selZone} onChange={e=>setSelZone(e.target.value)}
+              style={{ fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3,
+                border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' }}>
+              <option value="all">All zones</option>
+              {countryZoneIds.map(z=><option key={z} value={z}>{z}</option>)}
+            </select>
+            {selZone!=='all'&&<span onClick={()=>setSelZone('all')} style={{ cursor:'pointer', color:t.lblMuted, padding:'1px 5px', border:`1px solid ${t.panelBorder}`, borderRadius:3, fontSize:'0.42rem' }}>✕ all</span>}
+            <span style={{ color:t.lblMuted, fontSize:'0.4rem', marginLeft:2 }}>or click zone on map</span>
+          </div>
+        )}
+
         {/* ════════ OVERVIEW ════════════════════════════════════════════════════ */}
         {hasData && activeTab === 'overview' && (
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
@@ -1074,7 +1089,7 @@ export default function EpmCountryPage() {
                 </Pill>
               ))}
               <div style={{ height:14, width:1, backgroundColor:t.panelBorder, margin:'0 2px' }}/>
-              <select value={selZone||'all'} onChange={e=>{setSelZone(e.target.value==='all'?null:e.target.value);setSelectedPlant(null);}} style={{
+              <select value={selZone} onChange={e=>{setSelZone(e.target.value);setSelectedPlant(null);}} style={{
                 fontSize:'0.44rem', fontFamily:'inherit', padding:'3px 6px', borderRadius:3,
                 border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' }}>
                 <option value="all">All zones</option>
