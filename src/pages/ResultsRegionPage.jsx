@@ -717,29 +717,29 @@ export default function ResultsRegionPage() {
   };
 
   const buildTradeEvolution = () => {
-    const tx0=resultsData[trScenario]?.transmission||{}; if(!allYears.length||!Object.keys(tx0).length)return null;
+    const activeSc=baseFirst(scenarioList.filter(s=>trScenarios.has(s)&&resultsData[s]));
+    if(!activeSc.length||!allYears.length)return null;
+    const tx0=resultsData[activeSc[0]]?.transmission||{}; if(!Object.keys(tx0).length)return null;
     const corridors=[]; const seen=new Set();
     for(const[z,zm] of Object.entries(tx0))for(const z2 of Object.keys(zm)){const k=[z,z2].sort().join('||');if(!seen.has(k)){seen.add(k);corridors.push({z,z2,key:k});}}
     let attr,unit;
     if(trEvMetric==='volume')       { attr='Interchange';          unit='GWh'; }
     else if(trEvMetric==='capacity'){ attr='TransmissionCapacity'; unit='MW'; }
     else                            { attr='InterconUtilization';  unit='%'; }
-    return { labels:allYears, corridors, unit, datasets:corridors.slice(0,12).map((c,i)=>({
-      label:`${c.z}↔${c.z2}`,
-      data:allYears.map(y=>{
-        const tx=resultsData[trScenario]?.transmission||{};
-        const fwd=tx[c.z]?.[c.z2]?.[attr]?.[y]||0;
-        const rev=tx[c.z2]?.[c.z]?.[attr]?.[y]||0;
-        // Utilization: average of both directions (0-1 scale → ×100)
-        return trEvMetric==='utilization' ? +(((fwd+rev)/2)*100).toFixed(1) : +(Math.abs(fwd)+Math.abs(rev)).toFixed(1);
-      }),
-      backgroundColor:hexA(MAP_PALETTE[i%MAP_PALETTE.length], trEvMetric==='utilization'?0.15:(isHidden('trade-ev',`${c.z}↔${c.z2}`)?0.05:0.82)),
-      borderColor:MAP_PALETTE[i%MAP_PALETTE.length],
-      borderWidth: trEvMetric==='utilization'?2:0,
-      type: trEvMetric==='utilization'?'line':'bar',
-      fill:false, tension:0.3, pointRadius: trEvMetric==='utilization'?2:0,
-      stack: trEvMetric==='utilization'?undefined:'a',
-    }))};
+    const PSTYLES=['circle','rectRot','triangle','crossRot','star','rect'];
+    const isUtil=trEvMetric==='utilization'; const multi=activeSc.length>1;
+    const datasets=activeSc.flatMap((scen,si)=>corridors.slice(0,12).map((c,ci)=>{
+      const col=MAP_PALETTE[ci%MAP_PALETTE.length];
+      const data=allYears.map(y=>{
+        const tx=resultsData[scen]?.transmission||{};
+        const fwd=tx[c.z]?.[c.z2]?.[attr]?.[y]||0; const rev=tx[c.z2]?.[c.z]?.[attr]?.[y]||0;
+        return isUtil ? +(((fwd+rev)/2)*100).toFixed(1) : +(Math.abs(fwd)+Math.abs(rev)).toFixed(1);
+      });
+      const label=multi?`${scen} — ${c.z}↔${c.z2}`:`${c.z}↔${c.z2}`;
+      if(isUtil) return{label,data,type:'line',borderColor:col,backgroundColor:hexA(col,0.1),borderWidth:1.5,fill:false,tension:0.3,pointStyle:PSTYLES[si%PSTYLES.length],pointRadius:3,pointHoverRadius:5};
+      return{label,data,backgroundColor:hexA(col,0.82),borderColor:col,borderWidth:0,stack:scen,type:'bar'};
+    }));
+    return{labels:allYears,corridors,unit,datasets};
   };
 
   // ── Plants ──────────────────────────────────────────────────────────────────
@@ -994,7 +994,8 @@ export default function ResultsRegionPage() {
     // Sync metric with upper chart
     const attr=trEvMetric==='capacity'?'TransmissionCapacity':trEvMetric==='utilization'?'InterconUtilization':'Interchange';
     const unit=trEvMetric==='volume'?'GWh':trEvMetric==='capacity'?'MW':'%';
-    const tx0=resultsData[trScenario]?.transmission||{};
+    const firstActive=baseFirst([...trScenarios].filter(s=>resultsData[s]))[0]||cmpRef||scenarioList[0];
+    const tx0=resultsData[firstActive]?.transmission||{};
     const seen=new Set(); const allCorridors=[];
     for(const[z,zm] of Object.entries(tx0)) for(const z2 of Object.keys(zm)){const k=[z,z2].sort().join('||');if(!seen.has(k)){seen.add(k);allCorridors.push({z,z2,key:k});}}
     // Sync hidden corridors with upper chart
@@ -1387,7 +1388,7 @@ export default function ResultsRegionPage() {
         {hasData&&activeTab==='trade'&&(
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-              <select value={trScenario||''} onChange={e=>setTrScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
+              {scenarioList.map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
             </div>
 
             {/* Evolution stacked by corridor — right legend */}
@@ -1406,8 +1407,8 @@ export default function ResultsRegionPage() {
                 <div style={{ display:'flex', gap:8 }}>
                   <div style={{ flex:1 }}>
                     <CJChart type="bar" height={200}
-                      cacheKey={`trev|${trScenario}|${trEvMetric}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
-                      data={{ labels:tradeEvData.labels, datasets:tradeEvData.datasets.filter(d=>!isHidden('trade-ev',d.label)).map(d=>({...d,backgroundColor:hexA(MAP_PALETTE[allCorridors.findIndex(c=>`${c.z}↔${c.z2}`===d.label)%MAP_PALETTE.length],0.82)})) }}
+                      cacheKey={`trev|${[...trScenarios].sort().join(',')}|${trEvMetric}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
+                      data={{ labels:tradeEvData.labels, datasets:tradeEvData.datasets.filter(d=>!isHidden('trade-ev',tfLabel(d))) }}
                       options={{...cjDefaults(t),scales:{
                         x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
                         y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:unit,color:t.muted,font:{size:7}}},
@@ -1445,7 +1446,7 @@ export default function ResultsRegionPage() {
                 </div>
                 {tradeCmpDeltaData&&tradeCmpDeltaData.datasets.length>0?
                   <CJChart type="bar" height={200}
-                    cacheKey={`trev-d|${trScenario}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
+                    cacheKey={`trev-d|${[...trScenarios].sort().join(',')}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
                     data={{labels:tradeCmpDeltaData.labels,datasets:tradeCmpDeltaData.datasets}}
                     options={{...cjDefaults(t),scales:{
                       x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
@@ -1455,7 +1456,7 @@ export default function ResultsRegionPage() {
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No corridor differences found.':'Select at least one scenario to compare.'}</div>}
               </div>
             )}
-            <DlRow files={[[trScenario,'pTransmissionMerged.csv']]}/>
+            <DlRow files={[[baseFirst([...trScenarios].filter(s=>resultsData[s]))[0]||scenarioList[0],'pTransmissionMerged.csv']]}/>
           </div>
         )}
 
@@ -1475,12 +1476,14 @@ export default function ResultsRegionPage() {
               <SectionTitle t={t}>Top {plTopN} — {plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bar" height={Math.min(plantsData.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}`}
-                    data={{labels:plantsData.map(p=>p.g),datasets:[{label:plScenario,data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
-                    options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
-                  />
+                  {(()=>{const pd=plantsData.filter(p=>!isHidden('plants-tf',p.techfuel));return(
+                    <CJChart type="bar" height={Math.min(pd.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${[...hiddenMap['plants-tf']||[]].join(',')}`}
+                      data={{labels:pd.map(p=>p.g),datasets:[{label:plScenario,data:pd.map(p=>+p.value.toFixed(2)),backgroundColor:pd.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
+                      options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
+                    />
+                  );})()}
                 </div>
-                {makeLegend('plants-tf',[...new Set(plantsData.map(p=>p.techfuel))].map(tf=>({label:tf,color:techColor(tf)})),false)}
+                {makeLegend('plants-tf',[...new Set(plantsData.map(p=>p.techfuel))].map(tf=>({label:tf,color:techColor(tf)})))}
               </div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data for this run/scenario.</div>}
             {/* LCOE bubble — always below */}
