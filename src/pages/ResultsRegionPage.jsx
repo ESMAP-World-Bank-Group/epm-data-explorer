@@ -80,6 +80,22 @@ function CJChart({ type, data, options, height, plugins: ep, cacheKey }) {
   useEffect(()=>{ const CJ=window.Chart; if(!CJ||!ref.current)return; chart.current?.destroy(); chart.current=new CJ(ref.current,{type,data,options,plugins:ep||[]}); return()=>{chart.current?.destroy();chart.current=null;}; },[sig]); // eslint-disable-line
   return <div style={{height,width:'100%',position:'relative'}}><canvas ref={ref}/></div>;
 }
+function buildNetDotPlugin(netData){
+  return{id:'netDot',afterDatasetsDraw(chart){
+    if(!netData.length)return;
+    const ctx=chart.ctx;const yScale=chart.scales.y;
+    netData.forEach(({si,data,color})=>{
+      const di=chart.data.datasets.findIndex(d=>d._si===si);
+      if(di<0)return;
+      const meta=chart.getDatasetMeta(di);
+      data.forEach((val,i)=>{
+        const bar=meta.data[i];if(!bar)return;
+        const y=yScale.getPixelForValue(val);
+        ctx.save();ctx.beginPath();ctx.arc(bar.x,y,3.5,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();ctx.restore();
+      });
+    });
+  }};
+}
 function SectionTitle({ t, children, right }) {
   return <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
     <div style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>{children}</div>{right}
@@ -848,15 +864,15 @@ export default function ResultsRegionPage() {
       return{labels:groups,datasets,ind};
     }
     if(ind.source==='trade'){
-      const datasets=[];
+      const datasets=[];const netPluginData=[];
       for(let i=0;i<activeSc.length;i++){const scen=activeSc[i];const col=SCEN_COLORS[i%SCEN_COLORS.length];
         const tv=getTradeVals(scen,allZones,refYear);
         const getGrpVal=(grp,key)=>getZones(grp).reduce((s,z)=>s+(tv[z]?.[key]||0),0);
-        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Imp.`,type:'bar',data:groups.map(g=>+getGrpVal(g,'imp').toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
+        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Imp.`,type:'bar',data:groups.map(g=>+getGrpVal(g,'imp').toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen,_si:i});
         datasets.push({label:`${activeSc.length>1?scen+' — ':''}Exp.`,type:'bar',data:groups.map(g=>+(-getGrpVal(g,'exp')).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Net`,type:'scatter',data:groups.map(g=>({x:g,y:+getGrpVal(g,'net').toFixed(0)})),pointStyle:'line',rotation:0,pointRadius:9,pointBorderColor:col,pointBorderWidth:2.5,borderColor:col,backgroundColor:'transparent',order:-1});
+        netPluginData.push({si:i,data:groups.map(g=>+getGrpVal(g,'net').toFixed(0)),color:col});
       }
-      return{labels:groups,datasets,ind};
+      return{labels:groups,datasets,ind,netPlugin:buildNetDotPlugin(netPluginData)};
     }
     return{labels:groups,datasets:activeSc.map((scen,i)=>({label:scen,data:groups.map(g=>+(getTotal(scen,g)).toFixed(2)),backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.78),borderWidth:0,stack:scen})).filter(d=>d.data.some(v=>v>0)),ind};
   };
@@ -886,16 +902,16 @@ export default function ResultsRegionPage() {
       return{labels:groups,datasets,ind};
     }
     if(ind.source==='trade'){
-      const datasets=[];
+      const datasets=[];const netPluginData=[];
       for(let i=0;i<compareScs.length;i++){const scen=compareScs[i];const col=SCEN_COLORS[(i+1)%SCEN_COLORS.length];
         const tvCmp=getTradeVals(scen,allZones,refYear); const tvRef=getTradeVals(cmpRef,allZones,refYear);
         const getD=(grp,key)=>getZones(grp).reduce((s,z)=>s+((tvCmp[z]?.[key]||0)-(tvRef[z]?.[key]||0)),0);
         const dImp=groups.map(g=>+getD(g,'imp').toFixed(0)); const dExp=groups.map(g=>+getD(g,'exp').toFixed(0)); const dNet=groups.map(g=>+getD(g,'net').toFixed(0));
-        if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
+        if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen,_si:i});
         if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'scatter',data:groups.map(g=>({x:g,y:+getD(g,'net').toFixed(0)})),pointStyle:'line',rotation:0,pointRadius:9,pointBorderColor:col,pointBorderWidth:2.5,borderColor:col,backgroundColor:'transparent',order:-1});
+        if(dNet.some(v=>v!==0))netPluginData.push({si:i,data:dNet,color:col});
       }
-      return{labels:groups,datasets,ind};
+      return{labels:groups,datasets,ind,netPlugin:buildNetDotPlugin(netPluginData)};
     }
     const DCOLS=['#3887C4','#4A9E6A','#D4A820','#B83838'];
     return{labels:groups,datasets:compareScs.map((scen,i)=>({label:`Δ ${scen}`,data:groups.map(g=>+(getTotal(scen,g)-getTotal(cmpRef,g)).toFixed(2)),backgroundColor:hexA(DCOLS[i%4],0.72),borderColor:DCOLS[i%4],borderWidth:0,stack:scen})).filter(d=>d.data.some(v=>v!==0)),ind};
@@ -1171,6 +1187,7 @@ export default function ResultsRegionPage() {
             {snapData&&snapData.datasets.length>0?<>
               <CJChart type="bar" height={220}
                 cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${[...snapScenarios].sort().join(',')}`}
+                plugins={snapData.netPlugin?[snapData.netPlugin]:[]}
                 data={{labels:snapData.labels,datasets:snapData.datasets}}
                 options={{...cjDefaults(t),scales:{
                   x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
@@ -1200,6 +1217,7 @@ export default function ResultsRegionPage() {
                 {snapDeltaData&&snapDeltaData.datasets.length>0?<>
                   <CJChart type="bar" height={180}
                     cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${cmpRef}|${[...cmpScenarios].sort().join(',')}`}
+                    plugins={snapDeltaData.netPlugin?[snapDeltaData.netPlugin]:[]}
                     data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets}}
                     options={{...cjDefaults(t),scales:{
                       x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
