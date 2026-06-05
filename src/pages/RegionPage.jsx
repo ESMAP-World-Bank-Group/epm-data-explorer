@@ -1384,24 +1384,23 @@ function TradeTab({ t, epmData, epmLoading, hasEpm }) {
             {ntcYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
-        <CJChart type="bar" height={Math.min(corridors.length * 22 + 24, 260)}
-          data={{
-            labels: corridors.map(r => r.label),
-            datasets: [{ data: corridors.map(r => r.mw),
-              backgroundColor: corridors.map((_, i) => ZONE_PALETTE[i % ZONE_PALETTE.length]),
-              borderWidth: 0, barThickness: 12 }],
-          }}
-          options={{ ...cjDefaults(t), indexAxis: 'y',
-            scales: {
-              x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
-                callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
-              y: { grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
-            },
-            plugins: { ...cjDefaults(t).plugins,
-              tooltip: { ...cjDefaults(t).plugins.tooltip,
-                callbacks: { label: ctx => `${ctx.raw.toLocaleString()} MW` } } },
-          }}
-        />
+        {(()=>{const visCor=corridors.filter(r=>!ntcHidden.has(r.label));return(
+          <CJChart type="bar" height={Math.min(visCor.length*22+24,260)}
+            cacheKey={`ntc-yr|${refYr}|${[...ntcHidden].sort().join(',')}`}
+            data={{ labels:visCor.map(r=>r.label),
+              datasets:[{data:visCor.map(r=>r.mw),
+                backgroundColor:visCor.map(r=>{const i=topCorridors.findIndex(c=>c.z===r.z&&c.z2===r.z2);return ZONE_PALETTE[(i>=0?i:corridors.indexOf(r))%ZONE_PALETTE.length];}),
+                borderWidth:0, barThickness:12}] }}
+            options={{ ...cjDefaults(t), indexAxis:'y',
+              scales:{
+                x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+              },
+              plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,
+                callbacks:{label:ctx=>`${ctx.raw.toLocaleString()} MW`}}},
+            }}
+          />
+        );})()}
       </div>
 
       {/* Zones + countries */}
