@@ -1236,16 +1236,15 @@ export default function ResultsRegionPage() {
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
                       <CJChart type="bar" height={180}
-                        cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${[...hiddenMap['snap-d-tf']||[]].join(',')}`}
+                        cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
                         plugins={snapDeltaData.netPlugin?[snapDeltaData.netPlugin]:[]}
-                        data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>!isHidden('snap-d-tf',tfLabel(d)))}}
+                        data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>!isHidden('snap-tf',tfLabel(d)))}}
                         options={{...cjDefaults(t),scales:{
                           x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
                           y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapDeltaData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
                         },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()}`:undefined;}}}}}}
                       />
                     </div>
-                    {makeLegend('snap-d-tf',[...new Set(snapDeltaData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
                   </div>
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No differences found.':'Select at least one scenario to compare.'}</div>}
               </div>
@@ -1296,15 +1295,18 @@ export default function ResultsRegionPage() {
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
                       <CJChart type="bar" height={190}
-                        cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}|${[...hiddenMap['cmp-ev-tf']||[]].join(',')}`}
-                        data={{...cmpEvData,datasets:cmpEvData.datasets.filter(d=>!isHidden('cmp-ev-tf',tfLabel(d)))}}
+                        cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
+                        data={{...cmpEvData,datasets:cmpEvData.datasets.filter(d=>{
+                          if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
+                          if(activeInd.source==='costs') return !isHidden('ev-cost',tfLabel(d));
+                          return true;
+                        })}}
                         options={{...cjDefaults(t),scales:{
                           x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
                           y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}},
                         },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
                       />
                     </div>
-                    {makeLegend('cmp-ev-tf',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
                   </div>
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{hasSc?'No differences found for this indicator between selected scenarios.':'Select at least one scenario to compare.'}</div>;})()}
               </div>
@@ -1360,9 +1362,9 @@ export default function ResultsRegionPage() {
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
                       <CJChart type="line" height={dispMode==='full'?180:130}
-                        data={{...dispDeltaResult.chartData,datasets:dispDeltaResult.chartData.datasets.filter(d=>!isHidden('disp-d-tf',d.label))}}
+                        data={{...dispDeltaResult.chartData,datasets:dispDeltaResult.chartData.datasets.filter(d=>!isHidden('disp-tf',d.label))}}
                         plugins={dispDeltaResult.plugin?[dispDeltaResult.plugin]:[]}
-                        cacheKey={`disp-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-d-tf']||[]].join(',')}`}
+                        cacheKey={`disp-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
                         options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},
                           scales:{
                             x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
@@ -1371,7 +1373,6 @@ export default function ResultsRegionPage() {
                           plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
                       />
                     </div>
-                    {makeLegend('disp-d-tf',dispDeltaResult.chartData.datasets.map(d=>({label:d.label,color:techColor(d.label)})))}
                   </div>
                 </>:cmpRef&&cmpRef===dispScenario?
                   <div style={{fontSize:'0.55rem',color:t.lblMuted}}>Select a different reference scenario.</div>:
