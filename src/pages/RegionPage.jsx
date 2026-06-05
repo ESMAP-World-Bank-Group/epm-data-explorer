@@ -1527,7 +1527,6 @@ export default function RegionPage() {
   const [pieMode,         setPieMode]         = useState('zone');
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(560);
-  const [selIso,          setSelIso]          = useState(null);
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   // Static data
@@ -1708,12 +1707,6 @@ export default function RegionPage() {
           map.addLayer({ id: 'zone-hover', type: 'fill', source: 'zones',
             filter: ['==', ['get', 'ISO_A3'], ''],
             paint: { 'fill-color': fillExpr, 'fill-opacity': 0.55 } });
-          map.addLayer({ id: 'country-selected', type: 'fill', source: 'zones',
-            filter: ['==', ['get', 'ISO_A3'], '__none__'],
-            paint: { 'fill-color': fillExpr, 'fill-opacity': 0.45 } });
-          map.addLayer({ id: 'country-selected-border', type: 'line', source: 'zones',
-            filter: ['==', ['get', 'ISO_A3'], '__none__'],
-            paint: { 'line-color': 'rgba(255,255,255,0.9)', 'line-width': 2.5 } });
           map.addLayer({ id: 'zone-border', type: 'line', source: 'zones',
             paint: { 'line-color': fillExpr, 'line-width': 1.2, 'line-opacity': 0.75 } });
 
@@ -1731,12 +1724,8 @@ export default function RegionPage() {
           });
           map.on('click', 'zone-fill', e => {
             const iso = e.features[0].properties.ISO_A3;
-            setSelIso(prev => {
-              const next = prev === iso ? null : iso;
-              const f = next || '__none__';
-              try { map.setFilter('country-selected', ['==', ['get', 'ISO_A3'], f]); map.setFilter('country-selected-border', ['==', ['get', 'ISO_A3'], f]); } catch(err) {}
-              return next;
-            });
+            const c = isoToCountry[iso] || iso;
+            navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`);
           });
         } else if (lsgj) {
           // Fallback: country fill from world source (no zones.geojson)
