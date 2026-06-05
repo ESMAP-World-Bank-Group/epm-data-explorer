@@ -1022,6 +1022,22 @@ export default function ResultsRegionPage() {
   const plantsData=buildPlantsList(), lcoeData=buildLCOEBubble();
   const dispTechfuels=dispResult.chartData.datasets.filter(d=>d.label!=='Marginal cost'&&d.label!=='Demand').map(d=>d.label);
 
+  // ── Legend helpers ──────────────────────────────────────────────────────────
+  const tfLabel=d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label;
+  const makeLegend=(id,items,clickable=true)=>{
+    const hidden=hiddenMap[id]||new Set();
+    return <div style={{width:90,flexShrink:0,display:'flex',flexDirection:'column',gap:2,paddingTop:4,maxHeight:220,overflowY:'auto'}}>
+      {items.map(({label,color,shape})=><div key={label} onClick={clickable?()=>toggleHidden(id,label):undefined} style={{display:'flex',alignItems:'center',gap:3,cursor:clickable?'pointer':'default',opacity:hidden.has(label)?0.25:1}}>
+        {shape==='line'?<div style={{width:12,height:2,backgroundColor:color,borderRadius:1,flexShrink:0}}/>:<div style={{width:8,height:8,borderRadius:shape==='circle'?'50%':2,backgroundColor:color,flexShrink:0}}/>}
+        <span style={{fontSize:'0.4rem',color:t.muted,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</span>
+      </div>)}
+      {clickable&&<div style={{fontSize:'0.38rem',color:t.lblMuted,marginTop:4,display:'flex',gap:6}}>
+        <span onClick={()=>setHiddenMap(p=>({...p,[id]:new Set(items.map(i=>i.label))}))} style={{cursor:'pointer',textDecoration:'underline'}}>None</span>
+        <span onClick={()=>setHiddenMap(p=>({...p,[id]:new Set()}))} style={{cursor:'pointer',textDecoration:'underline'}}>All</span>
+      </div>}
+    </div>;
+  };
+
   // ── JSX ─────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display:'flex', height:'calc(100vh - 46px)' }}
@@ -1141,10 +1157,14 @@ export default function ResultsRegionPage() {
             {/* Mix chart */}
             {overviewMix&&<div>
               <SectionTitle t={t} right={<div style={{display:'flex',gap:3}}><Pill active={ovMixMode==='zone'} onClick={()=>setOvMixMode('zone')}>Zone</Pill><Pill active={ovMixMode==='country'} onClick={()=>setOvMixMode('country')}>Country</Pill></div>}>Capacity mix (MW)</SectionTitle>
-              <CJChart type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}|${[...hiddenMap['ov-mix']||[]].join(',')}`} data={{...overviewMix,datasets:overviewMix.datasets.filter(d=>!isHidden('ov-mix',d.label))}}
-                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}
-              />
-              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:5}}>{allTechfuels.map(tf=><div key={tf} onClick={()=>toggleHidden('ov-mix',tf)} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted,cursor:'pointer',opacity:isHidden('ov-mix',tf)?0.28:1}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>
+              <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <CJChart type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}|${[...hiddenMap['ov-mix']||[]].join(',')}`} data={{...overviewMix,datasets:overviewMix.datasets.filter(d=>!isHidden('ov-mix',d.label))}}
+                    options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}
+                  />
+                </div>
+                {makeLegend('ov-mix',allTechfuels.filter(tf=>overviewMix.datasets.some(d=>d.label===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
+              </div>
             </div>}
             {/* Prices by zone */}
             {Object.keys(zoneAvgPrices).length>0&&(()=>{
@@ -1184,24 +1204,22 @@ export default function ResultsRegionPage() {
               {scenarioList.map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
             </div>
             {/* Absolute chart */}
-            {snapData&&snapData.datasets.length>0?<>
-              <CJChart type="bar" height={220}
-                cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${[...snapScenarios].sort().join(',')}`}
-                plugins={snapData.netPlugin?[snapData.netPlugin]:[]}
-                data={{labels:snapData.labels,datasets:snapData.datasets}}
-                options={{...cjDefaults(t),scales:{
-                  x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
-                  y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
-                },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
-              />
-              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
-                {[...new Set(snapData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>(
-                  <div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}>
-                    <div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)||SCEN_COLORS[0]}}/>{tf}
-                  </div>
-                ))}
+            {snapData&&snapData.datasets.length>0?
+              <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <CJChart type="bar" height={220}
+                    cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
+                    plugins={snapData.netPlugin?[snapData.netPlugin]:[]}
+                    data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>!isHidden('snap-tf',tfLabel(d)))}}
+                    options={{...cjDefaults(t),scales:{
+                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
+                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
+                    },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
+                  />
+                </div>
+                {makeLegend('snap-tf',[...new Set(snapData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
               </div>
-            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
+            :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
             {/* Δ vs ref section */}
             {scenarioList.length>1&&(
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:8}}>
@@ -1214,24 +1232,22 @@ export default function ResultsRegionPage() {
                     <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
                   ))}
                 </div>
-                {snapDeltaData&&snapDeltaData.datasets.length>0?<>
-                  <CJChart type="bar" height={180}
-                    cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${cmpRef}|${[...cmpScenarios].sort().join(',')}`}
-                    plugins={snapDeltaData.netPlugin?[snapDeltaData.netPlugin]:[]}
-                    data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets}}
-                    options={{...cjDefaults(t),scales:{
-                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
-                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapDeltaData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
-                    },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()}`:undefined;}}}}}}
-                  />
-                  <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
-                    {[...new Set(snapDeltaData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>(
-                      <div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}>
-                        <div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)||SCEN_COLORS[0]}}/>{tf}
-                      </div>
-                    ))}
+                {snapDeltaData&&snapDeltaData.datasets.length>0?
+                  <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <CJChart type="bar" height={180}
+                        cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${[...hiddenMap['snap-d-tf']||[]].join(',')}`}
+                        plugins={snapDeltaData.netPlugin?[snapDeltaData.netPlugin]:[]}
+                        data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>!isHidden('snap-d-tf',tfLabel(d)))}}
+                        options={{...cjDefaults(t),scales:{
+                          x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
+                          y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapDeltaData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
+                        },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()}`:undefined;}}}}}}
+                      />
+                    </div>
+                    {makeLegend('snap-d-tf',[...new Set(snapDeltaData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
                   </div>
-                </>:<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No differences found.':'Select at least one scenario to compare.'}</div>}
+                :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No differences found.':'Select at least one scenario to compare.'}</div>}
               </div>
             )}
           </div>
@@ -1246,13 +1262,23 @@ export default function ResultsRegionPage() {
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
               {scenarioList.map(s=><Pill key={s} active={evScenarios.has(s)} onClick={()=>setEvScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
             </div>
-            {evolutionData?<>
-              <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={220} cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}|${[...hiddenMap['ev-tf']||[]].join(',')}`} data={{...evolutionData,datasets:evolutionData.datasets.filter(d=>activeInd.source!=='techFuel'||!isHidden('ev-tf',d.label.split(' — ')[1]||d.label))}}
-                options={{...cjDefaults(t),scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
-              />
-              {activeInd.source==='costs'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{MAIN_COST_CATS.map(cat=><div key={cat} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:costColor(cat)}}/>{COST_LABELS[cat]||cat}</div>)}</div>}
-              {activeInd.source==='techFuel'&&<div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>{allTechfuels.map(tf=><div key={tf} onClick={()=>toggleHidden('ev-tf',tf)} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted,cursor:'pointer',opacity:isHidden('ev-tf',tf)?0.28:1}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>}
-            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
+            {evolutionData?
+              <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={220}
+                    cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
+                    data={{...evolutionData,datasets:evolutionData.datasets.filter(d=>{
+                      if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
+                      if(activeInd.source==='costs') return !isHidden('ev-cost',tfLabel(d));
+                      return true;
+                    })}}
+                    options={{...cjDefaults(t),scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
+                  />
+                </div>
+                {activeInd.source==='techFuel'&&makeLegend('ev-tf',allTechfuels.filter(tf=>evolutionData.datasets.some(d=>tfLabel(d)===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
+                {activeInd.source==='costs'&&makeLegend('ev-cost',MAIN_COST_CATS.filter(cat=>evolutionData.datasets.some(d=>tfLabel(d)===(COST_LABELS[cat]||cat))).map(cat=>({label:COST_LABELS[cat]||cat,color:costColor(cat)})))}
+              </div>
+            :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
             {/* ── Compare scenarios (Δ vs ref, stacked by techfuel) ── */}
             {scenarioList.length>1&&(
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>
@@ -1266,25 +1292,21 @@ export default function ResultsRegionPage() {
                   ))}
                 </div>
                 {(()=>{const hasSc=[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0;
-                return cmpEvData&&cmpEvData.datasets.length>0?<>
-                  <CJChart type="bar" height={190}
-                    cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}`}
-                    data={cmpEvData}
-                    options={{...cjDefaults(t),scales:{
-                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
-                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}},
-                    },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
-                  />
-                  <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
-                    {/* Show unique techfuels only (deduplicate across scenarios) */}
-                    {[...new Set(cmpEvData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>(
-                      <div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}>
-                        <div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)||SCEN_COLORS[0]}}/>{tf}
-                      </div>
-                    ))}
-                    {[...cmpScenarios].length>1&&<span style={{fontSize:'0.38rem',color:t.lblMuted,marginLeft:4}}>grouped by scenario</span>}
+                return cmpEvData&&cmpEvData.datasets.length>0?
+                  <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <CJChart type="bar" height={190}
+                        cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}|${[...hiddenMap['cmp-ev-tf']||[]].join(',')}`}
+                        data={{...cmpEvData,datasets:cmpEvData.datasets.filter(d=>!isHidden('cmp-ev-tf',tfLabel(d)))}}
+                        options={{...cjDefaults(t),scales:{
+                          x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
+                          y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}},
+                        },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
+                      />
+                    </div>
+                    {makeLegend('cmp-ev-tf',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
                   </div>
-                </>:<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{hasSc?'No differences found for this indicator between selected scenarios.':'Select at least one scenario to compare.'}</div>;})()}
+                :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{hasSc?'No differences found for this indicator between selected scenarios.':'Select at least one scenario to compare.'}</div>;})()}
               </div>
             )}
             <DlRow files={scenarioList.map(s=>[s,'pTechFuelMerged.csv']).slice(0,1).concat(scenarioList.map(s=>[s,'pYearlyZoneMerged.csv']).slice(0,1))}/>
@@ -1307,16 +1329,23 @@ export default function ResultsRegionPage() {
               {dispAvailS.map(s=><Pill key={s} active={dispMode==='season'&&dispSeason===s} onClick={()=>{setDispMode('season');setDispSeason(s);}}>{s}</Pill>)}
               {dispMode==='season'&&dispAvailD.length>0&&<><div style={{width:1,height:14,backgroundColor:t.panelBorder}}/><select value={dispDay} onChange={e=>setDispDay(e.target.value)} style={selectStyle}><option value="avg">Avg</option>{dispAvailD.map(d=><option key={d} value={d}>{d}</option>)}</select></>}
             </div>
-            {dispResult.chartData.datasets.length>0?<>
-              <CJChart type="line" height={dispMode==='full'?215:165} data={dispResult.chartData} plugins={dispResult.plugin?[dispResult.plugin]:[]} cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}`}
-                options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
-              />
-              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
-                {dispTechfuels.map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}
-                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:'#8B0000',borderRadius:1,opacity:0.8}}/><span>Demand</span></div>
-                <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',borderRadius:1}}/><span>Marginal cost</span></div>
+            {dispResult.chartData.datasets.length>0?
+              <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <CJChart type="line" height={dispMode==='full'?215:165}
+                    data={{...dispResult.chartData,datasets:dispResult.chartData.datasets.filter(d=>!isHidden('disp-tf',d.label))}}
+                    plugins={dispResult.plugin?[dispResult.plugin]:[]}
+                    cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
+                    options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
+                  />
+                </div>
+                {makeLegend('disp-tf',[
+                  ...dispTechfuels.map(tf=>({label:tf,color:techColor(tf)})),
+                  {label:'Demand',color:'#8B0000',shape:'line'},
+                  {label:'Marginal cost',color:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',shape:'line'},
+                ])}
               </div>
-            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
+            :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
             {/* ── Dispatch Δ section ── */}
             {scenarioList.length>1&&(
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>
@@ -1328,19 +1357,21 @@ export default function ResultsRegionPage() {
                 </div>
                 {cmpRef&&cmpRef!==dispScenario&&dispDeltaResult.chartData.datasets.length>0?<>
                   <SectionTitle t={t}>Δ {dispScenario} − {cmpRef} (MW)</SectionTitle>
-                  <CJChart type="line" height={dispMode==='full'?180:130}
-                    data={dispDeltaResult.chartData}
-                    plugins={dispDeltaResult.plugin?[dispDeltaResult.plugin]:[]}
-                    cacheKey={`disp-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}`}
-                    options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},
-                      scales:{
-                        x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
-                        y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'ΔMW',color:t.muted,font:{size:7}}},
-                      },
-                      plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
-                  />
-                  <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2}}>
-                    {dispDeltaResult.chartData.datasets.map(d=><div key={d.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(d.label)}}/>{d.label}</div>)}
+                  <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <CJChart type="line" height={dispMode==='full'?180:130}
+                        data={{...dispDeltaResult.chartData,datasets:dispDeltaResult.chartData.datasets.filter(d=>!isHidden('disp-d-tf',d.label))}}
+                        plugins={dispDeltaResult.plugin?[dispDeltaResult.plugin]:[]}
+                        cacheKey={`disp-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-d-tf']||[]].join(',')}`}
+                        options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},
+                          scales:{
+                            x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
+                            y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'ΔMW',color:t.muted,font:{size:7}}},
+                          },
+                          plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
+                      />
+                    </div>
+                    {makeLegend('disp-d-tf',dispDeltaResult.chartData.datasets.map(d=>({label:d.label,color:techColor(d.label)})))}
                   </div>
                 </>:cmpRef&&cmpRef===dispScenario?
                   <div style={{fontSize:'0.55rem',color:t.lblMuted}}>Select a different reference scenario.</div>:
@@ -1441,23 +1472,30 @@ export default function ResultsRegionPage() {
             {/* Ranking */}
             {plantsData.length>0?<>
               <SectionTitle t={t}>Top {plTopN} — {plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</SectionTitle>
-              <CJChart type="bar" height={Math.min(plantsData.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}`}
-                data={{labels:plantsData.map(p=>p.g),datasets:[{label:plScenario,data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
-                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
-              />
-              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:4}}>{[...new Set(plantsData.map(p=>p.techfuel))].map(tf=><div key={tf} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:2,backgroundColor:techColor(tf)}}/>{tf}</div>)}</div>
+              <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <CJChart type="bar" height={Math.min(plantsData.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}`}
+                    data={{labels:plantsData.map(p=>p.g),datasets:[{label:plScenario,data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
+                    options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
+                  />
+                </div>
+                {makeLegend('plants-tf',[...new Set(plantsData.map(p=>p.techfuel))].map(tf=>({label:tf,color:techColor(tf)})),false)}
+              </div>
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data for this run/scenario.</div>}
             {/* LCOE bubble — always below */}
             {lcoeData&&lcoeData.datasets.length>0&&<>
               <SectionTitle t={t}>LCOE vs Utilization — bubble = capacity</SectionTitle>
-              <CJChart type="bubble" height={250} cacheKey={`lcoe|${plScenario}|${refYear}`}
-                data={lcoeData}
-
-                options={{...cjDefaults(t),plugins:{...cjDefaults(t).plugins,
-                  tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return[`${d._plant||ctx.dataset.label}`,`LCOE: ${d.y} $/MWh  ·  Util: ${d.x.toFixed(0)}%`,d._cap?`Cap: ${fmt(d._cap)} MW`:''].filter(Boolean);}}}},
-                  scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:8}},min:0,max:105},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:8}},min:0}}}}
-              />
-              <div style={{display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:4}}>{lcoeData.datasets.map(ds=><div key={ds.label} style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:8,height:8,borderRadius:'50%',backgroundColor:ds.backgroundColor}}/>{ds.label}</div>)}</div>
+              <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <CJChart type="bubble" height={250} cacheKey={`lcoe|${plScenario}|${refYear}|${[...hiddenMap['lcoe-tf']||[]].join(',')}`}
+                    data={{...lcoeData,datasets:lcoeData.datasets.filter(ds=>!isHidden('lcoe-tf',ds.label))}}
+                    options={{...cjDefaults(t),plugins:{...cjDefaults(t).plugins,
+                      tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return[`${d._plant||ctx.dataset.label}`,`LCOE: ${d.y} $/MWh  ·  Util: ${d.x.toFixed(0)}%`,d._cap?`Cap: ${fmt(d._cap)} MW`:''].filter(Boolean);}}}},
+                      scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:8}},min:0,max:105},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:8}},min:0}}}}
+                  />
+                </div>
+                {makeLegend('lcoe-tf',lcoeData.datasets.map(ds=>({label:ds.label,color:ds.backgroundColor,shape:'circle'})))}
+              </div>
             </>}
             <DlRow files={[[plScenario,'pPlantMerged.csv'],[plScenario,'pCostsMerged.csv']]}/>
           </div>
