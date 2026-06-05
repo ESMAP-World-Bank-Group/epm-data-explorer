@@ -1380,7 +1380,7 @@ export default function ResultsRegionPage() {
                           plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
                       />
                     </div>
-                    {makeLegend('disp-tf',dispDeltaResult.chartData.datasets.map(d=>({label:d.label,color:techColor(d.label)})))}
+                    {makeLegend('disp-tf',[...dispTechfuels.map(tf=>({label:tf,color:techColor(tf)})),{label:'Demand',color:'#8B0000',shape:'line'},{label:'Marginal cost',color:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',shape:'line'}])}
                   </div>
                 </>:cmpRef&&cmpRef===dispScenario?
                   <div style={{fontSize:'0.55rem',color:t.lblMuted}}>Select a different reference scenario.</div>:
