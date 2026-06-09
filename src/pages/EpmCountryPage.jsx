@@ -453,6 +453,21 @@ export default function EpmCountryPage() {
   const demandZones = useMemo(() => [...new Set(countryDemand.map(r=>r.zone))].sort(), [countryDemand]);
   const zoneColors  = useMemo(() => Object.fromEntries(demandZones.map((z,i)=>[z,ZONE_PALETTE[i%ZONE_PALETTE.length]])), [demandZones]);
 
+  const demandCAGR  = useMemo(() => {
+    if (allYears.length < 2) return null;
+    const firstYr = allYears[0], lastYr = allYears[allYears.length - 1];
+    const nYrs = parseInt(lastYr) - parseInt(firstYr);
+    if (nYrs <= 0) return null;
+    const visRows = r => demandSeg === 'zone' ? !demandHidden.has(r.zone) : true;
+    const sum = (type, yr) => countryDemand.filter(r => r.type === type && visRows(r))
+      .reduce((s, r) => s + (r.years[yr] || 0), 0);
+    const calcCAGR = (type) => {
+      const s = sum(type, firstYr), e = sum(type, lastYr);
+      return (s > 0 && e > 0) ? (Math.pow(e / s, 1 / nYrs) - 1) * 100 : null;
+    };
+    return { peak: calcCAGR('peak'), energy: calcCAGR('energy'), firstYr, lastYr };
+  }, [countryDemand, allYears, demandSeg, demandHidden]);
+
   const filteredPlants = useMemo(() => countryGen.filter(r=>statusFilter.has(r.status) && (selZone==='all'||r.zone===selZone)), [countryGen, statusFilter, selZone]);
   const sortedPlants   = useMemo(() => {
     const { col, dir } = supplySort;
@@ -947,6 +962,35 @@ export default function EpmCountryPage() {
                   <Pill active={demandSeg==='zone'}      onClick={()=>{ setDemandSeg('zone'); setDemandHidden(new Set()); }}>By Zone</Pill>
                 </div>
               }>Demand forecast</SectionTitle>
+              {demandCAGR && (
+                <div style={{ display:'flex', gap:6, marginBottom:7, flexWrap:'wrap' }}>
+                  {[
+                    { label:'Peak CAGR', val:demandCAGR.peak, unit:'GW' },
+                    { label:'Energy CAGR', val:demandCAGR.energy, unit:'GWh' },
+                  ].map(({ label, val, unit }) => {
+                    if (val === null) return null;
+                    const pos = val >= 0;
+                    const color = pos ? '#22a861' : '#e05252';
+                    return (
+                      <div key={label} style={{
+                        display:'inline-flex', alignItems:'center', gap:5,
+                        padding:'3px 8px', borderRadius:5,
+                        border:`1px solid ${color}44`,
+                        backgroundColor:`${color}12`,
+                        fontSize:'0.48rem',
+                      }}>
+                        <span style={{ color:t.lblMuted }}>{label}</span>
+                        <span style={{ fontWeight:700, color }}>
+                          {pos ? '+' : ''}{val.toFixed(1)}%/yr
+                        </span>
+                        <span style={{ color:t.lblMuted, fontSize:'0.4rem' }}>
+                          ({demandCAGR.firstYr}–{demandCAGR.lastYr})
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {countryDemand.length > 0 ? (
                 <div style={{ display:'flex', gap:8 }}>
                   <div style={{ flex:1 }}>
