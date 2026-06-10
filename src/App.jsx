@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, Component } from 'react';
+import { THEME_LIST } from './constants';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import WorldPage from './pages/WorldPage';
@@ -36,7 +37,10 @@ class ErrorBoundary extends Component {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState('slate');
+  const [theme, setTheme] = useState(() => {
+    const p = new URLSearchParams(window.location.search).get('theme');
+    return (p && THEME_LIST.includes(p)) ? p : 'slate';
+  });
   const t = getT(theme);
 
   return (

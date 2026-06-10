@@ -76,15 +76,16 @@ export default function Navbar() {
 
   const dashboardUrl = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean);
+    const suffix = `?theme=${theme}`;
     // /region/:id/(results/)country/:name → geo /country/:name
     if (parts[0] === 'region' && parts.includes('country')) {
       const name = parts[parts.indexOf('country') + 1];
-      if (name) return `${REGIONAL_EXPLORER_URL}/country/${name}`;
+      if (name) return `${REGIONAL_EXPLORER_URL}/country/${name}${suffix}`;
     }
-    if (parts[0] === 'region' && parts[1]) return `${REGIONAL_EXPLORER_URL}/region/${parts[1]}`;
-    if (parts[0] === 'country' && parts[1]) return `${REGIONAL_EXPLORER_URL}/country/${parts[1]}`;
-    return REGIONAL_EXPLORER_URL;
-  }, [location.pathname]);
+    if (parts[0] === 'region' && parts[1]) return `${REGIONAL_EXPLORER_URL}/region/${parts[1]}${suffix}`;
+    if (parts[0] === 'country' && parts[1]) return `${REGIONAL_EXPLORER_URL}/country/${parts[1]}${suffix}`;
+    return `${REGIONAL_EXPLORER_URL}${suffix}`;
+  }, [location.pathname, theme]);
 
   const navBtn = (active = false) => ({
     background: 'none',
