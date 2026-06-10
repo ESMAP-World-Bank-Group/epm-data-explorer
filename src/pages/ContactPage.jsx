@@ -145,16 +145,20 @@ export default function ContactPage() {
           </div>
         </div>
 
-        {/* Footer — discreet email */}
-        <p style={{ fontSize: '0.65rem', color: t.lblMuted, opacity: 0.6, lineHeight: 1.7 }}>
-          Questions or feedback ·{' '}
-          <a href="mailto:mbaronnet@worldbank.org" style={{ color: 'inherit', textDecoration: 'none' }}
+        {/* Footer — contact */}
+        <div style={{ fontSize: '0.72rem', color: t.muted, lineHeight: 1.8 }}>
+          <div style={{ fontSize: '0.48rem', letterSpacing: '2px', fontWeight: 700, color: t.lblMuted, textTransform: 'uppercase', marginBottom: 10 }}>
+            Questions or feedback
+          </div>
+          <span style={{ fontWeight: 600, color: t.lbl }}>Maelle Baronnet</span>
+          <span style={{ color: t.panelBorder, margin: '0 8px' }}>·</span>
+          <a href="mailto:maelle.baronnet@gmail.com" style={{ color: 'rgba(74,143,204,0.88)', textDecoration: 'none' }}
             onMouseOver={e => e.currentTarget.style.textDecoration = 'underline'}
             onMouseOut={e => e.currentTarget.style.textDecoration = 'none'}
           >
-            mbaronnet@worldbank.org
+            maelle.baronnet@gmail.com
           </a>
-        </p>
+        </div>
 
       </div>
     </div>
