@@ -209,6 +209,15 @@ export async function fetchZonesGeoJSON(branch, dataFolder) {
   } catch { return null; }
 }
 
+export async function fetchZonesExtGeoJSON(branch, dataFolder) {
+  const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/zones_ext.geojson`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
 export async function fetchEpmCSV(branch, dataFolder, relPath) {
   const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/${relPath}`;
   try {
@@ -322,6 +331,25 @@ export function processDemand(rows) {
     type: (r.type || '').toLowerCase(),
     years: Object.fromEntries(yearCols.map(y => [y, parseFloat(r[y]) || 0])),
   }));
+}
+
+/** Returns { z, zext, years: { '2024': maxMW, ... } }[] — max NTC over directions/quarters */
+export function processExtNTC(rows) {
+  if (!rows?.length) return [];
+  const yearCols = Object.keys(rows[0]).filter(k => /^\d{4}$/.test(k));
+  const pairs = {};
+  for (const r of rows) {
+    const z    = r.z    || '';
+    const zext = r.zext || '';
+    if (!z || !zext) continue;
+    const key = `${z}||${zext}`;
+    if (!pairs[key]) pairs[key] = { z, zext, years: {} };
+    for (const y of yearCols) {
+      const v = parseFloat(r[y]) || 0;
+      pairs[key].years[y] = Math.max(pairs[key].years[y] || 0, v);
+    }
+  }
+  return Object.values(pairs);
 }
 
 /** Returns { z, z2, years: { '2024': avgMW, ... } }[] — averaged over quarters */

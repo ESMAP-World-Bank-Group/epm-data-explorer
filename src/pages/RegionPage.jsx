@@ -9,9 +9,9 @@ import {
 import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON,
   processGenData, processDemand,
-  processNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
+  processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
   computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
@@ -1525,6 +1525,7 @@ export default function RegionPage() {
   const [epmData,         setEpmData]         = useState(null);
   const [epmLoading,      setEpmLoading]      = useState(false);
   const [pieMode,         setPieMode]         = useState('zone');
+  const [showExtZones,    setShowExtZones]    = useState(false);
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(560);
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
@@ -1574,7 +1575,9 @@ export default function RegionPage() {
       fetchEpmCSV(branch, dataFolder, 'supply/pAvailabilityDefault.csv'),
       fetchEpmCSV(branch, dataFolder, 'supply/pFuelPrice.csv'),
       fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
+      fetchZonesExtGeoJSON(branch, dataFolder),
+      fetchEpmCSV(branch, dataFolder, 'trade/pExtTransferLimit.csv'),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw]) => {
       setEpmData({
         gen:               genRaw    ? processGenData(genRaw)               : [],
         demand:            demandRaw ? processDemand(demandRaw)             : [],
@@ -1585,7 +1588,8 @@ export default function RegionPage() {
         availability:      availRaw  ? processAvailability(availRaw)        : {},
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)              : {},
         hours:             hoursRaw  ? processHours(hoursRaw)               : {},
-        linestringGJ, zonesGJ, branch,
+        extNtc:            extNtcRaw ? processExtNTC(extNtcRaw)             : [],
+        linestringGJ, zonesGJ, zonesExtGJ, branch,
       });
     }).finally(() => setEpmLoading(false));
   }, [region]);
@@ -1803,6 +1807,58 @@ export default function RegionPage() {
           }
         }
 
+        // ── External zone layers (toggle-controlled) ─────────────────────
+        const zonesExtGJ = epmData.zonesExtGJ;
+        const extNtc     = epmData.extNtc || [];
+        const extNodeCoords = {};
+        if (zonesExtGJ) {
+          for (const f of zonesExtGJ.features) {
+            const z = f.properties?.z;
+            if (z && f.geometry?.type === 'Point')
+              extNodeCoords[z] = f.geometry.coordinates;
+          }
+        }
+
+        const extNtcYrs  = extNtc.length > 0 ? Object.keys(extNtc[0].years).sort() : [];
+        const extNtcYr   = extNtcYrs[0] || '2024';
+        const extLineFeatures = extNtc
+          .filter(r => zoneCentroids[r.z] && extNodeCoords[r.zext])
+          .map(r => ({
+            type: 'Feature',
+            properties: { z: r.z, zext: r.zext, ntc_mw: r.years[extNtcYr] || 0 },
+            geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], extNodeCoords[r.zext]] },
+          }));
+        const extNodeFeatures = Object.entries(extNodeCoords).map(([z, coords]) => ({
+          type: 'Feature',
+          properties: { z },
+          geometry: { type: 'Point', coordinates: coords },
+        }));
+
+        map.addSource('ext-ntc-lines', { type: 'geojson',
+          data: { type: 'FeatureCollection', features: extLineFeatures } });
+        map.addLayer({ id: 'ext-ntc-lines-layer', type: 'line', source: 'ext-ntc-lines',
+          layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#888888',
+            'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3, 5000, 4.5],
+            'line-opacity': 0.85 } });
+        map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
+          layout: { visibility: 'none', 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
+            'text-size': 7, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
+          paint: { 'text-color': '#777777',
+            'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.2 } });
+
+        map.addSource('ext-nodes', { type: 'geojson',
+          data: { type: 'FeatureCollection', features: extNodeFeatures } });
+        map.addLayer({ id: 'ext-nodes-circles', type: 'circle', source: 'ext-nodes',
+          layout: { visibility: 'none' },
+          paint: { 'circle-radius': 4, 'circle-color': 'rgba(255,255,255,0.0)',
+            'circle-stroke-width': 1.5, 'circle-stroke-color': '#888888', 'circle-opacity': 1 } });
+        map.addLayer({ id: 'ext-nodes-labels', type: 'symbol', source: 'ext-nodes',
+          layout: { visibility: 'none', 'text-field': ['get', 'z'],
+            'text-size': 8, 'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-allow-overlap': false },
+          paint: { 'text-color': '#777777',
+            'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+
         // Trigger donut rendering via pieMode effect
         setMapLoaded(n => n + 1);
 
@@ -1946,6 +2002,15 @@ export default function RegionPage() {
     };
   }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // External zones toggle
+  useEffect(() => {
+    const map = mapRef.current;
+    const vis = showExtZones ? 'visible' : 'none';
+    for (const id of ['ext-ntc-lines-layer', 'ext-ntc-labels', 'ext-nodes-circles', 'ext-nodes-labels']) {
+      if (map?.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    }
+  }, [showExtZones]);
+
   // Basemap switcher
   useEffect(() => {
     const map = mapRef.current;
@@ -2068,7 +2133,7 @@ export default function RegionPage() {
 
           {/* EPM map badge + pie mode toggle */}
           {isEpmMode && (
-            <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 10, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ fontSize: '0.46rem', color: t.lblMuted, backgroundColor: t.panel,
                 border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: '3px 7px' }}>
                 EPM zones + NTC · {epmData.ntc.length} corridors
@@ -2087,6 +2152,19 @@ export default function RegionPage() {
                   </button>
                 ))}
               </div>
+              {epmData.extNtc?.length > 0 && (
+                <button onClick={() => setShowExtZones(v => !v)} style={{
+                  fontSize: '0.46rem', fontFamily: 'inherit', cursor: 'pointer',
+                  padding: '3px 8px', borderRadius: 4,
+                  border: `1px solid ${showExtZones ? 'rgba(136,136,136,0.6)' : t.panelBorder}`,
+                  backgroundColor: showExtZones ? 'rgba(136,136,136,0.14)' : t.panel,
+                  color: showExtZones ? t.lbl : t.lblMuted,
+                  fontWeight: showExtZones ? 700 : 400,
+                  transition: 'all 0.15s',
+                }}>
+                  Ext. zones
+                </button>
+              )}
             </div>
           )}
         </div>
