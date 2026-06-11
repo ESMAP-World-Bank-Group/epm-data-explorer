@@ -1834,6 +1834,11 @@ export default function RegionPage() {
           geometry: { type: 'Point', coordinates: coords },
         }));
 
+        // Build a lookup: zext → max NTC MW (for popup display)
+        const extNtcByPair = {};
+        for (const r of extNtc)
+          extNtcByPair[`${r.z}||${r.zext}`] = r.years[extNtcYr] || 0;
+
         map.addSource('ext-ntc-lines', { type: 'geojson',
           data: { type: 'FeatureCollection', features: extLineFeatures } });
         map.addLayer({ id: 'ext-ntc-lines-layer', type: 'line', source: 'ext-ntc-lines',
@@ -1841,23 +1846,59 @@ export default function RegionPage() {
           paint: { 'line-color': '#888888',
             'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3, 5000, 4.5],
             'line-opacity': 0.85 } });
-        map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
-          layout: { visibility: 'none', 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
-            'text-size': 7, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
-          paint: { 'text-color': '#777777',
-            'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.2 } });
 
         map.addSource('ext-nodes', { type: 'geojson',
           data: { type: 'FeatureCollection', features: extNodeFeatures } });
         map.addLayer({ id: 'ext-nodes-circles', type: 'circle', source: 'ext-nodes',
           layout: { visibility: 'none' },
-          paint: { 'circle-radius': 4, 'circle-color': 'rgba(255,255,255,0.0)',
-            'circle-stroke-width': 1.5, 'circle-stroke-color': '#888888', 'circle-opacity': 1 } });
+          paint: { 'circle-radius': 5, 'circle-color': tv.isDark ? 'rgba(40,40,40,0.85)' : 'rgba(255,255,255,0.85)',
+            'circle-stroke-width': 1.5, 'circle-stroke-color': '#888888' } });
         map.addLayer({ id: 'ext-nodes-labels', type: 'symbol', source: 'ext-nodes',
           layout: { visibility: 'none', 'text-field': ['get', 'z'],
-            'text-size': 8, 'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-allow-overlap': false },
-          paint: { 'text-color': '#777777',
-            'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+            'text-size': 10, 'text-font': ['literal', ['Noto Sans Bold', 'Arial Unicode MS Bold']],
+            'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-allow-overlap': false },
+          paint: { 'text-color': tv.isDark ? '#e0e0e0' : '#222222',
+            'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
+            'text-halo-width': 1 } });
+        map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
+          layout: { visibility: 'none',
+            'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
+            'text-size': 9, 'text-font': ['literal', ['Noto Sans Bold', 'Arial Unicode MS Bold']],
+            'symbol-placement': 'line-center', 'text-allow-overlap': false },
+          paint: { 'text-color': tv.isDark ? '#cccccc' : '#444444',
+            'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
+            'text-halo-width': 1 } });
+
+        // Hover popup: line shows "Z ↔ Ext · NTC MW"
+        map.on('mouseenter', 'ext-ntc-lines-layer', e => {
+          if (!map.getLayoutProperty('ext-ntc-lines-layer', 'visibility') === 'none') return;
+          map.getCanvas().style.cursor = 'pointer';
+          const { z, zext, ntc_mw } = e.features[0].properties;
+          popup.setLngLat(e.lngLat)
+            .setHTML(`<b>${z} ↔ ${zext}</b><br><span style="opacity:.75">NTC: ${Math.round(ntc_mw).toLocaleString()} MW</span>`)
+            .addTo(map);
+        });
+        map.on('mouseleave', 'ext-ntc-lines-layer', () => {
+          map.getCanvas().style.cursor = ''; popup.remove();
+        });
+
+        // Hover popup: node shows all connected corridors + NTC
+        map.on('mouseenter', 'ext-nodes-circles', e => {
+          map.getCanvas().style.cursor = 'pointer';
+          const zext = e.features[0].properties.z;
+          const corridors = extNtc.filter(r => r.zext === zext);
+          const rows = corridors.map(r =>
+            `<div style="display:flex;justify-content:space-between;gap:12px">` +
+            `<span style="opacity:.75">${r.z}</span>` +
+            `<span style="font-weight:600">${Math.round(r.years[extNtcYr] || 0).toLocaleString()} MW</span></div>`
+          ).join('');
+          popup.setLngLat(e.lngLat)
+            .setHTML(`<b>${zext}</b><br>${rows || '<span style="opacity:.6">No NTC data</span>'}`)
+            .addTo(map);
+        });
+        map.on('mouseleave', 'ext-nodes-circles', () => {
+          map.getCanvas().style.cursor = ''; popup.remove();
+        });
 
         // Trigger donut rendering via pieMode effect
         setMapLoaded(n => n + 1);
