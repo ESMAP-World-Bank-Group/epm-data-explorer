@@ -5,7 +5,7 @@ import { Analytics } from '@vercel/analytics/react';
 import posthog from 'posthog-js';
 
 posthog.init('phc_yzVnQUAKHTHfcx3hPANVVyWP97QHuUbvFr3Fm6n4weKL', {
-  api_host: 'https://eu.i.posthog.com',
+  api_host: 'https://us.i.posthog.com',
   session_recording: { maskAllInputs: false },
 });
 import Navbar from './components/Navbar';
