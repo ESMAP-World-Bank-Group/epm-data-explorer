@@ -77,13 +77,10 @@ export default function Navbar() {
   const dashboardUrl = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean);
     const suffix = `?theme=${theme}`;
-    // /region/:id/(results/)country/:name → geo /country/:name
-    if (parts[0] === 'region' && parts.includes('country')) {
-      const name = parts[parts.indexOf('country') + 1];
-      if (name) return `${REGIONAL_EXPLORER_URL}/country/${name}${suffix}`;
-    }
-    if (parts[0] === 'region' && parts[1]) return `${REGIONAL_EXPLORER_URL}/region/${parts[1]}${suffix}`;
+    // /country/:iso (top-level, ISO code) → geo /country/:iso
     if (parts[0] === 'country' && parts[1]) return `${REGIONAL_EXPLORER_URL}/country/${parts[1]}${suffix}`;
+    // /region/:id/... → geo /region/:id (country name in nested path is not an ISO, stay at region level)
+    if (parts[0] === 'region' && parts[1]) return `${REGIONAL_EXPLORER_URL}/region/${parts[1]}${suffix}`;
     return `${REGIONAL_EXPLORER_URL}${suffix}`;
   }, [location.pathname, theme]);
 
