@@ -1467,6 +1467,28 @@ function AboutTab({ region, t, epmData }) {
           </>
         )}
       </div>
+      {region.epm && (
+        <a href={`https://htmlpreview.github.io/?https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm.branch}/epm/input/${region.epm.dataFolder}/DATA_SOURCES.html`}
+          target="_blank" rel="noreferrer"
+          style={{ textDecoration: 'none' }}>
+          <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '10px 14px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            cursor: 'pointer', transition: 'background 0.15s',
+            backgroundColor: t.panel }}
+            onMouseEnter={e => e.currentTarget.style.backgroundColor = t.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)'}
+            onMouseLeave={e => e.currentTarget.style.backgroundColor = t.panel}>
+            <div>
+              <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 2 }}>
+                Data Sources
+              </div>
+              <div style={{ fontSize: '0.52rem', color: t.muted }}>
+                Detailed methodology and source references for all input data
+              </div>
+            </div>
+            <span style={{ fontSize: '0.85rem', color: t.lblMuted, marginLeft: 10 }}>↗</span>
+          </div>
+        </a>
+      )}
       <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
         fontSize: '0.58rem', color: t.muted, lineHeight: 1.7 }}>
         <div style={{ fontSize: '0.6rem', fontWeight: 700, color: t.lbl, marginBottom: 6 }}>Data loaded</div>
@@ -2176,8 +2198,16 @@ export default function RegionPage() {
           {isEpmMode && (
             <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 10, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ fontSize: '0.46rem', color: t.lblMuted, backgroundColor: t.panel,
-                border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: '3px 7px' }}>
-                EPM zones + NTC · {epmData.ntc.length} corridors
+                border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: '3px 7px',
+                display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>EPM zones + NTC · {epmData.ntc.length} corridors</span>
+                <a href={`https://htmlpreview.github.io/?https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm.branch}/epm/input/${region.epm.dataFolder}/DATA_SOURCES.html`}
+                  target="_blank" rel="noreferrer"
+                  style={{ color: t.lbl, fontWeight: 600, textDecoration: 'none', opacity: 0.7,
+                    borderLeft: `1px solid ${t.panelBorder}`, paddingLeft: 6 }}
+                  title="View detailed data sources">
+                  Sources ↗
+                </a>
               </div>
               <div style={{ display: 'flex', gap: 2, backgroundColor: t.panel,
                 border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: 2 }}>
