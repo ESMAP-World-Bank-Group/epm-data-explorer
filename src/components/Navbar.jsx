@@ -44,6 +44,28 @@ export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [tooltipVisible, setTooltipVisible] = useState(false);
+  const [countryIso, setCountryIso] = useState(null);
+
+  // Resolve country ISO from name in URL for cross-app linking
+  useEffect(() => {
+    const p = location.pathname.split('/').filter(Boolean);
+    const nameInUrl = (p[0] === 'region' && p[2] === 'country' && p[3])
+      ? decodeURIComponent(p[3])
+      : (p[0] === 'region' && p[2] === 'results' && p[3] === 'country' && p[4])
+        ? decodeURIComponent(p[4])
+        : null;
+    if (!nameInUrl) { setCountryIso(null); return; }
+    fetch('/data/regions.json')
+      .then(r => r.json())
+      .then(d => {
+        for (const r of (d.regions || [])) {
+          const c = (r.countries || []).find(c => c.name === nameInUrl);
+          if (c) { setCountryIso(c.iso); return; }
+        }
+        setCountryIso(null);
+      })
+      .catch(() => setCountryIso(null));
+  }, [location.pathname]);
 
   // Detect region context and current mode (inputs vs results)
   const parts = location.pathname.split('/').filter(Boolean);
@@ -77,12 +99,13 @@ export default function Navbar() {
   const dashboardUrl = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean);
     const suffix = `?theme=${theme}`;
-    // /country/:iso (top-level, ISO code) → geo /country/:iso
     if (parts[0] === 'country' && parts[1]) return `${REGIONAL_EXPLORER_URL}/country/${parts[1]}${suffix}`;
-    // /region/:id/... → geo /region/:id (country name in nested path is not an ISO, stay at region level)
-    if (parts[0] === 'region' && parts[1]) return `${REGIONAL_EXPLORER_URL}/region/${parts[1]}${suffix}`;
+    if (parts[0] === 'region' && parts[1]) {
+      if (countryIso) return `${REGIONAL_EXPLORER_URL}/country/${countryIso}${suffix}`;
+      return `${REGIONAL_EXPLORER_URL}/region/${parts[1]}${suffix}`;
+    }
     return `${REGIONAL_EXPLORER_URL}${suffix}`;
-  }, [location.pathname, theme]);
+  }, [location.pathname, theme, countryIso]);
 
   const navBtn = (active = false) => ({
     background: 'none',
