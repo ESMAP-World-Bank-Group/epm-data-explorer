@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, Component } from 'react';
 import { THEME_LIST } from './constants';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import Navbar from './components/Navbar';
 import WorldPage from './pages/WorldPage';
 import RegionPage from './pages/RegionPage';
@@ -67,6 +68,7 @@ export default function App() {
               </Routes>
             </div>
           </div>
+          <Analytics />
         </BrowserRouter>
       </ThemeCtx.Provider>
     </ErrorBoundary>

@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { getT, THEME_LIST, THEMES } from '../constants';
 import { useEffect, useState, useMemo } from 'react';
+import { track } from '@vercel/analytics';
 
 const REGIONAL_EXPLORER_URL = 'https://regional-power-explorer.vercel.app';
 
@@ -162,6 +163,16 @@ export default function Navbar() {
         )}
       </div>
 
+      {/* Center: hint */}
+      <div style={{ flex: 1, textAlign: 'center', pointerEvents: 'none' }}>
+        <span style={{
+          fontStyle: 'italic', fontSize: '0.6rem', letterSpacing: '0.25px',
+          color: t.navHint,
+        }}>
+          Click a region or country to explore &nbsp;·&nbsp; use Inputs / Results to switch views
+        </span>
+      </div>
+
       {/* Right: theme toggle | EPM Suite | Data Sources | Contact */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
 
@@ -169,7 +180,7 @@ export default function Navbar() {
         {isRegionCtx && (
           <div style={{ display:'flex', gap:0, border:`1px solid ${t.panelBorder}`, borderRadius:5, overflow:'hidden', marginRight:4 }}>
             {[['inputs','Inputs'],['results','Results']].map(([mode, label]) => (
-              <button key={mode} onClick={() => handleToggle(mode)} style={{
+              <button key={mode} onClick={() => { handleToggle(mode); track('mode_toggle', { mode, region: regionId }); }} style={{
                 fontSize:'0.58rem', fontFamily:'inherit', padding:'3px 11px',
                 border:'none', cursor:'pointer', letterSpacing:'0.5px',
                 backgroundColor: (mode==='results'?isResults:!isResults) ? 'rgba(74,143,204,0.2)' : 'transparent',
@@ -212,6 +223,7 @@ export default function Navbar() {
               border: `1px solid rgba(74,143,204,0.45)`,
               gap: 6,
             }}
+            onClick={() => track('open_data_click', { from: location.pathname })}
             onMouseOver={e => e.currentTarget.style.background = 'rgba(74,143,204,0.07)'}
             onMouseOut={e => { e.currentTarget.style.background = 'none'; setTooltipVisible(false); }}
           >

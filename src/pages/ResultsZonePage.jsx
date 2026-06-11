@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
+import { track } from '@vercel/analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
@@ -60,7 +61,7 @@ export default function ResultsZonePage() {
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
   useEffect(()=>{hoursDataRef.current=hoursData;},[hoursData]);
 
-  useEffect(()=>{fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId]);
+  useEffect(()=>{track('results_view',{type:'zone',region:regionId,zone:zoneIdDecoded});fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,zoneIdDecoded]);
   useEffect(()=>{if(!region?.epm)return;const{branch,dataFolder}=region.epm;Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchZonesGeoJSON(branch,dataFolder),fetchLinestringGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'pHours.csv')]).then(([zc,zGJ,lGJ,hr])=>{setZcmapRows(zc||[]);setZonesGJ(zGJ);setLinestringGJ(lGJ);if(hr)setHoursData(processHours(hr));});},[region]);
   useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);fetchGitHubDir(region.epm.branch,'epm/output').then(items=>{const runs=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>setLoadingRuns(false));},[region]);
   useEffect(()=>{if(!region?.epm||!simRun)return;fetchGitHubDir(region.epm.branch,`epm/output/${simRun}`).then(items=>{const s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();setScenarioList(s);if(s.length)setScenario(s[0]);});},[region,simRun]);

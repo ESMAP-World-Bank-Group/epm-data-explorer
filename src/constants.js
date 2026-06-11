@@ -42,7 +42,7 @@ export const THEMES = {
     lbl: '#2C3E52', lblMuted: '#7A9AB0', lblRow: '#3A5A78',
     worldBdr: 'rgba(160,180,200,0.7)', worldBdrW: 0.4,
     rgnBdr: 'rgba(80,105,140,0.75)', rgnBdrW: 1.0, rgnOp: 0.28,
-    navBg: '#F5F7FA',
+    navBg: '#F5F7FA', navHint: '#5A7A9A',
     highlight: { fill: 'rgba(95,130,170,1)', border: 'rgba(65,100,145,0.75)', borderW: 1.0 },
   },
   slate: {
@@ -54,7 +54,7 @@ export const THEMES = {
     lbl: '#A8C8E0', lblMuted: '#4A7A9A', lblRow: '#8BBDD8',
     worldBdr: 'rgba(55,100,155,0.5)', worldBdrW: 0.5,
     rgnBdr: 'rgba(200,225,255,0.65)', rgnBdrW: 1.1, rgnOp: 0.30,
-    navBg: '#070D1B',
+    navBg: '#070D1B', navHint: '#7AAAC8',
     highlight: { fill: 'rgba(55,110,185,1)', border: 'rgba(130,200,255,0.75)', borderW: 1.2 },
   },
   ink: {
@@ -66,7 +66,7 @@ export const THEMES = {
     lbl: '#C8CBD8', lblMuted: '#555870', lblRow: '#A8ABB8',
     worldBdr: 'rgba(80,85,110,0.5)', worldBdrW: 0.5,
     rgnBdr: 'rgba(180,185,210,0.60)', rgnBdrW: 1.1, rgnOp: 0.25,
-    navBg: '#0A0B0F',
+    navBg: '#0A0B0F', navHint: '#9A9DB8',
     highlight: { fill: 'rgba(120,130,200,1)', border: 'rgba(200,200,200,0.72)', borderW: 1.2 },
   },
   paper: {
@@ -78,7 +78,7 @@ export const THEMES = {
     lbl: '#2A2218', lblMuted: '#8A7A64', lblRow: '#4A3828',
     worldBdr: 'rgba(140,120,90,0.55)', worldBdrW: 0.4,
     rgnBdr: 'rgba(100,80,50,0.65)', rgnBdrW: 1.0, rgnOp: 0.25,
-    navBg: '#F0E8D8',
+    navBg: '#F0E8D8', navHint: '#6A5A48',
     highlight: { fill: 'rgba(160,120,70,1)', border: 'rgba(120,85,40,0.75)', borderW: 1.0 },
   },
   forest: {
@@ -90,7 +90,7 @@ export const THEMES = {
     lbl: '#A0C8A8', lblMuted: '#407048', lblRow: '#80B090',
     worldBdr: 'rgba(40,100,55,0.55)', worldBdrW: 0.5,
     rgnBdr: 'rgba(150,220,165,0.60)', rgnBdrW: 1.1, rgnOp: 0.28,
-    navBg: '#060E08',
+    navBg: '#060E08', navHint: '#78B888',
     highlight: { fill: 'rgba(60,180,90,1)', border: 'rgba(100,220,130,0.75)', borderW: 1.2 },
   },
   dusk: {
@@ -102,7 +102,7 @@ export const THEMES = {
     lbl: '#B8B4E0', lblMuted: '#605890', lblRow: '#9890C8',
     worldBdr: 'rgba(80,70,130,0.55)', worldBdrW: 0.5,
     rgnBdr: 'rgba(180,170,240,0.60)', rgnBdrW: 1.1, rgnOp: 0.28,
-    navBg: '#0A0814',
+    navBg: '#0A0814', navHint: '#9888C8',
     highlight: { fill: 'rgba(140,100,220,1)', border: 'rgba(180,150,255,0.75)', borderW: 1.2 },
   },
 };

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
+import { track } from '@vercel/analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
@@ -112,7 +113,7 @@ export default function ResultsCountryPage() {
   useEffect(()=>{ovScenarioRef.current=ovScenario;},[ovScenario]);
   useEffect(()=>{hoursDataRef.current=hoursData;},[hoursData]);
 
-  useEffect(()=>{fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId]);
+  useEffect(()=>{track('results_view',{type:'country',region:regionId,country:countryDecoded});fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,countryDecoded]);
 
   useEffect(()=>{
     if(!region?.epm)return;

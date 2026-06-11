@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
+import { track } from '@vercel/analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
@@ -117,11 +118,12 @@ export default function EpmZonePage() {
 
   // ── Load region ─────────────────────────────────────────────────────────────
   useEffect(() => {
+    track('zone_view', { region: regionId, zone: zoneIdDecoded });
     fetch('/data/regions.json').then(r => r.json()).then(d => {
       const r = (d.regions || []).find(r => r.id === regionId);
       setRegion(r || null);
     });
-  }, [regionId]);
+  }, [regionId, zoneIdDecoded]);
 
   // ── Load EPM data ────────────────────────────────────────────────────────────
   useEffect(() => {

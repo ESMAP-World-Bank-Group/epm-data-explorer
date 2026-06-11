@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
+import { track } from '@vercel/analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
@@ -232,6 +233,7 @@ export default function ResultsRegionPage() {
 
   // ── Load region + geo ──────────────────────────────────────────────────────
   useEffect(() => {
+    track('results_view', { type: 'region', region: regionId });
     fetch('/data/regions.json').then(r=>r.json()).then(d => {
       const r=(d.regions||[]).find(r=>r.id===regionId); setRegion(r||null);
     });
