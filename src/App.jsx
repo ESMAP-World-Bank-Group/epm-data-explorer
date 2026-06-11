@@ -2,6 +2,12 @@ import { createContext, useContext, useState, Component } from 'react';
 import { THEME_LIST } from './constants';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Analytics } from '@vercel/analytics/react';
+import posthog from 'posthog-js';
+
+posthog.init('phc_yzVnQUAKHTHfcx3hPANVVyWP97QHuUbvFr3Fm6n4weKL', {
+  api_host: 'https://eu.i.posthog.com',
+  session_recording: { maskAllInputs: false },
+});
 import Navbar from './components/Navbar';
 import WorldPage from './pages/WorldPage';
 import RegionPage from './pages/RegionPage';
