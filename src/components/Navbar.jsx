@@ -2,7 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { getT, THEME_LIST, THEMES } from '../constants';
 import { useEffect, useState, useMemo } from 'react';
-import { track } from '@vercel/analytics';
+import { track } from '../analytics';
 
 const REGIONAL_EXPLORER_URL = 'https://regional-power-explorer.vercel.app';
 
