@@ -182,11 +182,18 @@ export default function ContactPage() {
                 onFocus={e => e.target.style.borderColor = 'rgba(74,143,204,0.5)'}
                 onBlur={e => e.target.style.borderColor = status === 'error' ? 'rgba(250,82,82,0.5)' : t.panelBorder}
               />
-              {status === 'error' && (
-                <div style={{ fontSize: '0.6rem', color: 'rgba(250,82,82,0.8)', marginTop: 4 }}>
-                  Something went wrong — try again or email mbaronnet@worldbank.org
-                </div>
-              )}
+              <div style={{ fontSize: '0.58rem', color: t.lblMuted, marginTop: 6 }}>
+                {status === 'error'
+                  ? <span style={{ color: 'rgba(250,82,82,0.8)' }}>Something went wrong — try again or </span>
+                  : 'Or '}
+                <a href="mailto:mbaronnet@worldbank.org"
+                  style={{ color: 'rgba(74,143,204,0.7)', textDecoration: 'none' }}
+                  onMouseOver={e => e.currentTarget.style.textDecoration = 'underline'}
+                  onMouseOut={e => e.currentTarget.style.textDecoration = 'none'}
+                >
+                  mbaronnet@worldbank.org
+                </a>
+              </div>
               <button
                 type="submit"
                 disabled={status === 'sending' || !msg.trim()}
