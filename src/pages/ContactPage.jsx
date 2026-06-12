@@ -67,79 +67,61 @@ export default function ContactPage() {
           energy sector activities.
         </p>
 
-        {/* GitHub links */}
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 32 }}>
-          <LinkCard
-            href="https://github.com/ESMAP-World-Bank-Group"
-            label="ESMAP on GitHub"
-            sub="github.com/ESMAP-World-Bank-Group"
-            icon={
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-              </svg>
-            }
-          />
-          <LinkCard
-            href="https://github.com/ESMAP-World-Bank-Group/epm-data-explorer"
-            label="EPM Data Explorer"
-            sub="Source code · epm-data-explorer"
-            icon={
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <polyline points="16 18 22 12 16 6"/>
-                <polyline points="8 6 2 12 8 18"/>
-              </svg>
-            }
-          />
-        </div>
+        {/* GitHub — main repo */}
+        <a href="https://github.com/ESMAP-World-Bank-Group/epm-data-explorer"
+          target="_blank" rel="noopener noreferrer"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 18,
+            padding: '22px 24px', borderRadius: 8, marginBottom: 32,
+            border: `1px solid ${t.panelBorder}`,
+            backgroundColor: t.panel,
+            textDecoration: 'none', transition: 'border-color 0.15s',
+          }}
+          onMouseOver={e => e.currentTarget.style.borderColor = 'rgba(74,143,204,0.45)'}
+          onMouseOut={e => e.currentTarget.style.borderColor = t.panelBorder}
+        >
+          <div style={{ color: 'rgba(74,143,204,0.7)', flexShrink: 0 }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+            </svg>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 700, color: t.text, marginBottom: 4 }}>EPM Data Explorer</div>
+            <div style={{ fontSize: '0.6rem', color: t.muted }}>github.com/ESMAP-World-Bank-Group/epm-data-explorer</div>
+          </div>
+        </a>
 
         <hr style={divider} />
 
-        {/* See also — EPM */}
+        {/* See also */}
         <div style={{ marginBottom: 32 }}>
           <div style={{ fontSize: '0.48rem', letterSpacing: '2px', fontWeight: 700, color: t.lblMuted, textTransform: 'uppercase', marginBottom: 14 }}>
             See also
           </div>
-
-          <div style={{
-            padding: '18px 20px', borderRadius: 8,
-            border: `1px solid ${t.panelBorder}`,
-            backgroundColor: t.panel,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-              <div style={{ color: 'rgba(74,143,204,0.65)', flexShrink: 0, paddingTop: 2 }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <LinkCard
+              href="https://github.com/ESMAP-World-Bank-Group/EPM"
+              label="EPM"
+              sub="Electricity Planning Model"
+              icon={
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
                 </svg>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: t.text, marginBottom: 4 }}>
-                  EPM — Electricity Planning Model
-                </div>
-                <p style={{ fontSize: '0.68rem', color: t.muted, lineHeight: 1.7, margin: '0 0 12px' }}>
-                  A capacity expansion and dispatch optimization model for World Bank power sector
-                  planning studies. This explorer is the geospatial front-end for visualizing
-                  model inputs and country context. Scenario results and planning analytics available via the EPM Suite.
-                </p>
-                <a href="https://esmap-world-bank-group.github.io/EPM/introduction/introduction/"
-                  target="_blank" rel="noopener noreferrer" style={{
-                    fontSize: '0.62rem', color: 'rgba(74,143,204,0.88)',
-                    border: '1px solid rgba(74,143,204,0.3)', borderRadius: 4,
-                    padding: '4px 10px', textDecoration: 'none',
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                  }}>
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                    <polyline points="15 3 21 3 21 9"/>
-                    <line x1="10" y1="14" x2="21" y2="3"/>
-                  </svg>
-                  EPM Documentation
-                </a>
-              </div>
-            </div>
+              }
+            />
+            <LinkCard
+              href="https://github.com/ESMAP-World-Bank-Group/regional-power-explorer"
+              label="Regional Explorer"
+              sub="Regional Power Explorer"
+              icon={
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+                </svg>
+              }
+            />
           </div>
         </div>
 
