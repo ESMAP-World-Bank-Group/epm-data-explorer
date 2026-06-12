@@ -1776,7 +1776,8 @@ export default function RegionPage() {
         // NTC transmission lines
         {
           const ntcYrs = availableYears(epmData.ntc);
-          const ntcYr  = ntcYrs[0] || '2024';
+          const ntcYr  = ntcYrs.find(y => epmData.ntc.some(r => (r.years[y] || 0) > 0))
+                         || ntcYrs[0] || '2024';
           const seenPairs = new Set();
           let ntcFeatures = [];
 
