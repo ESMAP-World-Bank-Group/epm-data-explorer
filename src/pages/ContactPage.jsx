@@ -62,11 +62,9 @@ export default function ContactPage() {
           About
         </h1>
         <p style={{ fontSize: '0.75rem', color: t.muted, lineHeight: 1.65, marginBottom: 32 }}>
-          The EPM Data Explorer is developed by the{' '}
-          <ExternalLink href="https://www.worldbank.org">World Bank</ExternalLink>{' '}
-          through the{' '}
-          <ExternalLink href="https://esmap.org">Energy Sector Management Assistance Program (ESMAP)</ExternalLink>,
-          a global knowledge and technical assistance program administered by the World Bank.
+          The EPM Data Explorer is developed in the context of the{' '}
+          <ExternalLink href="https://www.worldbank.org">World Bank</ExternalLink>'s
+          energy sector activities.
         </p>
 
         {/* GitHub links */}
@@ -150,8 +148,6 @@ export default function ContactPage() {
           <div style={{ fontSize: '0.44rem', letterSpacing: '2px', fontWeight: 700, color: t.lblMuted, textTransform: 'uppercase', marginBottom: 8 }}>
             Questions or feedback
           </div>
-          <span style={{ color: t.muted }}>Maelle Baronnet</span>
-          <span style={{ color: t.panelBorder, margin: '0 8px' }}>·</span>
           <a href="mailto:mbaronnet@worldbank.org" style={{ color: 'rgba(74,143,204,0.7)', textDecoration: 'none' }}
             onMouseOver={e => e.currentTarget.style.textDecoration = 'underline'}
             onMouseOut={e => e.currentTarget.style.textDecoration = 'none'}
