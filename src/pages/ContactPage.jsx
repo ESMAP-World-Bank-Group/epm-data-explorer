@@ -62,9 +62,11 @@ export default function ContactPage() {
           About
         </h1>
         <p style={{ fontSize: '0.75rem', color: t.muted, lineHeight: 1.65, marginBottom: 32 }}>
-          The EPM Data Explorer is developed in the context of the{' '}
-          <ExternalLink href="https://www.worldbank.org">World Bank</ExternalLink>'s
-          energy sector activities.
+          A{' '}<ExternalLink href="https://www.worldbank.org">World Bank</ExternalLink>{' '}
+          tool for exploring open-access power sector data at the country level.
+          It brings together layers on power plants, transmission infrastructure, renewable energy
+          resources, and demand indicators — primarily as a geospatial data companion to the
+          Electricity Planning Model (EPM) for energy planning studies.
         </p>
 
         {/* GitHub — main repo */}
