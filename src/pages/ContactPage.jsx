@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../App';
 import { getT } from '../constants';
+
+const FORMSPREE_ID = 'YOUR_FORMSPREE_ID';
 
 function ExternalLink({ href, children }) {
   return (
@@ -43,8 +46,27 @@ function LinkCard({ href, icon, label, sub }) {
 export default function ContactPage() {
   const { theme } = useTheme();
   const t = getT(theme);
+  const [msg, setMsg] = useState('');
+  const [status, setStatus] = useState('idle');
 
   const divider = { borderColor: t.panelBorder, margin: '28px 0' };
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!msg.trim()) return;
+    setStatus('sending');
+    try {
+      const res = await fetch(`https://formspree.io/f/${FORMSPREE_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ message: msg }),
+      });
+      setStatus(res.ok ? 'sent' : 'error');
+      if (res.ok) setMsg('');
+    } catch {
+      setStatus('error');
+    }
+  }
 
   return (
     <div style={{ height: '100%', overflowY: 'auto', backgroundColor: t.bg, color: t.text }}>
@@ -127,17 +149,60 @@ export default function ContactPage() {
           </div>
         </div>
 
-        {/* Footer — contact */}
-        <div style={{ fontSize: '0.65rem', color: t.muted, lineHeight: 1.8 }}>
-          <div style={{ fontSize: '0.44rem', letterSpacing: '2px', fontWeight: 700, color: t.lblMuted, textTransform: 'uppercase', marginBottom: 8 }}>
+        {/* Feedback form */}
+        <div>
+          <div style={{ fontSize: '0.44rem', letterSpacing: '2px', fontWeight: 700, color: t.lblMuted, textTransform: 'uppercase', marginBottom: 14 }}>
             Questions or feedback
           </div>
-          <a href="mailto:mbaronnet@worldbank.org" style={{ color: 'rgba(74,143,204,0.7)', textDecoration: 'none' }}
-            onMouseOver={e => e.currentTarget.style.textDecoration = 'underline'}
-            onMouseOut={e => e.currentTarget.style.textDecoration = 'none'}
-          >
-            mbaronnet@worldbank.org
-          </a>
+          {status === 'sent' ? (
+            <div style={{
+              padding: '14px 16px', borderRadius: 6,
+              backgroundColor: 'rgba(64,192,87,0.08)',
+              border: '1px solid rgba(64,192,87,0.25)',
+              fontSize: '0.7rem', color: t.muted,
+            }}>
+              Message sent — thanks!
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              <textarea
+                value={msg}
+                onChange={e => { setMsg(e.target.value); if (status === 'error') setStatus('idle'); }}
+                placeholder="Your message…"
+                rows={4}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '10px 12px', borderRadius: 6,
+                  border: `1px solid ${status === 'error' ? 'rgba(250,82,82,0.5)' : t.panelBorder}`,
+                  backgroundColor: t.panel, color: t.text,
+                  fontSize: '0.72rem', lineHeight: 1.6,
+                  resize: 'vertical', outline: 'none',
+                  fontFamily: 'inherit',
+                }}
+                onFocus={e => e.target.style.borderColor = 'rgba(74,143,204,0.5)'}
+                onBlur={e => e.target.style.borderColor = status === 'error' ? 'rgba(250,82,82,0.5)' : t.panelBorder}
+              />
+              {status === 'error' && (
+                <div style={{ fontSize: '0.6rem', color: 'rgba(250,82,82,0.8)', marginTop: 4 }}>
+                  Something went wrong — try again or email mbaronnet@worldbank.org
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={status === 'sending' || !msg.trim()}
+                style={{
+                  marginTop: 10, padding: '7px 18px', borderRadius: 5,
+                  border: '1px solid rgba(74,143,204,0.35)',
+                  backgroundColor: 'rgba(74,143,204,0.12)',
+                  color: status === 'sending' || !msg.trim() ? t.muted : 'rgba(74,143,204,0.9)',
+                  fontSize: '0.65rem', fontWeight: 600, cursor: status === 'sending' || !msg.trim() ? 'default' : 'pointer',
+                  transition: 'opacity 0.15s',
+                }}
+              >
+                {status === 'sending' ? 'Sending…' : 'Send'}
+              </button>
+            </form>
+          )}
         </div>
 
       </div>
