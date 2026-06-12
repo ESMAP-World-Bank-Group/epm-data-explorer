@@ -86,9 +86,9 @@ export default function ContactPage() {
         <p style={{ fontSize: '0.75rem', color: t.muted, lineHeight: 1.65, marginBottom: 32 }}>
           A{' '}<ExternalLink href="https://www.worldbank.org">World Bank</ExternalLink>{' '}
           tool for exploring open-access power sector data at the country level.
-          It brings together layers on power plants, transmission infrastructure, renewable energy
-          resources, and demand indicators — primarily as a geospatial data companion to the
-          Electricity Planning Model (EPM) for energy planning studies.
+          It brings together data on power plants, transmission infrastructure, renewable energy
+          resources, and demand indicators — providing an overview and understanding of national
+          power systems, and supporting data access for energy planning studies.
         </p>
 
         {/* GitHub — main repo */}
