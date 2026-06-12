@@ -249,7 +249,6 @@ function EpmOverviewTab({ t, epmData, region, epmYear, setEpmYear }) {
             <select value={epmYear || ''} onChange={e => setEpmYear(e.target.value || null)}
               style={{ fontSize: '0.48rem', padding: '2px 4px', borderRadius: 4,
                 border: `1px solid ${t.panelBorder}`, background: t.panel, color: t.lbl, cursor: 'pointer' }}>
-              <option value=''>Auto</option>
               {allYears.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
@@ -1601,6 +1600,9 @@ export default function RegionPage() {
       .then(r => setGemAvailable(r.ok)).catch(() => setGemAvailable(false));
   }, [regionId]);
 
+  // Reset year when region changes
+  useEffect(() => { setEpmYear(null); }, [region]);
+
   // EPM data — also fetches linestring + demand profile
   useEffect(() => {
     setEpmData(null);
@@ -1622,6 +1624,11 @@ export default function RegionPage() {
       fetchZonesExtGeoJSON(branch, dataFolder),
       fetchEpmCSV(branch, dataFolder, 'trade/pExtTransferLimit.csv'),
     ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw]) => {
+      const demandYears = (demandRaw || []).length
+        ? Object.keys(demandRaw[0]).filter(k => /^\d{4}$/.test(k)).sort()
+        : [];
+      const defaultYr = demandYears.find(y => parseInt(y) >= 2023) || demandYears[0];
+      if (defaultYr) setEpmYear(defaultYr);
       setEpmData({
         gen:               genRaw    ? processGenData(genRaw)               : [],
         demand:            demandRaw ? processDemand(demandRaw)             : [],
