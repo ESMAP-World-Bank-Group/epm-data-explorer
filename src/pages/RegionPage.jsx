@@ -86,6 +86,16 @@ function downloadBlob(content, filename, type = 'application/octet-stream') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function genForYear(genRows, year) {
+  if (!year) return genRows.filter(g => g.status === 1);
+  const yr = parseInt(year);
+  return genRows.filter(g => {
+    if (g.status === 1) return !g.retrYr || g.retrYr > yr;
+    if (g.status === 2) return g.stYr && g.stYr <= yr && (!g.retrYr || g.retrYr > yr);
+    return false;
+  });
+}
+
 function makeDonutSVG(fuelMix, tv, size = 54) {
   const cx = size / 2, cy = size / 2;
   const r  = size / 2 - 10;
@@ -176,13 +186,13 @@ function hexA(hex, a) {
 
 const RE_FUELS_SET = new Set(['hydro','solar','wind','biomass','geothermal','biogas','waste']);
 
-function EpmOverviewTab({ t, epmData, region }) {
+function EpmOverviewTab({ t, epmData, region, epmYear, setEpmYear }) {
   const [mixView, setMixView] = useState('country');
   const { gen, demand, ntc, zcmap } = epmData;
   const allYears = availableYears(demand);
-  const refYr    = allYears.find(y => y === '2024') || allYears[0];
+  const refYr    = epmYear || allYears.find(y => y === '2024') || allYears[0];
 
-  const existing   = gen.filter(r => r.status === 1);
+  const existing   = genForYear(gen, epmYear);
   const totalGW    = existing.reduce((s, r) => s + r.capacity, 0) / 1000;
   const reMW       = existing.filter(r => RE_FUELS_SET.has(r.fuel)).reduce((s, r) => s + r.capacity, 0);
   const reShare    = totalGW > 0 ? Math.round(reMW / (totalGW * 1000) * 100) : 0;
@@ -234,6 +244,15 @@ function EpmOverviewTab({ t, epmData, region }) {
           <div style={{ fontSize: '0.4rem', color: t.lblMuted, marginTop: 2 }}>Existing mix</div>
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <span style={{ fontSize: '0.42rem', color: t.lblMuted, flexShrink: 0 }}>Year</span>
+            <select value={epmYear || ''} onChange={e => setEpmYear(e.target.value || null)}
+              style={{ fontSize: '0.48rem', padding: '2px 4px', borderRadius: 4,
+                border: `1px solid ${t.panelBorder}`, background: t.panel, color: t.lbl, cursor: 'pointer' }}>
+              <option value=''>Auto</option>
+              {allYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 5 }}>
             {[
               { l: `Peak ${refYr||''}`, v: `${peakGW.toFixed(1)} GW` },
@@ -1548,6 +1567,7 @@ export default function RegionPage() {
   const [epmData,         setEpmData]         = useState(null);
   const [epmLoading,      setEpmLoading]      = useState(false);
   const [pieMode,         setPieMode]         = useState('zone');
+  const [epmYear,         setEpmYear]         = useState(null);
   const [showExtZones,    setShowExtZones]    = useState(false);
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(560);
@@ -2101,12 +2121,13 @@ export default function RegionPage() {
     donutMarkersRef.current.forEach(m => m.remove());
     donutMarkersRef.current = [];
 
+    const activeGen = genForYear(epmData.gen, epmYear);
     if (pieMode === 'zone') {
       for (const { z, c } of zcmapRows) {
         const coord = zoneCentroidsRef.current[z];
         if (!coord) continue;
         const fuelMix = {};
-        for (const r of epmData.gen.filter(g => g.status === 1 && g.zone === z))
+        for (const r of activeGen.filter(g => g.zone === z))
           fuelMix[r.fuel] = (fuelMix[r.fuel] || 0) + r.capacity;
         if (!Object.keys(fuelMix).length) continue;
         const el = document.createElement('div');
@@ -2119,7 +2140,7 @@ export default function RegionPage() {
       }
     } else {
       const countryGen = {};
-      for (const r of epmData.gen.filter(g => g.status === 1)) {
+      for (const r of activeGen) {
         const c = zoneToCountry[r.zone] || r.zone;
         if (!countryGen[c]) countryGen[c] = {};
         countryGen[c][r.fuel] = (countryGen[c][r.fuel] || 0) + r.capacity;
@@ -2136,7 +2157,33 @@ export default function RegionPage() {
         donutMarkersRef.current.push(marker);
       }
     }
-  }, [pieMode, mapLoaded, theme]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pieMode, mapLoaded, theme, epmYear]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // NTC map update when year changes
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !epmData || mapLoaded === 0) return;
+    if (!map.getSource('ntc-lines')) return;
+    const ntcYrs = availableYears(epmData.ntc);
+    const yr = epmYear
+      || ntcYrs.find(y => epmData.ntc.some(r => (r.years[y] || 0) > 0))
+      || ntcYrs[0] || '2024';
+    const seen = new Set();
+    const features = epmData.ntc
+      .filter(r => {
+        const key = [r.z, r.z2].sort().join('||');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return (r.years[yr] || 0) > 0
+          && zoneCentroidsRef.current[r.z] && zoneCentroidsRef.current[r.z2];
+      })
+      .map(r => ({
+        type: 'Feature',
+        properties: { z: r.z, z_other: r.z2, ntc_mw: r.years[yr] || 0 },
+        geometry: { type: 'LineString', coordinates: [zoneCentroidsRef.current[r.z], zoneCentroidsRef.current[r.z2]] },
+      }));
+    map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
+  }, [epmYear, mapLoaded, epmData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Plant source hot-swap (OSM mode only)
   useEffect(() => {
@@ -2293,7 +2340,7 @@ export default function RegionPage() {
         {activeTab === 'overview' && (
           !region.epm  ? <NotAvailable t={t} /> :
           epmLoading   ? <LoadingBox t={t} /> :
-          epmData      ? <EpmOverviewTab t={t} epmData={epmData} region={region} /> :
+          epmData      ? <EpmOverviewTab t={t} epmData={epmData} region={region} epmYear={epmYear} setEpmYear={setEpmYear} /> :
                          <NotAvailable t={t} />
         )}
         {activeTab === 'supply' && (
