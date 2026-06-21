@@ -1476,11 +1476,44 @@ export default function EpmCountryPage() {
 
         {/* ════════ ABOUT ═══════════════════════════════════════════════════════ */}
         {activeTab === 'about' && (
-          <div style={{ fontSize:'0.58rem', color:t.muted, lineHeight:1.7 }}>
-            <div style={{ fontWeight:700, color:t.lbl, marginBottom:6 }}>{countryNameDecoded}</div>
-            <div>Zones: {countryZoneIds.join(', ')||'—'}</div>
-            <div style={{ marginTop:4 }}>Part of <b style={{color:t.lbl}}>{region.name}</b> EPM study</div>
-            {region.epm && <div style={{ marginTop:2 }}>Branch: <code style={{fontSize:'0.52rem'}}>{region.epm.branch}</code></div>}
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <div style={{ border:`1px solid ${t.panelBorder}`, borderRadius:8, padding:'12px 14px',
+              fontSize:'0.58rem', color:t.muted, lineHeight:1.6 }}>
+              <div style={{ fontSize:'0.6rem', fontWeight:700, color:t.lbl, marginBottom:6 }}>
+                {countryNameDecoded} — EPM Study
+              </div>
+              <div>Zones: {countryZoneIds.join(', ')||'—'}</div>
+              <div style={{ marginTop:4 }}>Part of <b style={{color:t.lbl}}>{region.name}</b></div>
+              {region.epm && (
+                <>
+                  <div style={{ marginTop:4 }}>
+                    <b style={{color:t.lbl}}>Branch:</b>{' '}
+                    <code style={{fontSize:'0.52rem'}}>{region.epm.branch}</code>
+                  </div>
+                  <div>
+                    <b style={{color:t.lbl}}>Data folder:</b>{' '}
+                    <code style={{fontSize:'0.52rem'}}>{region.epm.dataFolder}</code>
+                  </div>
+                </>
+              )}
+            </div>
+            {region.epm && (
+              <a href={`https://htmlpreview.github.io/?https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm.branch}/epm/input/${region.epm.dataFolder}/DATA_SOURCES.html`}
+                target="_blank" rel="noreferrer"
+                style={{ textDecoration:'none' }}>
+                <div style={{ border:`1px solid ${t.panelBorder}`, borderRadius:8, padding:'10px 14px',
+                  display:'flex', alignItems:'center', justifyContent:'space-between',
+                  cursor:'pointer', backgroundColor:t.panel }}
+                  onMouseEnter={e=>e.currentTarget.style.backgroundColor=t.isDark?'rgba(255,255,255,0.05)':'rgba(0,0,0,0.03)'}
+                  onMouseLeave={e=>e.currentTarget.style.backgroundColor=t.panel}>
+                  <div>
+                    <div style={{ fontSize:'0.6rem', fontWeight:700, color:t.lbl, marginBottom:2 }}>Data Sources</div>
+                    <div style={{ fontSize:'0.52rem', color:t.muted }}>Detailed methodology and source references for all input data</div>
+                  </div>
+                  <span style={{ fontSize:'0.85rem', color:t.lblMuted, marginLeft:10 }}>↗</span>
+                </div>
+              </a>
+            )}
           </div>
         )}
 
