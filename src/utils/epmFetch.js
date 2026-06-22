@@ -1,4 +1,7 @@
-const RAW_BASE = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
+// --- PROTO R2 : EPM View lit les données depuis le bucket R2 privé (au lieu du repo public) ---
+// Pour revenir en arrière : remettre l'ancienne ligne ci-dessous.
+// const RAW_BASE = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
+const RAW_BASE = 'https://pub-fbe9fb64480745d48ed524b3803b349d.r2.dev';
 const API_BASE = 'https://api.github.com/repos/ESMAP-World-Bank-Group/EPM';
 
 // ── Results: GitHub Contents API ──────────────────────────────────────────────
