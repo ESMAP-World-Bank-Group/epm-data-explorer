@@ -10,6 +10,7 @@ import {
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
+import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -119,6 +120,33 @@ function SectionTitle({ t, children, right }) {
   );
 }
 
+// Dropdown to swap a single data type to a scenario variant file. Renders nothing
+// when there are no variants for this param in scenarios.csv.
+function VariantPicker({ t, scnMeta, param, value, onChange }) {
+  if (!scnMeta) return null;
+  const variants = scnMeta.variantsForParam(param);
+  if (!variants.length) return null;
+  const meta = scnMeta.paramMeta?.[param];
+  const isVariant = !!value;
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, flexWrap:'wrap',
+      fontSize:'0.44rem', color:t.muted, padding:'5px 8px', borderRadius:4,
+      border:`1px solid ${isVariant ? '#E8A33D66' : t.panelBorder}`,
+      backgroundColor:isVariant ? '#E8A33D14' : 'transparent' }}>
+      <span style={{ color:t.lblMuted, fontWeight:600 }}>{isVariant ? '△ Variant' : 'Variant'}</span>
+      <span style={{ color:t.lblMuted }}>{param}</span>
+      <select value={value || ''} onChange={e => onChange(param, e.target.value || null)}
+        style={{ fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3,
+          border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer',
+          maxWidth:220 }}>
+        <option value="">Default{meta?.defaultFile ? ` · ${baseName(meta.defaultFile)}` : ''}</option>
+        {variants.map(f => <option key={f} value={f}>{baseName(f)}</option>)}
+      </select>
+      {meta?.unit && <span style={{ color:t.lblMuted, fontSize:'0.4rem' }}>· {meta.unit}</span>}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function EpmCountryPage() {
@@ -137,6 +165,16 @@ export default function EpmCountryPage() {
   const [epmData, setEpmData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+
+  // ── Scenario / variant state ─────────────────────────────────────────────────
+  const [scnMeta,      setScnMeta]      = useState(null);   // parsed config.csv + scenarios.csv
+  const [varOverrides, setVarOverrides] = useState({});     // { paramName: variantFile }
+  const [scnFilter,    setScnFilter]    = useState('');     // scenario-tab search box
+  const setVariant = (param, file) => setVarOverrides(o => {
+    const next = { ...o };
+    if (file) next[param] = file; else delete next[param];
+    return next;
+  });
 
   // ── Overview state ──────────────────────────────────────────────────────────
   const [mixView, setMixView] = useState('zone'); // 'zone' | 'country'
@@ -174,24 +212,38 @@ export default function EpmCountryPage() {
     });
   }, [regionId, countryNameDecoded]);
 
+  // ── Load scenario definitions (config.csv + scenarios.csv) ────────────────────
+  useEffect(() => {
+    setScnMeta(null);
+    setVarOverrides({});
+    setScnFilter('');
+    if (!region?.epm) return;
+    const { branch, dataFolder, scenariosFile, configFile } = region.epm;
+    fetchScenarioConfig(branch, dataFolder, { scenariosFile, configFile })
+      .then(setScnMeta)
+      .catch(() => setScnMeta(null));
+  }, [region]);
+
   // ── Load EPM data ────────────────────────────────────────────────────────────
   useEffect(() => {
     setEpmData(null);
     if (!region?.epm) return;
     const { branch, dataFolder } = region.epm;
+    // Effective file for a data type: user-selected variant, else hard-coded default.
+    const rf = (param, fallback) => varOverrides[param] || fallback;
     setLoading(true);
     Promise.all([
-      fetchEpmCSV(branch, dataFolder, 'supply/pGenDataInput.csv'),
-      fetchEpmCSV(branch, dataFolder, 'load/pDemandForecast.csv'),
-      fetchEpmCSV(branch, dataFolder, 'trade/pTransferLimit.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pTransferLimit', 'trade/pTransferLimit.csv')),
       fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
       fetchLinestringGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, 'load/pDemandProfile.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pDemandProfile', 'load/pDemandProfile.csv')),
       fetchZonesGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, 'supply/pVREProfile.csv'),
-      fetchEpmCSV(branch, dataFolder, 'supply/pAvailabilityDefault.csv'),
-      fetchEpmCSV(branch, dataFolder, 'supply/pFuelPrice.csv'),
-      fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pVREProfile', 'supply/pVREProfile.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pHours', 'pHours.csv')),
     ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
       setEpmData({
         gen:              genRaw     ? processGenData(genRaw)              : [],
@@ -206,7 +258,7 @@ export default function EpmCountryPage() {
         linestringGJ, zonesGJ, branch,
       });
     }).finally(() => setLoading(false));
-  }, [region]);
+  }, [region, varOverrides]);
 
   // ── Map ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -778,8 +830,8 @@ export default function EpmCountryPage() {
   const presentFuelsInMix = sortedFuels.filter(f=>mixLabels.some(l=>(genByZoneFuel[l]?.[f]||0)>0));
 
   // ── Tab colors ────────────────────────────────────────────────────────────────
-  const TABS = ['overview','demand','supply','resources','trade','about'];
-  const TAB_LABELS = { overview:'Overview', demand:'Demand', supply:'Supply', resources:'Resources', trade:'Trade', about:'About' };
+  const TABS = ['overview','demand','supply','resources','trade','scenario','about'];
+  const TAB_LABELS = { overview:'Overview', demand:'Demand', supply:'Supply', resources:'Resources', trade:'Trade', scenario:'Scenarios', about:'About' };
 
   // ── JSX ───────────────────────────────────────────────────────────────────────
   return (
@@ -956,6 +1008,11 @@ export default function EpmCountryPage() {
         {hasData && activeTab === 'demand' && (
           <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
 
+            <div>
+              <VariantPicker t={t} scnMeta={scnMeta} param="pDemandForecast" value={varOverrides.pDemandForecast} onChange={setVariant} />
+              <VariantPicker t={t} scnMeta={scnMeta} param="pDemandProfile" value={varOverrides.pDemandProfile} onChange={setVariant} />
+            </div>
+
             {/* Forecast */}
             <div>
               <SectionTitle t={t} right={
@@ -1094,6 +1151,8 @@ export default function EpmCountryPage() {
         {/* ════════ SUPPLY ══════════════════════════════════════════════════════ */}
         {hasData && activeTab === 'supply' && (
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+
+            <VariantPicker t={t} scnMeta={scnMeta} param="pGenDataInput" value={varOverrides.pGenDataInput} onChange={setVariant} />
 
             {/* Capacity chart */}
             {(() => {
@@ -1236,6 +1295,10 @@ export default function EpmCountryPage() {
               <Pill active={resSection==='avail'} onClick={()=>setResSection('avail')}>Availability</Pill>
               <Pill active={resSection==='fuel'}  onClick={()=>setResSection('fuel')}>Fuel Prices</Pill>
             </div>
+
+            {resSection==='vre'   && <VariantPicker t={t} scnMeta={scnMeta} param="pVREProfile"        value={varOverrides.pVREProfile}        onChange={setVariant} />}
+            {resSection==='avail' && <VariantPicker t={t} scnMeta={scnMeta} param="pAvailabilityDefault" value={varOverrides.pAvailabilityDefault} onChange={setVariant} />}
+            {resSection==='fuel'  && <VariantPicker t={t} scnMeta={scnMeta} param="pFuelPrice"         value={varOverrides.pFuelPrice}         onChange={setVariant} />}
 
             {/* VRE Profiles */}
             {resSection === 'vre' && (
@@ -1411,6 +1474,7 @@ export default function EpmCountryPage() {
         {/* ════════ TRADE ═══════════════════════════════════════════════════════ */}
         {hasData && activeTab === 'trade' && (
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <VariantPicker t={t} scnMeta={scnMeta} param="pTransferLimit" value={varOverrides.pTransferLimit} onChange={setVariant} />
             <SectionTitle t={t}>NTC corridors ({refYr||'—'})</SectionTitle>
             {tradeCorridors.length > 0 ? (
               <div style={{ border:`1px solid ${t.panelBorder}`, borderRadius:6, overflow:'hidden' }}>
@@ -1469,6 +1533,72 @@ export default function EpmCountryPage() {
                       }}}
                   />
                 </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ════════ SCENARIOS ═══════════════════════════════════════════════════ */}
+        {activeTab === 'scenario' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {!scnMeta ? (
+              <div style={{ color:t.lblMuted, fontSize:'0.55rem', lineHeight:1.6 }}>
+                No scenario definitions (<code>scenarios.csv</code>) found for this study.
+                <div style={{ marginTop:6, fontSize:'0.5rem' }}>
+                  EPM drives inputs from <b>config.csv</b> (base case) and <b>scenarios.csv</b>
+                  {' '}(per–data-type variant overrides). None were reachable for this branch.
+                </div>
+              </div>
+            ) : (() => {
+              const list = scnMeta.scenarios
+                .filter(s => s.toLowerCase().includes(scnFilter.toLowerCase()));
+              return (
+                <>
+                  <div style={{ fontSize:'0.5rem', color:t.muted, lineHeight:1.6 }}>
+                    <b>{scnMeta.scenarios.length}</b> scenario{scnMeta.scenarios.length!==1?'s':''} in
+                    {' '}<code>{scnMeta.scenariosFile}</code>. Each row below shows the inputs a scenario
+                    {' '}<b>changes from the base case</b> (a △ variant file); everything else uses the default.
+                  </div>
+                  <input value={scnFilter} onChange={e=>setScnFilter(e.target.value)}
+                    placeholder="Filter scenarios…"
+                    style={{ fontSize:'0.5rem', fontFamily:'inherit', padding:'4px 8px', borderRadius:4,
+                      border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, width:'100%' }} />
+                  {list.length===0 && <div style={{ color:t.lblMuted, fontSize:'0.5rem' }}>No scenario matches “{scnFilter}”.</div>}
+                  {list.map(s => {
+                    const diff = scnMeta.diffByScenario[s] || [];
+                    return (
+                      <div key={s} style={{ border:`1px solid ${t.panelBorder}`, borderRadius:6, overflow:'hidden' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                          padding:'6px 10px', backgroundColor:hexA(t.panelBorder,0.35) }}>
+                          <span style={{ fontSize:'0.55rem', fontWeight:700, color:t.lbl }}>{s}</span>
+                          <span style={{ fontSize:'0.42rem', color:t.lblMuted }}>
+                            {diff.length ? `${diff.length} variant${diff.length!==1?'s':''}` : 'base only'}
+                          </span>
+                        </div>
+                        {diff.length===0 ? (
+                          <div style={{ padding:'6px 10px', fontSize:'0.46rem', color:t.lblMuted, fontStyle:'italic' }}>
+                            Identical to the base case.
+                          </div>
+                        ) : (
+                          <div style={{ padding:'4px 0' }}>
+                            {diff.map(d => (
+                              <div key={d.paramName} style={{ display:'grid', gridTemplateColumns:'70px 1fr',
+                                gap:8, padding:'3px 10px', fontSize:'0.44rem', alignItems:'baseline' }}>
+                                <span style={{ color:t.lblMuted }}>{d.section || '—'}</span>
+                                <span>
+                                  <span style={{ color:t.lbl, fontWeight:600 }}>{d.paramName}</span>
+                                  <span style={{ color:'#E8A33D', marginLeft:5 }}>△ {baseName(d.file)}</span>
+                                  {d.defaultFile && <span style={{ color:t.lblMuted, marginLeft:5 }}>(default: {baseName(d.defaultFile)})</span>}
+                                  {d.label && <div style={{ color:t.lblMuted, fontSize:'0.4rem', marginTop:1 }}>{d.label}</div>}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
               );
             })()}
           </div>

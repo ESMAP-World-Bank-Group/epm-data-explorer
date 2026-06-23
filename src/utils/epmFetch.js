@@ -237,6 +237,18 @@ export async function fetchEpmCSV(branch, dataFolder, relPath) {
   }
 }
 
+/** Fetch a raw input file as text (for config.csv / scenarios.csv parsing). */
+export async function fetchEpmText(branch, dataFolder, relPath) {
+  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/${relPath}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
 // Map EPM fuel names → canonical key matching FUEL_COLORS in constants.js
 const FUEL_MAP = {
   water: 'hydro', ror: 'hydro', reservoirhydro: 'hydro', pumpedhydro: 'hydro',
