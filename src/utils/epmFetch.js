@@ -1,7 +1,12 @@
-// --- PROTO R2 : EPM View lit les données depuis le bucket R2 privé (au lieu du repo public) ---
-// Pour revenir en arrière : remettre l'ancienne ligne ci-dessous.
-// const RAW_BASE = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
-const RAW_BASE = 'https://pub-fbe9fb64480745d48ed524b3803b349d.r2.dev';
+// --- Source des données PAR BRANCHE ---
+// Par défaut, les données viennent du repo public EPM (GitHub).
+// Pour les branches "privées", elles sont servies depuis le bucket R2 (store privé) :
+// il suffit d'ajouter le nom de la branche dans R2_BRANCHES.
+const GITHUB_RAW  = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
+const R2_BASE     = 'https://pub-fbe9fb64480745d48ed524b3803b349d.r2.dev';
+const R2_BRANCHES = new Set(['blacksea_2026']);   // branches dont les données vivent dans R2
+function rawBase(branch) { return R2_BRANCHES.has(branch) ? R2_BASE : GITHUB_RAW; }
+
 const API_BASE = 'https://api.github.com/repos/ESMAP-World-Bank-Group/EPM';
 
 // ── Results: GitHub Contents API ──────────────────────────────────────────────
@@ -18,7 +23,7 @@ export async function fetchGitHubDir(branch, path) {
 
 /** Fetch a result CSV: epm/output/{simRun}/{scenario}/output_csv/{filename} */
 export async function fetchResultCSV(branch, simRun, scenario, filename) {
-  const url = `${RAW_BASE}/${branch}/epm/output/${simRun}/${scenario}/output_csv/${filename}`;
+  const url = `${rawBase(branch)}/${branch}/epm/output/${simRun}/${scenario}/output_csv/${filename}`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -195,7 +200,7 @@ function parseCSV(text) {
 }
 
 export async function fetchLinestringGeoJSON(branch, dataFolder) {
-  const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/linestring_countries.geojson`;
+  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/linestring_countries.geojson`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -204,7 +209,7 @@ export async function fetchLinestringGeoJSON(branch, dataFolder) {
 }
 
 export async function fetchZonesGeoJSON(branch, dataFolder) {
-  const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/zones.geojson`;
+  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/zones.geojson`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -213,7 +218,7 @@ export async function fetchZonesGeoJSON(branch, dataFolder) {
 }
 
 export async function fetchZonesExtGeoJSON(branch, dataFolder) {
-  const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/zones_ext.geojson`;
+  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/zones_ext.geojson`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -222,7 +227,7 @@ export async function fetchZonesExtGeoJSON(branch, dataFolder) {
 }
 
 export async function fetchEpmCSV(branch, dataFolder, relPath) {
-  const url = `${RAW_BASE}/${branch}/epm/input/${dataFolder}/${relPath}`;
+  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/${relPath}`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
