@@ -10,6 +10,9 @@ import {
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
+import { fetchScenarioConfig } from '../utils/epmScenarios';
+import VariantPicker from '../components/VariantPicker';
+import ScenarioTab from '../components/ScenarioTab';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -98,6 +101,15 @@ export default function EpmZonePage() {
   const [loading,   setLoading]   = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
+  // ── Scenario / variant state ──────────────────────────────────────────────────
+  const [scnMeta,      setScnMeta]      = useState(null);
+  const [varOverrides, setVarOverrides] = useState({});
+  const setVariant = (param, file) => setVarOverrides(o => {
+    const next = { ...o };
+    if (file) next[param] = file; else delete next[param];
+    return next;
+  });
+
   // ── Supply state ────────────────────────────────────────────────────────────
   const [statusFilter,  setStatusFilter]  = useState(new Set([1]));
   const [supplySort,    setSupplySort]    = useState({ col: 'capacity', dir: 'desc' });
@@ -125,23 +137,35 @@ export default function EpmZonePage() {
     });
   }, [regionId, zoneIdDecoded]);
 
+  // ── Load scenario definitions (config.csv + scenarios.csv) ────────────────────
+  useEffect(() => {
+    setScnMeta(null);
+    setVarOverrides({});
+    if (!region?.epm) return;
+    const { branch, dataFolder, scenariosFile, configFile } = region.epm;
+    fetchScenarioConfig(branch, dataFolder, { scenariosFile, configFile })
+      .then(setScnMeta)
+      .catch(() => setScnMeta(null));
+  }, [region]);
+
   // ── Load EPM data ────────────────────────────────────────────────────────────
   useEffect(() => {
     setEpmData(null);
     if (!region?.epm) return;
     const { branch, dataFolder } = region.epm;
+    const rf = (param, fallback) => varOverrides[param] || fallback;
     setLoading(true);
     Promise.all([
-      fetchEpmCSV(branch, dataFolder, 'supply/pGenDataInput.csv'),
-      fetchEpmCSV(branch, dataFolder, 'load/pDemandForecast.csv'),
-      fetchEpmCSV(branch, dataFolder, 'trade/pTransferLimit.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pTransferLimit', 'trade/pTransferLimit.csv')),
       fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
       fetchLinestringGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, 'load/pDemandProfile.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pDemandProfile', 'load/pDemandProfile.csv')),
       fetchZonesGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, 'supply/pVREProfile.csv'),
-      fetchEpmCSV(branch, dataFolder, 'supply/pAvailabilityDefault.csv'),
-      fetchEpmCSV(branch, dataFolder, 'supply/pFuelPrice.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pVREProfile', 'supply/pVREProfile.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
       fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
     ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
       setEpmData({
@@ -157,7 +181,7 @@ export default function EpmZonePage() {
         linestringGJ, zonesGJ,
       });
     }).finally(() => setLoading(false));
-  }, [region]);
+  }, [region, varOverrides]);
 
   // ── Map ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -404,8 +428,8 @@ export default function EpmZonePage() {
   };
 
   // ── Tab config ────────────────────────────────────────────────────────────────
-  const TABS = ['overview','demand','supply','resources','connections','about'];
-  const TAB_LABELS = { overview:'Overview', demand:'Demand', supply:'Supply', resources:'Resources', connections:'Trade', about:'About' };
+  const TABS = ['overview','demand','supply','resources','connections','scenario','about'];
+  const TAB_LABELS = { overview:'Overview', demand:'Demand', supply:'Supply', resources:'Resources', connections:'Trade', scenario:'Scenarios', about:'About' };
 
   // ── JSX ───────────────────────────────────────────────────────────────────────
   return (
@@ -553,6 +577,10 @@ export default function EpmZonePage() {
         {/* ════════ DEMAND ══════════════════════════════════════════════════════ */}
         {hasData && activeTab === 'demand' && (
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+            <div>
+              <VariantPicker t={t} scnMeta={scnMeta} param="pDemandForecast" value={varOverrides.pDemandForecast} onChange={setVariant} />
+              <VariantPicker t={t} scnMeta={scnMeta} param="pDemandProfile" value={varOverrides.pDemandProfile} onChange={setVariant} />
+            </div>
             {/* Forecast */}
             <div>
               <SectionTitle t={t}>Demand forecast</SectionTitle>
@@ -679,6 +707,7 @@ export default function EpmZonePage() {
         {/* ════════ SUPPLY ══════════════════════════════════════════════════════ */}
         {hasData && activeTab === 'supply' && (
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <VariantPicker t={t} scnMeta={scnMeta} param="pGenDataInput" value={varOverrides.pGenDataInput} onChange={setVariant} />
             {/* Capacity chart */}
             {(() => {
               const chartPlants = zoneGen.filter(r => statusFilter.has(r.status));
@@ -798,6 +827,10 @@ export default function EpmZonePage() {
               <Pill active={resSection==='avail'} onClick={()=>setResSection('avail')}>Availability</Pill>
               <Pill active={resSection==='fuel'}  onClick={()=>setResSection('fuel')}>Fuel Prices</Pill>
             </div>
+
+            {resSection==='vre'   && <VariantPicker t={t} scnMeta={scnMeta} param="pVREProfile"          value={varOverrides.pVREProfile}          onChange={setVariant} />}
+            {resSection==='avail' && <VariantPicker t={t} scnMeta={scnMeta} param="pAvailabilityDefault" value={varOverrides.pAvailabilityDefault} onChange={setVariant} />}
+            {resSection==='fuel'  && <VariantPicker t={t} scnMeta={scnMeta} param="pFuelPrice"           value={varOverrides.pFuelPrice}           onChange={setVariant} />}
 
             {resSection === 'vre' && (() => {
               const vp = epmData?.vreProfile||{};
@@ -981,6 +1014,7 @@ export default function EpmZonePage() {
         {/* ════════ CONNECTIONS (Trade) ═════════════════════════════════════════ */}
         {hasData && activeTab === 'connections' && (
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <VariantPicker t={t} scnMeta={scnMeta} param="pTransferLimit" value={varOverrides.pTransferLimit} onChange={setVariant} />
             <SectionTitle t={t}>NTC connections ({ntcRefYr||'—'})</SectionTitle>
             {connections.length > 0 ? (
               <>
@@ -1021,6 +1055,11 @@ export default function EpmZonePage() {
               </>
             ) : <div style={{ color:t.lblMuted, fontSize:'0.58rem' }}>No NTC data for this zone.</div>}
           </div>
+        )}
+
+        {/* ════════ SCENARIOS ═══════════════════════════════════════════════════ */}
+        {activeTab === 'scenario' && (
+          <ScenarioTab t={t} scnMeta={scnMeta} />
         )}
 
         {/* ════════ ABOUT ═══════════════════════════════════════════════════════ */}

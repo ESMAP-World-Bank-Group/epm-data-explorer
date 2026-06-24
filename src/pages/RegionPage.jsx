@@ -18,6 +18,7 @@ import {
 } from '../utils/epmFetch';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
+import ScenarioTab from '../components/ScenarioTab';
 
 // chart.js via CDN — no npm dep
 function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey }) {
@@ -2358,7 +2359,7 @@ export default function RegionPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 14, flexWrap: 'wrap' }}>
-          {['Overview', 'Demand', 'Supply', 'Resources', 'Trade', 'About'].map(tab => {
+          {['Overview', 'Demand', 'Supply', 'Resources', 'Trade', 'Scenarios', 'About'].map(tab => {
             const key    = tab.toLowerCase();
             const active = activeTab === key;
             return (
@@ -2396,6 +2397,9 @@ export default function RegionPage() {
         {activeTab === 'resources' && (
           <ResourcesTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
             scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} />
+        )}
+        {activeTab === 'scenarios' && (
+          <ScenarioTab t={t} scnMeta={scnMeta} />
         )}
         {activeTab === 'trade' && (
           <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
