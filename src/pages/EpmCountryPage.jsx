@@ -11,6 +11,7 @@ import {
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
 import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
+import VariantPicker from '../components/VariantPicker';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -116,33 +117,6 @@ function SectionTitle({ t, children, right }) {
       <div style={{ fontSize: '0.47rem', letterSpacing: '2px', fontWeight: 700,
         color: t.lblMuted, textTransform: 'uppercase' }}>{children}</div>
       {right}
-    </div>
-  );
-}
-
-// Dropdown to swap a single data type to a scenario variant file. Renders nothing
-// when there are no variants for this param in scenarios.csv.
-function VariantPicker({ t, scnMeta, param, value, onChange }) {
-  if (!scnMeta) return null;
-  const variants = scnMeta.variantsForParam(param);
-  if (!variants.length) return null;
-  const meta = scnMeta.paramMeta?.[param];
-  const isVariant = !!value;
-  return (
-    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, flexWrap:'wrap',
-      fontSize:'0.44rem', color:t.muted, padding:'5px 8px', borderRadius:4,
-      border:`1px solid ${isVariant ? '#E8A33D66' : t.panelBorder}`,
-      backgroundColor:isVariant ? '#E8A33D14' : 'transparent' }}>
-      <span style={{ color:t.lblMuted, fontWeight:600 }}>{isVariant ? '△ Variant' : 'Variant'}</span>
-      <span style={{ color:t.lblMuted }}>{param}</span>
-      <select value={value || ''} onChange={e => onChange(param, e.target.value || null)}
-        style={{ fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3,
-          border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer',
-          maxWidth:220 }}>
-        <option value="">Default{meta?.defaultFile ? ` · ${baseName(meta.defaultFile)}` : ''}</option>
-        {variants.map(f => <option key={f} value={f}>{baseName(f)}</option>)}
-      </select>
-      {meta?.unit && <span style={{ color:t.lblMuted, fontSize:'0.4rem' }}>· {meta.unit}</span>}
     </div>
   );
 }

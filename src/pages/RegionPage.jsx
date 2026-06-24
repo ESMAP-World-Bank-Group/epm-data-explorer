@@ -16,6 +16,8 @@ import {
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
   computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
+import { fetchScenarioConfig } from '../utils/epmScenarios';
+import VariantPicker from '../components/VariantPicker';
 
 // chart.js via CDN — no npm dep
 function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey }) {
@@ -356,7 +358,7 @@ function SupPill({ active, color, onClick, children }) {
   );
 }
 
-function EpmSupplyTab({ t, epmData, region }) {
+function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant }) {
   const { gen, zcmap } = epmData;
   const [visStatuses, setVisStatuses] = useState(new Set([1]));
   const [selectedPlant, setSelectedPlant] = useState(null);
@@ -427,6 +429,7 @@ function EpmSupplyTab({ t, epmData, region }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <VariantPicker t={t} scnMeta={scnMeta} param="pGenDataInput" value={varOverrides?.pGenDataInput} onChange={setVariant} />
       {/* Status toggles */}
       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
         {statusConfig.map(({ s, label, color }) => (
@@ -585,7 +588,7 @@ function EpmSupplyTab({ t, epmData, region }) {
 
 const SEASON_LABEL = { Q1: 'Winter', Q2: 'Spring', Q3: 'Summer', Q4: 'Autumn' };
 
-function DemandTab({ t, epmData, epmLoading, hasEpm }) {
+function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant }) {
   const allYears = availableYears(epmData?.demand || []);
   const allZones = [...new Set((epmData?.demand || []).map(r => r.zone))].sort();
   const zcmap    = epmData?.zcmap || [];
@@ -784,6 +787,10 @@ function DemandTab({ t, epmData, epmLoading, hasEpm }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div>
+        <VariantPicker t={t} scnMeta={scnMeta} param="pDemandForecast" value={varOverrides?.pDemandForecast} onChange={setVariant} />
+        <VariantPicker t={t} scnMeta={scnMeta} param="pDemandProfile" value={varOverrides?.pDemandProfile} onChange={setVariant} />
+      </div>
 
       {/* Forecast chart */}
       <div>
@@ -949,7 +956,7 @@ const VRE_COLOR = {
 
 // ── Resources tab ─────────────────────────────────────────────────────────────
 
-function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
+function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant }) {
   const [section,     setSection]     = useState('vre');
   const [vreProfileMode, setVreProfileMode] = useState('full');
   const [vreSeason,   setVreSeason]   = useState('Q1');
@@ -1128,6 +1135,10 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
         <Pill active={section==='fuel'}  onClick={()=>setSection('fuel')}>Fuel Prices</Pill>
       </div>
 
+      {section==='vre'   && <VariantPicker t={t} scnMeta={scnMeta} param="pVREProfile"          value={varOverrides?.pVREProfile}          onChange={setVariant} />}
+      {section==='avail' && <VariantPicker t={t} scnMeta={scnMeta} param="pAvailabilityDefault" value={varOverrides?.pAvailabilityDefault} onChange={setVariant} />}
+      {section==='fuel'  && <VariantPicker t={t} scnMeta={scnMeta} param="pFuelPrice"           value={varOverrides?.pFuelPrice}           onChange={setVariant} />}
+
       {section === 'vre' && (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
           {allVreTechs.length === 0 ? (
@@ -1287,7 +1298,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm }) {
 
 // ── Trade / Transmission tab ──────────────────────────────────────────────────
 
-function TradeTab({ t, epmData, epmLoading, hasEpm }) {
+function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant }) {
   const ntcYears = availableYears(epmData?.ntc || []);
   const [yr, setYr]       = useState(null);
   const [chartType, setChartType] = useState('bar'); // bar | line
@@ -1332,6 +1343,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <VariantPicker t={t} scnMeta={scnMeta} param="pTransferLimit" value={varOverrides?.pTransferLimit} onChange={setVariant} />
 
       {/* NTC Evolution chart */}
       <div>
@@ -1565,6 +1577,13 @@ export default function RegionPage() {
   const [satLabels,       setSatLabels]       = useState(false);
   const [epmData,         setEpmData]         = useState(null);
   const [epmLoading,      setEpmLoading]      = useState(false);
+  const [scnMeta,         setScnMeta]         = useState(null);   // parsed config.csv + scenarios.csv
+  const [varOverrides,    setVarOverrides]    = useState({});     // { paramName: variantFile }
+  const setVariant = (param, file) => setVarOverrides(o => {
+    const next = { ...o };
+    if (file) next[param] = file; else delete next[param];
+    return next;
+  });
   const [pieMode,         setPieMode]         = useState('zone');
   const [epmYear,         setEpmYear]         = useState(null);
   const [showExtZones,    setShowExtZones]    = useState(false);
@@ -1603,26 +1622,39 @@ export default function RegionPage() {
   // Reset year when region changes
   useEffect(() => { setEpmYear(null); }, [region]);
 
+  // Load scenario definitions (config.csv + scenarios.csv) for variant pickers
+  useEffect(() => {
+    setScnMeta(null);
+    setVarOverrides({});
+    if (!region?.epm) return;
+    const { branch, dataFolder, scenariosFile, configFile } = region.epm;
+    fetchScenarioConfig(branch, dataFolder, { scenariosFile, configFile })
+      .then(setScnMeta)
+      .catch(() => setScnMeta(null));
+  }, [region]);
+
   // EPM data — also fetches linestring + demand profile
   useEffect(() => {
     setEpmData(null);
     if (!region?.epm) return;
     const { branch, dataFolder } = region.epm;
+    // Effective file for a data type: user-selected variant, else hard-coded default.
+    const rf = (param, fallback) => varOverrides[param] || fallback;
     setEpmLoading(true);
     Promise.all([
-      fetchEpmCSV(branch, dataFolder, 'supply/pGenDataInput.csv'),
-      fetchEpmCSV(branch, dataFolder, 'load/pDemandForecast.csv'),
-      fetchEpmCSV(branch, dataFolder, 'trade/pTransferLimit.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pTransferLimit', 'trade/pTransferLimit.csv')),
       fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
       fetchLinestringGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, 'load/pDemandProfile.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pDemandProfile', 'load/pDemandProfile.csv')),
       fetchZonesGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, 'supply/pVREProfile.csv'),
-      fetchEpmCSV(branch, dataFolder, 'supply/pAvailabilityDefault.csv'),
-      fetchEpmCSV(branch, dataFolder, 'supply/pFuelPrice.csv'),
-      fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pVREProfile', 'supply/pVREProfile.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
+      fetchEpmCSV(branch, dataFolder, rf('pHours', 'pHours.csv')),
       fetchZonesExtGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, 'trade/pExtTransferLimit.csv'),
+      fetchEpmCSV(branch, dataFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),
     ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw]) => {
       const demandYears = (demandRaw || []).length
         ? Object.keys(demandRaw[0]).filter(k => /^\d{4}$/.test(k)).sort()
@@ -1643,7 +1675,7 @@ export default function RegionPage() {
         linestringGJ, zonesGJ, zonesExtGJ, branch,
       });
     }).finally(() => setEpmLoading(false));
-  }, [region]);
+  }, [region, varOverrides]);
 
   // Fleet age — GPPD only
   useEffect(() => {
@@ -2353,17 +2385,21 @@ export default function RegionPage() {
         {activeTab === 'supply' && (
           !region.epm  ? <NotAvailable t={t} /> :
           epmLoading   ? <LoadingBox t={t} /> :
-          epmData      ? <EpmSupplyTab t={t} epmData={epmData} region={region} /> :
+          epmData      ? <EpmSupplyTab t={t} epmData={epmData} region={region}
+                           scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} /> :
                          <NotAvailable t={t} />
         )}
         {activeTab === 'demand' && (
-          <DemandTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} />
+          <DemandTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
+            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} />
         )}
         {activeTab === 'resources' && (
-          <ResourcesTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} />
+          <ResourcesTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
+            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} />
         )}
         {activeTab === 'trade' && (
-          <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} />
+          <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
+            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} />
         )}
         {activeTab === 'about' && (
           <AboutTab region={region} t={t} epmData={epmData} />
