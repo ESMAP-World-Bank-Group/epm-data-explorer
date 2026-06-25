@@ -312,7 +312,7 @@ export function processGenData(rows) {
       g:        r.g || '',
       zone:     rZone(r),
       tech:     r.tech || '',
-      fuel:     normalizeFuel(r.fuel || r.f || ''),
+      fuel:     normalizeFuel(r.fuel || r.f || r.tech || ''),
       fuelRaw:  r.fuel || r.f || '',
       status,
       capacity,
