@@ -123,6 +123,33 @@ function SectionTitle({ t, children, right }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+// NTC line features (shared by the map build + the in-place data-update effect).
+function buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ) {
+  const ntcYrs = availableYears(epmData.ntc);
+  const ntcYr  = ntcYrs[0] || '2024';
+  const seen = new Set();
+  if (Object.keys(zoneCentroids).length > 0) {
+    return epmData.ntc
+      .filter(r => { const key = [r.z, r.z2].sort().join('||'); if (seen.has(key)) return false; seen.add(key);
+        return (r.years[ntcYr] || 0) > 0 && zoneCentroids[r.z] && zoneCentroids[r.z2]; })
+      .map(r => ({ type: 'Feature',
+        properties: { z: r.z, z_other: r.z2, ntc_mw: r.years[ntcYr] || 0, isCountry: countryZones.includes(r.z) || countryZones.includes(r.z2) },
+        geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], zoneCentroids[r.z2]] } }));
+  }
+  if (linestringGJ) {
+    return linestringGJ.features
+      .filter(f => { const { z, z_other } = f.properties; if (!z || !z_other) return false;
+        const key = [z, z_other].sort().join('||'); if (seen.has(key)) return false; seen.add(key);
+        const entry = epmData.ntc.find(r => (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+        return (entry?.years[ntcYr] || 0) > 0; })
+      .map(f => { const { z, z_other } = f.properties;
+        const entry = epmData.ntc.find(r => (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+        return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0,
+          isCountry: countryZones.includes(z) || countryZones.includes(z_other) } }; });
+  }
+  return [];
+}
+
 export default function EpmCountryPage() {
   const { regionId, countryName } = useParams();
   const countryNameDecoded = decodeURIComponent(countryName);
@@ -133,6 +160,8 @@ export default function EpmCountryPage() {
   const containerRef    = useRef(null);
   const mapRef          = useRef(null);
   const donutMarkersRef = useRef([]);
+  const zoneCentroidsRef = useRef({});
+  const countryZonesRef  = useRef([]);
 
   // ── Core state ──────────────────────────────────────────────────────────────
   const [region,  setRegion]  = useState(null);
@@ -270,6 +299,9 @@ export default function EpmCountryPage() {
         if (z2 && !zoneCentroids[z2]) zoneCentroids[z2] = coords[coords.length - 1];
       }
     }
+    // Expose for the in-place donut / NTC update effects (no map rebuild needed).
+    zoneCentroidsRef.current = zoneCentroids;
+    countryZonesRef.current  = countryZones;
 
     const countryCoords = countryZones.flatMap(z => zoneCentroids[z] ? [zoneCentroids[z]] : []);
     const lons = countryCoords.map(c => c[0]);
@@ -354,29 +386,8 @@ export default function EpmCountryPage() {
         });
       }
 
-      if (Object.keys(zoneCentroids).length > 0 || linestringGJ) {
-        const ntcYrs = availableYears(epmData.ntc);
-        const ntcYr  = ntcYrs[0] || '2024';
-        const seenPairs = new Set();
-        let ntcFeatures = [];
-        if (Object.keys(zoneCentroids).length > 0) {
-          ntcFeatures = epmData.ntc
-            .filter(r => { const key = [r.z,r.z2].sort().join('||'); if(seenPairs.has(key))return false; seenPairs.add(key);
-              return (r.years[ntcYr]||0)>0 && zoneCentroids[r.z] && zoneCentroids[r.z2]; })
-            .map(r => ({ type:'Feature',
-              properties:{ z:r.z, z_other:r.z2, ntc_mw:r.years[ntcYr]||0, isCountry: countryZones.includes(r.z)||countryZones.includes(r.z2) },
-              geometry:{ type:'LineString', coordinates:[zoneCentroids[r.z], zoneCentroids[r.z2]] } }));
-        } else if (linestringGJ) {
-          ntcFeatures = linestringGJ.features
-            .filter(f => { const {z,z_other}=f.properties; if(!z||!z_other)return false;
-              const key=[z,z_other].sort().join('||'); if(seenPairs.has(key))return false; seenPairs.add(key);
-              const entry=epmData.ntc.find(r=>(r.z===z&&r.z2===z_other)||(r.z===z_other&&r.z2===z));
-              return (entry?.years[ntcYr]||0)>0; })
-            .map(f => { const {z,z_other}=f.properties;
-              const entry=epmData.ntc.find(r=>(r.z===z&&r.z2===z_other)||(r.z===z_other&&r.z2===z));
-              return {...f, properties:{...f.properties, ntc_mw:entry?.years[ntcYr]||0,
-                isCountry:countryZones.includes(z)||countryZones.includes(z_other)}}; });
-        }
+      {
+        const ntcFeatures = buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ);
         if (ntcFeatures.length > 0) {
           map.addSource('ntc-lines', { type:'geojson', data:{type:'FeatureCollection',features:ntcFeatures} });
           map.addLayer({ id:'ntc-lines-bg', type:'line', source:'ntc-lines',
@@ -393,25 +404,10 @@ export default function EpmCountryPage() {
         }
       }
 
-      const zoneGen = {};
-      for (const r of epmData.gen.filter(g => g.status===1 && countryZones.includes(g.zone))) {
-        if (!zoneGen[r.zone]) zoneGen[r.zone] = {};
-        zoneGen[r.zone][r.fuel] = (zoneGen[r.zone][r.fuel] || 0) + r.capacity;
-      }
-      donutMarkersRef.current.forEach(m => m.remove());
-      donutMarkersRef.current = [];
-      for (const z of countryZones) {
-        const fuelMix = zoneGen[z]; const coord = zoneCentroids[z];
-        if (!fuelMix || !coord) continue;
-        const el = document.createElement('div');
-        el.style.cursor = 'pointer';
-        el.innerHTML = makeDonutSVG(fuelMix, tv);
-        el.addEventListener('click', () => navigate(`/region/${regionId}/zone/${encodeURIComponent(z)}`));
-        donutMarkersRef.current.push(new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(map));
-      }
+      // Donuts + NTC data are drawn / updated in place by the effects below.
+      setMapLoadedCount(c => c + 1);
     });
 
-    setMapLoadedCount(c => c + 1);
     return () => {
       popup.remove();
       donutMarkersRef.current.forEach(m => m.remove());
@@ -426,6 +422,38 @@ export default function EpmCountryPage() {
     const f = selZone === 'all' ? '__none__' : selZone;
     try { map.setFilter('zone-selected', ['==', ['get', 'z'], f]); map.setFilter('zone-selected-border', ['==', ['get', 'z'], f]); } catch(e) {}
   }, [selZone, mapLoadedCount]);
+
+  // Donut markers — re-render in place when supply data changes (no map rebuild → no flash).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !epmData || mapLoadedCount === 0) return;
+    const tv = getT(theme);
+    const countryZones = countryZonesRef.current, centroids = zoneCentroidsRef.current;
+    const zoneGen = {};
+    for (const r of epmData.gen.filter(g => g.status === 1 && countryZones.includes(g.zone))) {
+      if (!zoneGen[r.zone]) zoneGen[r.zone] = {};
+      zoneGen[r.zone][r.fuel] = (zoneGen[r.zone][r.fuel] || 0) + r.capacity;
+    }
+    donutMarkersRef.current.forEach(m => m.remove());
+    donutMarkersRef.current = [];
+    for (const z of countryZones) {
+      const fuelMix = zoneGen[z], coord = centroids[z];
+      if (!fuelMix || !coord) continue;
+      const el = document.createElement('div');
+      el.style.cursor = 'pointer';
+      el.innerHTML = makeDonutSVG(fuelMix, tv);
+      el.addEventListener('click', () => navigate(`/region/${regionId}/zone/${encodeURIComponent(z)}`));
+      donutMarkersRef.current.push(new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(map));
+    }
+  }, [mapLoadedCount, epmData, theme]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // NTC lines — update MW in place when trade data changes (no map rebuild → no flash).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !epmData || mapLoadedCount === 0 || !map.getSource('ntc-lines')) return;
+    const features = buildNtcFeatures(epmData, zoneCentroidsRef.current, countryZonesRef.current, epmData.linestringGJ);
+    map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
+  }, [mapLoadedCount, epmData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Computed values ───────────────────────────────────────────────────────────
 

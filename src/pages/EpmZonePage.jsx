@@ -84,6 +84,32 @@ function SectionTitle({ t, children, right }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+// NTC line features (shared by the map build + the in-place data-update effect).
+function buildZoneNtcFeatures(epmData, zoneCentroids, linestringGJ) {
+  const ntcYrs = availableYears(epmData.ntc);
+  const ntcYr  = ntcYrs[0] || '2024';
+  const seen = new Set();
+  if (Object.keys(zoneCentroids).length > 0) {
+    return epmData.ntc
+      .filter(r => { const key = [r.z, r.z2].sort().join('||'); if (seen.has(key)) return false; seen.add(key);
+        return (r.years[ntcYr] || 0) > 0 && zoneCentroids[r.z] && zoneCentroids[r.z2]; })
+      .map(r => ({ type: 'Feature',
+        properties: { z: r.z, z_other: r.z2, ntc_mw: r.years[ntcYr] || 0 },
+        geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], zoneCentroids[r.z2]] } }));
+  }
+  if (linestringGJ) {
+    return linestringGJ.features
+      .filter(f => { const { z, z_other } = f.properties; if (!z || !z_other) return false;
+        const key = [z, z_other].sort().join('||'); if (seen.has(key)) return false; seen.add(key);
+        const entry = epmData.ntc.find(r => (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+        return (entry?.years[ntcYr] || 0) > 0; })
+      .map(f => { const { z, z_other } = f.properties;
+        const entry = epmData.ntc.find(r => (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+        return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0 } }; });
+  }
+  return [];
+}
+
 export default function EpmZonePage() {
   const { regionId, zoneId } = useParams();
   const zoneIdDecoded = decodeURIComponent(zoneId);
@@ -290,28 +316,7 @@ export default function EpmZonePage() {
 
       // NTC lines
       {
-        const ntcYrs = availableYears(epmData.ntc);
-        const ntcYr  = ntcYrs[0] || '2024';
-        const seenPairs = new Set();
-        let ntcFeatures = [];
-        if (Object.keys(zoneCentroids).length > 0) {
-          ntcFeatures = epmData.ntc
-            .filter(r => { const key=[r.z,r.z2].sort().join('||'); if(seenPairs.has(key))return false; seenPairs.add(key);
-              return (r.years[ntcYr]||0)>0 && zoneCentroids[r.z] && zoneCentroids[r.z2]; })
-            .map(r => ({ type:'Feature',
-              properties:{ z:r.z, z_other:r.z2, ntc_mw:r.years[ntcYr]||0, isZone:r.z===zoneIdDecoded||r.z2===zoneIdDecoded },
-              geometry:{ type:'LineString', coordinates:[zoneCentroids[r.z],zoneCentroids[r.z2]] } }));
-        } else if (linestringGJ) {
-          ntcFeatures = linestringGJ.features
-            .filter(f => { const {z,z_other}=f.properties; if(!z||!z_other)return false;
-              const key=[z,z_other].sort().join('||'); if(seenPairs.has(key))return false; seenPairs.add(key);
-              const entry=epmData.ntc.find(r=>(r.z===z&&r.z2===z_other)||(r.z===z_other&&r.z2===z));
-              return (entry?.years[ntcYr]||0)>0; })
-            .map(f => { const {z,z_other}=f.properties;
-              const entry=epmData.ntc.find(r=>(r.z===z&&r.z2===z_other)||(r.z===z_other&&r.z2===z));
-              return {...f,properties:{...f.properties,ntc_mw:entry?.years[ntcYr]||0,
-                isZone:z===zoneIdDecoded||z_other===zoneIdDecoded}}; });
-        }
+        const ntcFeatures = buildZoneNtcFeatures(epmData, zoneCentroids, linestringGJ);
         if (ntcFeatures.length > 0) {
           map.addSource('ntc-lines', { type:'geojson', data:{type:'FeatureCollection',features:ntcFeatures} });
           map.addLayer({ id:'ntc-lines-bg',     type:'line', source:'ntc-lines', paint:{'line-color':'#f0b030','line-width':0.8,'line-opacity':0.2} });
@@ -365,6 +370,14 @@ export default function EpmZonePage() {
       map.easeTo({ center, duration: 600 });
     }
   }, [zoneIdDecoded, zoneCentroids, theme]);
+
+  // NTC lines — update MW in place when trade data changes (no map rebuild → no flash).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !epmData || !map.isStyleLoaded() || !map.getSource('ntc-lines')) return;
+    const features = buildZoneNtcFeatures(epmData, zoneCentroids, epmData.linestringGJ);
+    map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
+  }, [epmData, zoneCentroids]);
 
   // ── Computed values ───────────────────────────────────────────────────────────
 
