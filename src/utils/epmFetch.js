@@ -252,15 +252,15 @@ export async function fetchEpmText(branch, dataFolder, relPath) {
 // Map EPM fuel names → canonical key matching FUEL_COLORS in constants.js
 const FUEL_MAP = {
   water: 'hydro', ror: 'hydro', reservoirhydro: 'hydro', pumpedhydro: 'hydro',
-  solar: 'solar', pv: 'solar', csp: 'solar',
-  wind: 'wind', windonshore: 'wind', windoffshore: 'wind',
-  gas: 'gas', naturalgas: 'gas', lng: 'gas',
+  solar: 'solar', pv: 'solar', rpv: 'solar', csp: 'solar', cspplant: 'solar',
+  wind: 'wind', windonshore: 'wind', windoffshore: 'wind', onshorewind: 'wind', offshorewind: 'wind',
+  gas: 'gas', naturalgas: 'gas', lng: 'gas', ocgt: 'gas', ccgt: 'gas', ocgtccs: 'gas', ccgtccs: 'gas', methane: 'gas',
   coal: 'coal', domesticcoal: 'coal', importedcoal: 'coal',
   nuclear: 'nuclear', uranium: 'nuclear',
   oil: 'oil', hfo: 'oil', fueloil: 'oil', lightfueloil: 'oil',
-  biomass: 'biomass', biomasswaste: 'biomass',
+  biomass: 'biomass', biomasswaste: 'biomass', biomassplant: 'biomass',
   geothermal: 'geothermal',
-  diesel: 'diesel',
+  ice: 'diesel', diesel: 'diesel',
   waste: 'waste',
   biogas: 'biogas',
 };
