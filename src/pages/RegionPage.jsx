@@ -1635,13 +1635,17 @@ export default function RegionPage() {
   }, [region]);
 
   // EPM data — also fetches linestring + demand profile
+  const prevRegionRef = useRef(null);
   useEffect(() => {
-    setEpmData(null);
-    if (!region?.epm) return;
+    if (!region?.epm) { setEpmData(null); return; }
+    const regionChanged = prevRegionRef.current !== region;
+    prevRegionRef.current = region;
     const { branch, dataFolder } = region.epm;
     // Effective file for a data type: user-selected variant, else hard-coded default.
     const rf = (param, fallback) => varOverrides[param] || fallback;
-    setEpmLoading(true);
+    // Blank + show the loading screen ONLY when the region changes. On a variant
+    // change we keep the current data visible and swap it in when ready (fluid).
+    if (regionChanged) { setEpmData(null); setEpmLoading(true); }
     Promise.all([
       fetchEpmCSV(branch, dataFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
       fetchEpmCSV(branch, dataFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
@@ -1661,8 +1665,8 @@ export default function RegionPage() {
         ? Object.keys(demandRaw[0]).filter(k => /^\d{4}$/.test(k)).sort()
         : [];
       const defaultYr = demandYears.find(y => parseInt(y) >= 2023) || demandYears[0];
-      if (defaultYr) setEpmYear(defaultYr);
-      setEpmData({
+      if (regionChanged && defaultYr) setEpmYear(defaultYr);   // keep the chosen year on variant change
+      setEpmData(prev => ({
         gen:               genRaw    ? processGenData(genRaw)               : [],
         demand:            demandRaw ? processDemand(demandRaw)             : [],
         ntc:               ntcRaw    ? processNTC(ntcRaw)                   : [],
@@ -1673,8 +1677,12 @@ export default function RegionPage() {
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)              : {},
         hours:             hoursRaw  ? processHours(hoursRaw)               : {},
         extNtc:            extNtcRaw ? processExtNTC(extNtcRaw)             : [],
-        linestringGJ, zonesGJ, zonesExtGJ, branch,
-      });
+        // Preserve geojson refs on a variant change so the map doesn't rebuild/recenter.
+        linestringGJ: (regionChanged || !prev) ? linestringGJ : prev.linestringGJ,
+        zonesGJ:      (regionChanged || !prev) ? zonesGJ      : prev.zonesGJ,
+        zonesExtGJ:   (regionChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
+        branch,
+      }));
     }).finally(() => setEpmLoading(false));
   }, [region, varOverrides]);
 

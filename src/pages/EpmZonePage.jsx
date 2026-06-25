@@ -131,11 +131,16 @@ export default function EpmZonePage() {
   // ── Load region ─────────────────────────────────────────────────────────────
   useEffect(() => {
     track('zone_view', { region: regionId, zone: zoneIdDecoded });
+  }, [regionId, zoneIdDecoded]);
+
+  // Region (+ its EPM data) only depends on the region, NOT the zone — so switching
+  // zone within a region doesn't reload everything / rebuild the map (no black flash).
+  useEffect(() => {
     fetch('/data/regions.json').then(r => r.json()).then(d => {
       const r = (d.regions || []).find(r => r.id === regionId);
       setRegion(r || null);
     });
-  }, [regionId, zoneIdDecoded]);
+  }, [regionId]);
 
   // ── Load scenario definitions (config.csv + scenarios.csv) ────────────────────
   useEffect(() => {
@@ -149,12 +154,16 @@ export default function EpmZonePage() {
   }, [region]);
 
   // ── Load EPM data ────────────────────────────────────────────────────────────
+  const prevRegionRef = useRef(null);
   useEffect(() => {
-    setEpmData(null);
-    if (!region?.epm) return;
+    if (!region?.epm) { setEpmData(null); return; }
+    const regionChanged = prevRegionRef.current !== region;
+    prevRegionRef.current = region;
     const { branch, dataFolder } = region.epm;
     const rf = (param, fallback) => varOverrides[param] || fallback;
-    setLoading(true);
+    // Blank + loading ONLY on region change. On a variant change keep the current
+    // data (and map) visible and swap it in when ready — fluid, no reset.
+    if (regionChanged) { setEpmData(null); setLoading(true); }
     Promise.all([
       fetchEpmCSV(branch, dataFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
       fetchEpmCSV(branch, dataFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
@@ -168,7 +177,7 @@ export default function EpmZonePage() {
       fetchEpmCSV(branch, dataFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
       fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
     ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
-      setEpmData({
+      setEpmData(prev => ({
         gen:               genRaw    ? processGenData(genRaw)              : [],
         demand:            demandRaw ? processDemand(demandRaw)            : [],
         ntc:               ntcRaw    ? processNTC(ntcRaw)                  : [],
@@ -178,12 +187,35 @@ export default function EpmZonePage() {
         availability:      availRaw  ? processAvailability(availRaw)       : {},
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)             : {},
         hours:             hoursRaw  ? processHours(hoursRaw)              : {},
-        linestringGJ, zonesGJ,
-      });
+        // Preserve geojson refs on a variant change so the map doesn't rebuild/recenter.
+        linestringGJ: (regionChanged || !prev) ? linestringGJ : prev.linestringGJ,
+        zonesGJ:      (regionChanged || !prev) ? zonesGJ      : prev.zonesGJ,
+      }));
     }).finally(() => setLoading(false));
   }, [region, varOverrides]);
 
   // ── Map ──────────────────────────────────────────────────────────────────────
+  // Zone centroids — shared by the map build + the lightweight zone-switch effect.
+  const zoneCentroids = useMemo(() => {
+    const out = {};
+    const gj = epmData?.zonesGJ, ls = epmData?.linestringGJ;
+    if (gj) {
+      for (const f of gj.features) {
+        const z = f.properties.z;
+        if (z) { const c = computeCentroid(f.geometry); if (c) out[z] = c; }
+      }
+    } else if (ls) {
+      for (const f of ls.features) {
+        const coords = f.geometry.coordinates;
+        const z = f.properties.z, z2 = f.properties.z_other;
+        if (z  && !out[z])  out[z]  = coords[0];
+        if (z2 && !out[z2]) out[z2] = coords[coords.length - 1];
+      }
+    }
+    return out;
+  }, [epmData]);
+
+  // Build the map ONCE per region / data / theme — NOT per zone.
   useEffect(() => {
     if (!containerRef.current || !region || !epmData) return;
     const { linestringGJ, zonesGJ } = epmData;
@@ -191,21 +223,6 @@ export default function EpmZonePage() {
 
     const zcmapRows     = epmData.zcmap;
     const zoneToCountry = Object.fromEntries(zcmapRows.map(r => [r.z, r.c]));
-
-    const zoneCentroids = {};
-    if (zonesGJ) {
-      for (const f of zonesGJ.features) {
-        const z = f.properties.z;
-        if (z) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
-      }
-    } else if (linestringGJ) {
-      for (const f of linestringGJ.features) {
-        const coords = f.geometry.coordinates;
-        const z = f.properties.z, z2 = f.properties.z_other;
-        if (z  && !zoneCentroids[z])  zoneCentroids[z]  = coords[0];
-        if (z2 && !zoneCentroids[z2]) zoneCentroids[z2] = coords[coords.length - 1];
-      }
-    }
 
     const center = zoneCentroids[zoneIdDecoded] || [35, 39];
 
@@ -298,9 +315,10 @@ export default function EpmZonePage() {
         if (ntcFeatures.length > 0) {
           map.addSource('ntc-lines', { type:'geojson', data:{type:'FeatureCollection',features:ntcFeatures} });
           map.addLayer({ id:'ntc-lines-bg',     type:'line', source:'ntc-lines', paint:{'line-color':'#f0b030','line-width':0.8,'line-opacity':0.2} });
-          map.addLayer({ id:'ntc-lines-active', type:'line', source:'ntc-lines', filter:['==',['get','isZone'],true], layout:{'line-cap':'round'},
+          const zoneNtcFilter = ['any',['==',['get','z'],zoneIdDecoded],['==',['get','z_other'],zoneIdDecoded]];
+          map.addLayer({ id:'ntc-lines-active', type:'line', source:'ntc-lines', filter:zoneNtcFilter, layout:{'line-cap':'round'},
             paint:{'line-color':'#f0b030','line-width':['interpolate',['linear'],['get','ntc_mw'],0,1,500,2,2000,3.5,8000,6],'line-opacity':0.95} });
-          map.addLayer({ id:'ntc-labels', type:'symbol', source:'ntc-lines', filter:['==',['get','isZone'],true],
+          map.addLayer({ id:'ntc-labels', type:'symbol', source:'ntc-lines', filter:zoneNtcFilter,
             layout:{'text-field':['concat',['to-string',['round',['get','ntc_mw']]],' MW'],'text-size':8,'symbol-placement':'line-center','text-allow-overlap':false},
             paint:{'text-color':'#b07800','text-halo-color':'rgba(255,255,255,0.9)','text-halo-width':1.5} });
         }
@@ -321,7 +339,32 @@ export default function EpmZonePage() {
       markerRef.current = null;
       mapRef.current?.remove();
     };
-  }, [region, theme, epmData, zoneIdDecoded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Zone switch: update highlight + marker + recenter WITHOUT rebuilding the map ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded() || !map.getLayer('zone-fill-active')) return;
+    map.setFilter('zone-fill-dim',     ['!=', ['get', 'z'], zoneIdDecoded]);
+    map.setFilter('zone-border-dim',   ['!=', ['get', 'z'], zoneIdDecoded]);
+    map.setFilter('zone-fill-active',  ['==', ['get', 'z'], zoneIdDecoded]);
+    map.setFilter('zone-border-active',['==', ['get', 'z'], zoneIdDecoded]);
+    const zoneNtcFilter = ['any', ['==', ['get', 'z'], zoneIdDecoded], ['==', ['get', 'z_other'], zoneIdDecoded]];
+    if (map.getLayer('ntc-lines-active')) map.setFilter('ntc-lines-active', zoneNtcFilter);
+    if (map.getLayer('ntc-labels'))       map.setFilter('ntc-labels', zoneNtcFilter);
+
+    const center = zoneCentroids[zoneIdDecoded];
+    markerRef.current?.remove();
+    if (center) {
+      const tv = getT(theme);
+      const el = document.createElement('div');
+      el.style.cssText = `font-size:0.55rem;font-weight:700;font-family:system-ui,sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;
+      el.textContent = zoneIdDecoded;
+      markerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -4] })
+        .setLngLat(center).addTo(map);
+      map.easeTo({ center, duration: 600 });
+    }
+  }, [zoneIdDecoded, zoneCentroids, theme]);
 
   // ── Computed values ───────────────────────────────────────────────────────────
 

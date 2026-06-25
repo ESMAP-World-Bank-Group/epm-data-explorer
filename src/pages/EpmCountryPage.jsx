@@ -199,13 +199,17 @@ export default function EpmCountryPage() {
   }, [region]);
 
   // ── Load EPM data ────────────────────────────────────────────────────────────
+  const prevRegionRef = useRef(null);
   useEffect(() => {
-    setEpmData(null);
-    if (!region?.epm) return;
+    if (!region?.epm) { setEpmData(null); return; }
+    const regionChanged = prevRegionRef.current !== region;
+    prevRegionRef.current = region;
     const { branch, dataFolder } = region.epm;
     // Effective file for a data type: user-selected variant, else hard-coded default.
     const rf = (param, fallback) => varOverrides[param] || fallback;
-    setLoading(true);
+    // Blank + loading ONLY on region change. On a variant change keep the current
+    // data (and map) visible and swap it in when ready — fluid, no reset.
+    if (regionChanged) { setEpmData(null); setLoading(true); }
     Promise.all([
       fetchEpmCSV(branch, dataFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
       fetchEpmCSV(branch, dataFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
@@ -219,7 +223,7 @@ export default function EpmCountryPage() {
       fetchEpmCSV(branch, dataFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
       fetchEpmCSV(branch, dataFolder, rf('pHours', 'pHours.csv')),
     ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
-      setEpmData({
+      setEpmData(prev => ({
         gen:              genRaw     ? processGenData(genRaw)              : [],
         demand:           demandRaw  ? processDemand(demandRaw)            : [],
         ntc:              ntcRaw     ? processNTC(ntcRaw)                  : [],
@@ -229,8 +233,11 @@ export default function EpmCountryPage() {
         availability:      availRaw  ? processAvailability(availRaw)       : {},
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)             : {},
         hours:             hoursRaw  ? processHours(hoursRaw)              : {},
-        linestringGJ, zonesGJ, branch,
-      });
+        // Preserve geojson refs on a variant change so the map doesn't rebuild/recenter.
+        linestringGJ: (regionChanged || !prev) ? linestringGJ : prev.linestringGJ,
+        zonesGJ:      (regionChanged || !prev) ? zonesGJ      : prev.zonesGJ,
+        branch,
+      }));
     }).finally(() => setLoading(false));
   }, [region, varOverrides]);
 
@@ -411,7 +418,7 @@ export default function EpmCountryPage() {
       donutMarkersRef.current = [];
       mapRef.current?.remove();
     };
-  }, [region, theme, epmData, countryNameDecoded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ, countryNameDecoded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync selZone → map highlight (covers dropdown changes + map reloads)
   useEffect(() => {
