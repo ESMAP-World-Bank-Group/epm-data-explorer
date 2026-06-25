@@ -2205,7 +2205,7 @@ export default function RegionPage() {
         donutMarkersRef.current.push(marker);
       }
     }
-  }, [pieMode, mapLoaded, theme, epmYear]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pieMode, mapLoaded, theme, epmYear, epmData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // NTC map update when year changes
   useEffect(() => {
