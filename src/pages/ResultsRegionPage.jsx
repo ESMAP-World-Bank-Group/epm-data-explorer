@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTransmissionResults, processPlants, processCosts,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
@@ -176,6 +176,7 @@ export default function ResultsRegionPage() {
   const [linestringGJ, setLinestringGJ] = useState(null);
   const [hoursData,    setHoursData]    = useState({});
   const [runList,      setRunList]      = useState([]);
+  const [outputDir,    setOutputDir]    = useState('epm/output');
   const [simRun,       setSimRun]       = useState(null);
   const [scenarioList, setScenarioList] = useState([]);
   const [resultsData,  setResultsData]  = useState({});
@@ -257,7 +258,8 @@ export default function ResultsRegionPage() {
   useEffect(() => {
     if (!region?.epm) return;
     setLoadingRuns(true);
-    fetchGitHubDir(region.epm.branch, 'epm/output').then(items => {
+    const b = region.epm.branch;
+    resolveOutputDir(b).then(dir => { setOutputDir(dir); return fetchGitHubDir(b, dir); }).then(items => {
       const runs = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort().reverse();
       setRunList(runs); if (runs.length) setSimRun(runs[0]);
     }).finally(()=>setLoadingRuns(false));
@@ -265,7 +267,7 @@ export default function ResultsRegionPage() {
 
   useEffect(() => {
     if (!region?.epm || !simRun) return;
-    fetchGitHubDir(region.epm.branch, `epm/output/${simRun}`).then(items => {
+    fetchGitHubDir(region.epm.branch, `${outputDir}/${simRun}`).then(items => {
       const scens = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();
       setScenarioList(scens); setEvScenarios(new Set(scens));
       if (scens.length) {
@@ -277,7 +279,7 @@ export default function ResultsRegionPage() {
       setTrScenarios(new Set(scens));
       setSnapScenarios(new Set(scens));
     });
-  }, [region, simRun]);
+  }, [region, simRun, outputDir]);
 
   useEffect(() => {
     if (!region?.epm || !simRun || !scenarioList.length) return;
@@ -285,13 +287,13 @@ export default function ResultsRegionPage() {
     const { branch } = region.epm;
     Promise.all(scenarioList.map(async scen => {
       const [tfR, yzR, dpR, prR, txR, plR, coR] = await Promise.all([
-        fetchResultCSV(branch, simRun, scen, 'pTechFuelMerged.csv'),
-        fetchResultCSV(branch, simRun, scen, 'pYearlyZoneMerged.csv'),
-        fetchResultCSV(branch, simRun, scen, 'pDispatchComplete.csv'),
-        fetchResultCSV(branch, simRun, scen, 'pHourlyPrice.csv'),
-        fetchResultCSV(branch, simRun, scen, 'pTransmissionMerged.csv'),
-        fetchResultCSV(branch, simRun, scen, 'pPlantMerged.csv'),
-        fetchResultCSV(branch, simRun, scen, 'pCostsMerged.csv'),
+        fetchResultCSV(branch, simRun, scen, 'pTechFuelMerged.csv', outputDir),
+        fetchResultCSV(branch, simRun, scen, 'pYearlyZoneMerged.csv', outputDir),
+        fetchResultCSV(branch, simRun, scen, 'pDispatchComplete.csv', outputDir),
+        fetchResultCSV(branch, simRun, scen, 'pHourlyPrice.csv', outputDir),
+        fetchResultCSV(branch, simRun, scen, 'pTransmissionMerged.csv', outputDir),
+        fetchResultCSV(branch, simRun, scen, 'pPlantMerged.csv', outputDir),
+        fetchResultCSV(branch, simRun, scen, 'pCostsMerged.csv', outputDir),
       ]);
       return { scen,
         techFuel:     tfR  ? processTechFuel(tfR)              : {},
@@ -602,7 +604,7 @@ export default function ResultsRegionPage() {
   if (!region) return <div style={{ padding:40, color:t.text }}>Loading…</div>;
 
   const selectStyle = { fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer' };
-  const csvUrl = (scen, file) => `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm?.branch}/epm/output/${simRun}/${scen}/output_csv/${file}`;
+  const csvUrl = (scen, file) => `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm?.branch}/${outputDir}/${simRun}/${scen}/output_csv/${file}`;
   const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} t={t}/>)}</div>:null;
   const TABS = ['overview','snapshot','evolution','dispatch','trade','plants'];
   const TAB_LABELS = { overview:'Overview', snapshot:'Snapshot', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants' };

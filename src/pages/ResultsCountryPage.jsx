@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchGitHubDir, fetchResultCSV,
+  fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTransmissionResults, processPlants, processCosts,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
@@ -71,6 +71,7 @@ export default function ResultsCountryPage() {
   const [linestringGJ, setLinestringGJ] = useState(null);
   const [hoursData,    setHoursData]    = useState({});
   const [runList,      setRunList]      = useState([]);
+  const [outputDir,    setOutputDir]    = useState('epm/output');
   const [simRun,       setSimRun]       = useState(null);
   const [scenarioList, setScenarioList] = useState([]);
   const [resultsData,  setResultsData]  = useState({});
@@ -123,14 +124,14 @@ export default function ResultsCountryPage() {
     });
   },[region]);
 
-  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);fetchGitHubDir(region.epm.branch,'epm/output').then(items=>{const runs=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>setLoadingRuns(false));},[region]);
-  useEffect(()=>{if(!region?.epm||!simRun)return;fetchGitHubDir(region.epm.branch,`epm/output/${simRun}`).then(items=>{const s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(new Set(s));setCmpRef(base);setCmpScenarios(new Set(s));setTrScenarios(new Set(s));setSnapScenarios(new Set(s));}});},[region,simRun]);
+  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);const b=region.epm.branch;resolveOutputDir(b).then(dir=>{setOutputDir(dir);return fetchGitHubDir(b,dir);}).then(items=>{const runs=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>setLoadingRuns(false));},[region]);
+  useEffect(()=>{if(!region?.epm||!simRun)return;fetchGitHubDir(region.epm.branch,`${outputDir}/${simRun}`).then(items=>{const s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(new Set(s));setCmpRef(base);setCmpScenarios(new Set(s));setTrScenarios(new Set(s));setSnapScenarios(new Set(s));}});},[region,simRun,outputDir]);
 
   useEffect(()=>{
     if(!region?.epm||!simRun||!scenarioList.length)return;
     setLoadingData(true);const{branch}=region.epm;
     Promise.all(scenarioList.map(async scen=>{
-      const[tf,yz,dp,pr,tx,pl,co]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv'),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv'),fetchResultCSV(branch,simRun,scen,'pDispatchComplete.csv'),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv'),fetchResultCSV(branch,simRun,scen,'pTransmissionMerged.csv'),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv'),fetchResultCSV(branch,simRun,scen,'pCostsMerged.csv')]);
+      const[tf,yz,dp,pr,tx,pl,co]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pDispatchComplete.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pTransmissionMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pCostsMerged.csv',outputDir)]);
       return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:dp?processDispatchResults(dp):{},price:pr?processHourlyPrice(pr):{},transmission:tx?processTransmissionResults(tx):{},plants:pl?processPlants(pl):[],costs:co?processCosts(co):{}};
     })).then(res=>{const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);}).finally(()=>setLoadingData(false));
   },[region,simRun,scenarioList]); // eslint-disable-line

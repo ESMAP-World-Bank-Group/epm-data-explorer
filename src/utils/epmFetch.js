@@ -21,9 +21,17 @@ export async function fetchGitHubDir(branch, path) {
   } catch { return null; }
 }
 
-/** Fetch a result CSV: epm/output/{simRun}/{scenario}/output_csv/{filename} */
-export async function fetchResultCSV(branch, simRun, scenario, filename) {
-  const url = `${rawBase(branch)}/${branch}/epm/output/${simRun}/${scenario}/output_csv/${filename}`;
+/** Results live under epm/output_view (curated) if present, else epm/output (legacy).
+ *  Resolved once per page load from the branch's GitHub tree, then threaded through. */
+export async function resolveOutputDir(branch) {
+  const items = await fetchGitHubDir(branch, 'epm/output_view');
+  const hasRuns = (items || []).some(i => i.type === 'dir');
+  return hasRuns ? 'epm/output_view' : 'epm/output';
+}
+
+/** Fetch a result CSV: {outputDir}/{simRun}/{scenario}/output_csv/{filename} */
+export async function fetchResultCSV(branch, simRun, scenario, filename, outputDir = 'epm/output') {
+  const url = `${rawBase(branch)}/${branch}/${outputDir}/${simRun}/${scenario}/output_csv/${filename}`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
