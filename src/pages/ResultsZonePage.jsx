@@ -85,7 +85,9 @@ export default function ResultsZonePage() {
   useEffect(()=>{
     if(!containerRef.current||!region||!zonesGJ)return;
     const regionCountries=[...new Set(zcmapRows.map(r=>r.c))].sort();const colorMap={};regionCountries.forEach((c,i)=>{colorMap[c]=MAP_PALETTE[i%MAP_PALETTE.length];});
-    const zoneCentroids={};for(const f of zonesGJ.features){const z=f.properties.z;if(z){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
+    const zoneCentroids={};
+    if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}}
+    for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
     const center=zoneCentroids[zoneIdDecoded]||[35,39];
     const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center,zoom:5,minZoom:1,maxZoom:14,attributionControl:false});
     mapRef.current=map;
@@ -124,7 +126,9 @@ export default function ResultsZonePage() {
   useEffect(()=>{
     const map=mapRef.current;if(!map||!map.getSource('ntc-results')||!refYear)return;
     const sd=resultsData[scenario]||Object.values(resultsData)[0];if(!sd)return;
-    const tx=sd.transmission;const zoneCentroids={};if(zonesGJ)for(const f of zonesGJ.features){const z=f.properties.z;if(z){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
+    const tx=sd.transmission;const zoneCentroids={};
+    if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}}
+    if(zonesGJ)for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
     const seen=new Set();const features=[];
     for(const[z,z2map]of Object.entries(tx)){for(const[z2,attrs]of Object.entries(z2map)){const key=[z,z2].sort().join('||');if(seen.has(key))continue;seen.add(key);
       if(z!==zoneIdDecoded&&z2!==zoneIdDecoded)continue;
