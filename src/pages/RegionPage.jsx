@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
@@ -1486,7 +1486,7 @@ function AboutTab({ region, t, epmData }) {
             </div>
             <div>
               <b style={{ color: t.lbl }}>Data folder:</b>{' '}
-              <code style={{ fontSize: '0.52rem' }}>{region.epm.dataFolder}</code>
+              <code style={{ fontSize: '0.52rem' }}>{activeFolder ?? region.epm.dataFolder}</code>
             </div>
             <div>
               <b style={{ color: t.lbl }}>Source:</b>{' '}
@@ -1500,7 +1500,7 @@ function AboutTab({ region, t, epmData }) {
         )}
       </div>
       {region.epm && (
-        <a href={`https://htmlpreview.github.io/?https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm.branch}/epm/input/${region.epm.dataFolder}/DATA_SOURCES.html`}
+        <a href={`https://htmlpreview.github.io/?https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm.branch}/epm/input/${activeFolder ?? region.epm.dataFolder}/DATA_SOURCES.html`}
           target="_blank" rel="noreferrer"
           style={{ textDecoration: 'none' }}>
           <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '10px 14px',
@@ -1578,8 +1578,10 @@ export default function RegionPage() {
   const [satLabels,       setSatLabels]       = useState(false);
   const [epmData,         setEpmData]         = useState(null);
   const [epmLoading,      setEpmLoading]      = useState(false);
-  const [scnMeta,         setScnMeta]         = useState(null);   // parsed config.csv + scenarios.csv
-  const [varOverrides,    setVarOverrides]    = useState({});     // { paramName: variantFile }
+  const [scnMeta,         setScnMeta]         = useState(null);
+  const [varOverrides,    setVarOverrides]    = useState({});
+  const [activeFolder,    setActiveFolder]    = useState(null);
+  const [activeZcmap,     setActiveZcmap]     = useState(null);
   const setVariant = (param, file) => setVarOverrides(o => {
     const next = { ...o };
     if (file) next[param] = file; else delete next[param];
@@ -1623,49 +1625,70 @@ export default function RegionPage() {
   // Reset year when region changes
   useEffect(() => { setEpmYear(null); }, [region]);
 
+  // ── Init active folder + zcmap from region ───────────────────────────────────
+  useEffect(() => {
+    if (!region?.epm) return;
+    const folders = region.epm.dataFolders;
+    setActiveFolder(folders?.[0]?.id ?? region.epm.dataFolder);
+    setActiveZcmap(folders?.[0]?.zcmaps?.[0] ?? 'zcmap');
+  }, [region]);
+
+  const activeFolderDef = useMemo(() =>
+    region?.epm?.dataFolders?.find(f => f.id === activeFolder) ?? null,
+  [region, activeFolder]);
+
+  function handleFolderChange(folderId) {
+    const def = region?.epm?.dataFolders?.find(f => f.id === folderId);
+    setActiveFolder(folderId);
+    setActiveZcmap(def?.zcmaps?.[0] ?? 'zcmap');
+    setVarOverrides({});
+  }
+
   // Load scenario definitions (config.csv + scenarios.csv) for variant pickers
   useEffect(() => {
     setScnMeta(null);
     setVarOverrides({});
-    if (!region?.epm) return;
-    const { branch, dataFolder, scenariosFile, configFile } = region.epm;
-    fetchScenarioConfig(branch, dataFolder, { scenariosFile, configFile })
+    if (!region?.epm || !activeFolder) return;
+    const { branch, scenariosFile, configFile } = region.epm;
+    fetchScenarioConfig(branch, activeFolder, { scenariosFile, configFile })
       .then(setScnMeta)
       .catch(() => setScnMeta(null));
-  }, [region]);
+  }, [region, activeFolder]);
 
   // EPM data — also fetches linestring + demand profile
   const prevRegionRef = useRef(null);
+  const prevFolderRef = useRef(null);
+  const prevZcmapRef  = useRef(null);
   useEffect(() => {
-    if (!region?.epm) { setEpmData(null); return; }
-    const regionChanged = prevRegionRef.current !== region;
+    if (!region?.epm || !activeFolder || !activeZcmap) { if (!region?.epm) setEpmData(null); return; }
+    const regionOrFolderChanged = prevRegionRef.current !== region || prevFolderRef.current !== activeFolder;
+    const zcmapChanged = prevZcmapRef.current !== activeZcmap;
     prevRegionRef.current = region;
-    const { branch, dataFolder } = region.epm;
-    // Effective file for a data type: user-selected variant, else hard-coded default.
+    prevFolderRef.current = activeFolder;
+    prevZcmapRef.current  = activeZcmap;
+    const { branch } = region.epm;
     const rf = (param, fallback) => varOverrides[param] || fallback;
-    // Blank + show the loading screen ONLY when the region changes. On a variant
-    // change we keep the current data visible and swap it in when ready (fluid).
-    if (regionChanged) { setEpmData(null); setEpmLoading(true); }
+    if (regionOrFolderChanged) { setEpmData(null); setEpmLoading(true); }
     Promise.all([
-      fetchEpmCSV(branch, dataFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pTransferLimit', 'trade/pTransferLimit.csv')),
-      fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
-      fetchLinestringGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, rf('pDemandProfile', 'load/pDemandProfile.csv')),
-      fetchZonesGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, rf('pVREProfile', 'supply/pVREProfile.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pHours', 'pHours.csv')),
-      fetchZonesExtGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pTransferLimit', 'trade/pTransferLimit.csv')),
+      fetchEpmCSV(branch, activeFolder, `${activeZcmap}.csv`),
+      fetchLinestringGeoJSON(branch, activeFolder, activeZcmap),
+      fetchEpmCSV(branch, activeFolder, rf('pDemandProfile', 'load/pDemandProfile.csv')),
+      fetchZonesGeoJSON(branch, activeFolder, activeZcmap),
+      fetchEpmCSV(branch, activeFolder, rf('pVREProfile', 'supply/pVREProfile.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pHours', 'pHours.csv')),
+      fetchZonesExtGeoJSON(branch, activeFolder),
+      fetchEpmCSV(branch, activeFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),
     ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw]) => {
       const demandYears = (demandRaw || []).length
         ? Object.keys(demandRaw[0]).filter(k => /^\d{4}$/.test(k)).sort()
         : [];
       const defaultYr = demandYears.find(y => parseInt(y) >= 2023) || demandYears[0];
-      if (regionChanged && defaultYr) setEpmYear(defaultYr);   // keep the chosen year on variant change
+      if (regionOrFolderChanged && defaultYr) setEpmYear(defaultYr);
       setEpmData(prev => ({
         gen:               genRaw    ? processGenData(genRaw)               : [],
         demand:            demandRaw ? processDemand(demandRaw)             : [],
@@ -1677,14 +1700,13 @@ export default function RegionPage() {
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)              : {},
         hours:             hoursRaw  ? processHours(hoursRaw)               : {},
         extNtc:            extNtcRaw ? processExtNTC(extNtcRaw)             : [],
-        // Preserve geojson refs on a variant change so the map doesn't rebuild/recenter.
-        linestringGJ: (regionChanged || !prev) ? linestringGJ : prev.linestringGJ,
-        zonesGJ:      (regionChanged || !prev) ? zonesGJ      : prev.zonesGJ,
-        zonesExtGJ:   (regionChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
+        linestringGJ: (regionOrFolderChanged || zcmapChanged || !prev) ? linestringGJ : prev.linestringGJ,
+        zonesGJ:      (regionOrFolderChanged || zcmapChanged || !prev) ? zonesGJ      : prev.zonesGJ,
+        zonesExtGJ:   (regionOrFolderChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
         branch,
       }));
     }).finally(() => setEpmLoading(false));
-  }, [region, varOverrides]);
+  }, [region, activeFolder, activeZcmap, varOverrides]);
 
   // Fleet age — GPPD only
   useEffect(() => {
@@ -1752,20 +1774,21 @@ export default function RegionPage() {
         const countryColorMap = {};
         regionCountries.forEach((c, i) => { countryColorMap[c] = MAP_PALETTE[i % MAP_PALETTE.length]; });
 
-        // Zone centroids — from polygon centroids when zonesGJ available, else from linestring endpoints
+        // Zone centroids — linestring endpoints are canonical (match the drawn lines);
+        // polygon centroids fill in zones that appear in zonesGJ but not in any linestring.
         const zoneCentroids = {};
+        if (lsgj) {
+          for (const f of lsgj.features) {
+            const coords = f.geometry.coordinates;
+            const z = f.properties.z, z2 = f.properties.z_other;
+            if (z  && !zoneCentroids[z])  zoneCentroids[z]  = coords[0];
+            if (z2 && !zoneCentroids[z2]) zoneCentroids[z2] = coords[coords.length - 1];
+          }
+        }
         if (zonesGJ) {
           for (const f of zonesGJ.features) {
             const z = f.properties.z;
-            if (z) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
-          }
-        } else if (lsgj) {
-          for (const f of lsgj.features) {
-            const coords = f.geometry.coordinates;
-            const z = f.properties.z;
-            const z2 = f.properties.z_other;
-            if (z && !zoneCentroids[z]) zoneCentroids[z] = coords[0];
-            if (z2 && !zoneCentroids[z2]) zoneCentroids[z2] = coords[coords.length - 1];
+            if (z && !zoneCentroids[z]) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
           }
         }
 
@@ -2299,7 +2322,7 @@ export default function RegionPage() {
                 border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: '3px 7px',
                 display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span>EPM zones + NTC · {epmData.ntc.length} corridors</span>
-                <a href={`https://htmlpreview.github.io/?https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm.branch}/epm/input/${region.epm.dataFolder}/DATA_SOURCES.html`}
+                <a href={`https://htmlpreview.github.io/?https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm.branch}/epm/input/${activeFolder ?? region.epm.dataFolder}/DATA_SOURCES.html`}
                   target="_blank" rel="noreferrer"
                   style={{ color: t.lbl, fontWeight: 600, textDecoration: 'none', opacity: 0.7,
                     borderLeft: `1px solid ${t.panelBorder}`, paddingLeft: 6 }}
@@ -2334,6 +2357,20 @@ export default function RegionPage() {
                   Ext. zones
                 </button>
               )}
+              {activeFolderDef?.zcmaps?.length > 1 && (
+                <div style={{ display:'flex', gap:3, alignItems:'center', backgroundColor:t.panel,
+                  border:`1px solid ${t.panelBorder}`, borderRadius:4, padding:'3px 7px', fontSize:'0.46rem' }}>
+                  <span style={{ color:t.lblMuted }}>Zone map:</span>
+                  {activeFolderDef.zcmaps.map(zc => (
+                    <button key={zc} onClick={()=>setActiveZcmap(zc)} style={{
+                      fontFamily:'inherit', fontSize:'0.46rem', padding:'1px 6px', borderRadius:3,
+                      border:`1px solid ${activeZcmap===zc ? t.lbl : t.panelBorder}`,
+                      backgroundColor: activeZcmap===zc ? t.lbl : 'transparent',
+                      color: activeZcmap===zc ? t.panel : t.lblMuted, cursor:'pointer',
+                    }}>{zc}</button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2364,6 +2401,18 @@ export default function RegionPage() {
           {region.countries.length} countries
         </p>
         <div style={{ height: 3, borderRadius: 2, backgroundColor: region.color, width: 36, marginBottom: 20 }} />
+
+        {/* Data folder selector */}
+        {region?.epm?.dataFolders?.length > 1 && (
+          <div style={{ marginBottom:12, display:'flex', alignItems:'center', gap:6, fontSize:'0.5rem', color:t.lblMuted }}>
+            <span>Data folder:</span>
+            <select value={activeFolder ?? ''} onChange={e=>handleFolderChange(e.target.value)}
+              style={{ fontSize:'0.5rem', fontFamily:'inherit', padding:'2px 6px', borderRadius:3,
+                border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.lbl, cursor:'pointer' }}>
+              {region.epm.dataFolders.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 14, flexWrap: 'wrap' }}>

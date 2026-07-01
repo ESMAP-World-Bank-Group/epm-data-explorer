@@ -310,17 +310,18 @@ export default function EpmCountryPage() {
       : [];
 
     const zoneCentroids = {};
-    if (zonesGJ) {
-      for (const f of zonesGJ.features) {
-        const z = f.properties.z;
-        if (z) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
-      }
-    } else if (linestringGJ) {
+    if (linestringGJ) {
       for (const f of linestringGJ.features) {
         const coords = f.geometry.coordinates;
         const z = f.properties.z, z2 = f.properties.z_other;
         if (z  && !zoneCentroids[z])  zoneCentroids[z]  = coords[0];
         if (z2 && !zoneCentroids[z2]) zoneCentroids[z2] = coords[coords.length - 1];
+      }
+    }
+    if (zonesGJ) {
+      for (const f of zonesGJ.features) {
+        const z = f.properties.z;
+        if (z && !zoneCentroids[z]) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
       }
     }
     // Expose for the in-place donut / NTC update effects (no map rebuild needed).

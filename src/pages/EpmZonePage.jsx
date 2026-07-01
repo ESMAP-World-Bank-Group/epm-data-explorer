@@ -250,17 +250,18 @@ export default function EpmZonePage() {
   const zoneCentroids = useMemo(() => {
     const out = {};
     const gj = epmData?.zonesGJ, ls = epmData?.linestringGJ;
-    if (gj) {
-      for (const f of gj.features) {
-        const z = f.properties.z;
-        if (z) { const c = computeCentroid(f.geometry); if (c) out[z] = c; }
-      }
-    } else if (ls) {
+    if (ls) {
       for (const f of ls.features) {
         const coords = f.geometry.coordinates;
         const z = f.properties.z, z2 = f.properties.z_other;
         if (z  && !out[z])  out[z]  = coords[0];
         if (z2 && !out[z2]) out[z2] = coords[coords.length - 1];
+      }
+    }
+    if (gj) {
+      for (const f of gj.features) {
+        const z = f.properties.z;
+        if (z && !out[z]) { const c = computeCentroid(f.geometry); if (c) out[z] = c; }
       }
     }
     return out;
