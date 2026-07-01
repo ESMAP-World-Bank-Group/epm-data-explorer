@@ -2192,6 +2192,8 @@ export default function RegionPage() {
     donutMarkersRef.current.forEach(m => m.remove());
     donutMarkersRef.current = [];
 
+    if (pieMode === 'none') return;
+
     const activeGen = genForYear(epmData.gen, epmYear);
     if (pieMode === 'zone') {
       for (const { z, c } of zcmapRows) {
@@ -2332,7 +2334,7 @@ export default function RegionPage() {
               </div>
               <div style={{ display: 'flex', gap: 2, backgroundColor: t.panel,
                 border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: 2 }}>
-                {['country', 'zone'].map(mode => (
+                {['none', 'country', 'zone'].map(mode => (
                   <button key={mode} onClick={() => setPieMode(mode)} style={{
                     fontSize: '0.46rem', fontFamily: 'inherit', cursor: 'pointer',
                     padding: '2px 7px', borderRadius: 3, border: 'none',
@@ -2340,7 +2342,7 @@ export default function RegionPage() {
                     color: pieMode === mode ? t.lbl : t.lblMuted,
                     fontWeight: pieMode === mode ? 700 : 400,
                   }}>
-                    {mode === 'country' ? 'By country' : 'By zone'}
+                    {mode === 'none' ? 'Off' : mode === 'country' ? 'By country' : 'By zone'}
                   </button>
                 ))}
               </div>
