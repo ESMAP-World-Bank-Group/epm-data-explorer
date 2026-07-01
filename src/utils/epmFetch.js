@@ -4,7 +4,7 @@
 // il suffit d'ajouter le nom de la branche dans R2_BRANCHES.
 const GITHUB_RAW  = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
 const R2_BASE     = 'https://pub-fbe9fb64480745d48ed524b3803b349d.r2.dev';
-const R2_BRANCHES = new Set(['blacksea_2026']);   // branches dont les données vivent dans R2
+const R2_BRANCHES = new Set([]);   // branches dont les données vivent dans R2
 function rawBase(branch) { return R2_BRANCHES.has(branch) ? R2_BASE : GITHUB_RAW; }
 
 const API_BASE = 'https://api.github.com/repos/ESMAP-World-Bank-Group/EPM';
