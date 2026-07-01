@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZcmapList,
   processGenData, processDemand, processNTC,
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
@@ -170,22 +170,25 @@ export default function EpmZonePage() {
     });
   }, [regionId]);
 
-  // ── Init active folder + zcmap from region ───────────────────────────────────
+  // ── Init active folder from region ───────────────────────────────────────────
   useEffect(() => {
     if (!region?.epm) return;
     const folders = region.epm.dataFolders;
     setActiveFolder(folders?.[0]?.id ?? region.epm.dataFolder);
-    setActiveZcmap(folders?.[0]?.zcmaps?.[0] ?? 'zcmap');
   }, [region]);
 
-  const activeFolderDef = useMemo(() =>
-    region?.epm?.dataFolders?.find(f => f.id === activeFolder) ?? null,
-  [region, activeFolder]);
+  // ── Auto-detect zcmap list when folder changes ────────────────────────────────
+  const [zcmapList, setZcmapList] = useState(['zcmap']);
+  useEffect(() => {
+    if (!region?.epm || !activeFolder) return;
+    fetchZcmapList(region.epm.branch, activeFolder).then(list => {
+      setZcmapList(list);
+      setActiveZcmap(list[0]);
+    });
+  }, [region, activeFolder]);
 
   function handleFolderChange(folderId) {
-    const def = region?.epm?.dataFolders?.find(f => f.id === folderId);
     setActiveFolder(folderId);
-    setActiveZcmap(def?.zcmaps?.[0] ?? 'zcmap');
     setVarOverrides({});
   }
 
@@ -537,12 +540,12 @@ export default function EpmZonePage() {
           )}
           <span style={{ color:t.lbl, fontWeight:600 }}>{zoneIdDecoded}</span>
         </div>
-        {activeFolderDef?.zcmaps?.length > 1 && (
+        {zcmapList.length > 1 && (
           <div style={{ position:'absolute', bottom:10, left:10, zIndex:10, display:'flex', gap:4, alignItems:'center',
             fontSize:'0.5rem', backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`,
             borderRadius:5, padding:'4px 8px', boxShadow:'0 1px 4px rgba(0,0,0,.18)' }}>
             <span style={{ color:t.lblMuted }}>Zone map:</span>
-            {activeFolderDef.zcmaps.map(zc => (
+            {zcmapList.map(zc => (
               <button key={zc} onClick={()=>setActiveZcmap(zc)} style={{
                 fontFamily:'inherit', fontSize:'0.5rem', padding:'2px 8px', borderRadius:3,
                 border:`1px solid ${activeZcmap===zc ? t.lbl : t.panelBorder}`,

@@ -21,6 +21,17 @@ export async function fetchGitHubDir(branch, path) {
   } catch { return null; }
 }
 
+/** List zcmap*.csv stems in a data folder (e.g. ['zcmap', 'zcmap_alt']).
+ *  Falls back to ['zcmap'] if the directory is unreachable. */
+export async function fetchZcmapList(branch, dataFolder) {
+  const items = await fetchGitHubDir(branch, `epm/input/${dataFolder}`);
+  const names = (items || [])
+    .filter(f => f.type === 'file' && /^zcmap.*\.csv$/i.test(f.name))
+    .map(f => f.name.slice(0, -4));
+  names.sort((a, b) => a === 'zcmap' ? -1 : b === 'zcmap' ? 1 : a.localeCompare(b));
+  return names.length ? names : ['zcmap'];
+}
+
 /** Results live under epm/output_view (curated) if present, else epm/output (legacy).
  *  Resolved once per page load from the branch's GitHub tree, then threaded through. */
 export async function resolveOutputDir(branch) {

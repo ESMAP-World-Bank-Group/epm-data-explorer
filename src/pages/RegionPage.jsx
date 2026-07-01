@@ -10,7 +10,7 @@ import {
 import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList,
   processGenData, processDemand,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
@@ -1625,22 +1625,25 @@ export default function RegionPage() {
   // Reset year when region changes
   useEffect(() => { setEpmYear(null); }, [region]);
 
-  // ── Init active folder + zcmap from region ───────────────────────────────────
+  // ── Init active folder from region ───────────────────────────────────────────
   useEffect(() => {
     if (!region?.epm) return;
     const folders = region.epm.dataFolders;
     setActiveFolder(folders?.[0]?.id ?? region.epm.dataFolder);
-    setActiveZcmap(folders?.[0]?.zcmaps?.[0] ?? 'zcmap');
   }, [region]);
 
-  const activeFolderDef = useMemo(() =>
-    region?.epm?.dataFolders?.find(f => f.id === activeFolder) ?? null,
-  [region, activeFolder]);
+  // ── Auto-detect zcmap list when folder changes ────────────────────────────────
+  const [zcmapList, setZcmapList] = useState(['zcmap']);
+  useEffect(() => {
+    if (!region?.epm || !activeFolder) return;
+    fetchZcmapList(region.epm.branch, activeFolder).then(list => {
+      setZcmapList(list);
+      setActiveZcmap(list[0]);
+    });
+  }, [region, activeFolder]);
 
   function handleFolderChange(folderId) {
-    const def = region?.epm?.dataFolders?.find(f => f.id === folderId);
     setActiveFolder(folderId);
-    setActiveZcmap(def?.zcmaps?.[0] ?? 'zcmap');
     setVarOverrides({});
   }
 
@@ -2359,11 +2362,11 @@ export default function RegionPage() {
                   Ext. zones
                 </button>
               )}
-              {activeFolderDef?.zcmaps?.length > 1 && (
+              {zcmapList.length > 1 && (
                 <div style={{ display:'flex', gap:3, alignItems:'center', backgroundColor:t.panel,
                   border:`1px solid ${t.panelBorder}`, borderRadius:4, padding:'3px 7px', fontSize:'0.46rem' }}>
                   <span style={{ color:t.lblMuted }}>Zone map:</span>
-                  {activeFolderDef.zcmaps.map(zc => (
+                  {zcmapList.map(zc => (
                     <button key={zc} onClick={()=>setActiveZcmap(zc)} style={{
                       fontFamily:'inherit', fontSize:'0.46rem', padding:'1px 6px', borderRadius:3,
                       border:`1px solid ${activeZcmap===zc ? t.lbl : t.panelBorder}`,
