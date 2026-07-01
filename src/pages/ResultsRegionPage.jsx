@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchInputScenarios,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTransmissionResults, processPlants, processCosts,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
@@ -258,17 +258,31 @@ export default function ResultsRegionPage() {
   useEffect(() => {
     if (!region?.epm) return;
     setLoadingRuns(true);
-    const b = region.epm.branch;
-    resolveOutputDir(b).then(dir => { setOutputDir(dir); return fetchGitHubDir(b, dir); }).then(items => {
-      const runs = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort().reverse();
+    const { branch, outputDir: fixedDir, simRuns: fixedRuns } = region.epm;
+    if (fixedDir) {
+      // regions.json overrides outputDir (e.g. R2 branches that skip GitHub API)
+      setOutputDir(fixedDir);
+      const runs = (fixedRuns || []).slice().sort().reverse();
       setRunList(runs); if (runs.length) setSimRun(runs[0]);
-    }).finally(()=>setLoadingRuns(false));
+      setLoadingRuns(false);
+    } else {
+      resolveOutputDir(branch).then(dir => { setOutputDir(dir); return fetchGitHubDir(branch, dir); }).then(items => {
+        const runs = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort().reverse();
+        setRunList(runs); if (runs.length) setSimRun(runs[0]);
+      }).finally(()=>setLoadingRuns(false));
+    }
   }, [region]);
 
   useEffect(() => {
     if (!region?.epm || !simRun) return;
-    fetchGitHubDir(region.epm.branch, `${outputDir}/${simRun}`).then(items => {
-      const scens = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();
+    const { branch } = region.epm;
+    // Try GitHub dir listing first; fall back to input_scenarios.csv (for R2 branches)
+    fetchGitHubDir(branch, `${outputDir}/${simRun}`).then(async items => {
+      let scens = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();
+      if (!scens.length) {
+        const fromCsv = await fetchInputScenarios(branch, outputDir, simRun);
+        scens = (fromCsv || []).sort();
+      }
       setScenarioList(scens); setEvScenarios(new Set(scens));
       if (scens.length) {
         const base = scens.find(s=>/^base(line)?$/i.test(s))||scens[0];

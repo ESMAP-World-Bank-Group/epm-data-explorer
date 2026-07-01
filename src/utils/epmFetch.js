@@ -225,6 +225,19 @@ export async function fetchZonesGeoJSON(branch, dataFolder) {
   } catch { return null; }
 }
 
+/** Fetch scenario names from {outputDir}/{simRun}/input_scenarios.csv (first row, cols after paramNames). */
+export async function fetchInputScenarios(branch, outputDir, simRun) {
+  const url = `${rawBase(branch)}/${branch}/${outputDir}/${simRun}/input_scenarios.csv`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const text = await res.text();
+    const firstLine = text.split('\n')[0] || '';
+    const cols = firstLine.split(',').map(c => c.trim()).filter(Boolean);
+    return cols.slice(1); // drop 'paramNames' header
+  } catch { return null; }
+}
+
 export async function fetchZonesExtGeoJSON(branch, dataFolder) {
   const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/zones_ext.geojson`;
   try {

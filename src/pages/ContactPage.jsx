@@ -4,6 +4,7 @@ import { useTheme } from '../App';
 import { getT } from '../constants';
 
 const FORMSPREE_ID = 'xnjygblb';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKtNsfk0dX5SET9ajr4jZ0YK058f94jyjzTpiUFQZZkp9jTh6p_TtPiI6Gv6UeLhTx/exec';
 
 function ExternalLink({ href, children }) {
   return (
@@ -48,8 +49,34 @@ export default function ContactPage() {
   const t = getT(theme);
   const [msg, setMsg] = useState('');
   const [status, setStatus] = useState('idle');
+  const [req, setReq] = useState({ firstName: '', lastName: '', email: '', request: '' });
+  const [reqStatus, setReqStatus] = useState('idle');
 
   const divider = { borderColor: t.panelBorder, margin: '28px 0' };
+
+  async function handleRequestSubmit(e) {
+    e.preventDefault();
+    if (!req.request.trim() || !req.email.trim()) return;
+    setReqStatus('sending');
+    try {
+      await fetch(GOOGLE_APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: new URLSearchParams({
+          name: `${req.firstName} ${req.lastName}`.trim(),
+          firstName: req.firstName,
+          lastName: req.lastName,
+          email: req.email,
+          request: req.request,
+          source: 'EPM Data Explorer',
+        }),
+      });
+      setReqStatus('sent');
+      setReq({ firstName: '', lastName: '', email: '', request: '' });
+    } catch {
+      setReqStatus('error');
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -147,6 +174,97 @@ export default function ContactPage() {
               }
             />
           </div>
+        </div>
+
+        {/* ── Request a feature or data ────────────────────────────── */}
+        <div style={{
+          marginBottom: 28, padding: '16px 18px', borderRadius: 8,
+          border: '1px solid rgba(74,143,204,0.35)',
+          borderLeft: '3px solid rgba(74,143,204,0.85)',
+          background: t.isDark ? 'rgba(74,143,204,0.06)' : 'rgba(74,143,204,0.05)',
+        }}>
+          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: t.text, marginBottom: 3 }}>
+            Want something added?
+          </div>
+          <p style={{ fontSize: '0.66rem', color: t.muted, lineHeight: 1.6, marginBottom: 12 }}>
+            Missing a region, scenario, or feature? Send a request — it goes straight to our tracker.
+          </p>
+
+          {reqStatus === 'sent' ? (
+            <div style={{
+              padding: '12px 14px', borderRadius: 6,
+              backgroundColor: 'rgba(64,192,87,0.08)', border: '1px solid rgba(64,192,87,0.25)',
+              fontSize: '0.7rem', color: t.muted,
+            }}>
+              Request received — thanks! We'll follow up if needed.
+            </div>
+          ) : (
+            <form onSubmit={handleRequestSubmit}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <input
+                  type="text" value={req.firstName} required
+                  onChange={e => { setReq({ ...req, firstName: e.target.value }); if (reqStatus !== 'idle') setReqStatus('idle'); }}
+                  placeholder="First name"
+                  style={{
+                    flex: '1 1 120px', minWidth: 0, boxSizing: 'border-box', padding: '8px 10px',
+                    borderRadius: 6, border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel,
+                    color: t.text, fontSize: '0.7rem', outline: 'none', fontFamily: 'inherit',
+                  }}
+                />
+                <input
+                  type="text" value={req.lastName} required
+                  onChange={e => { setReq({ ...req, lastName: e.target.value }); if (reqStatus !== 'idle') setReqStatus('idle'); }}
+                  placeholder="Last name"
+                  style={{
+                    flex: '1 1 120px', minWidth: 0, boxSizing: 'border-box', padding: '8px 10px',
+                    borderRadius: 6, border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel,
+                    color: t.text, fontSize: '0.7rem', outline: 'none', fontFamily: 'inherit',
+                  }}
+                />
+                <input
+                  type="email" value={req.email} required
+                  onChange={e => { setReq({ ...req, email: e.target.value }); if (reqStatus !== 'idle') setReqStatus('idle'); }}
+                  placeholder="Your email"
+                  style={{
+                    flex: '1 1 100%', minWidth: 0, boxSizing: 'border-box', padding: '8px 10px',
+                    borderRadius: 6, border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel,
+                    color: t.text, fontSize: '0.7rem', outline: 'none', fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+              <textarea
+                value={req.request} required rows={3}
+                onChange={e => { setReq({ ...req, request: e.target.value }); if (reqStatus !== 'idle') setReqStatus('idle'); }}
+                placeholder="What would you like added or changed? (region, scenario, feature…)"
+                style={{
+                  width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 6,
+                  border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.text,
+                  fontSize: '0.72rem', lineHeight: 1.6, resize: 'vertical', outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                <button
+                  type="submit"
+                  disabled={reqStatus === 'sending' || !req.request.trim() || !req.email.trim()}
+                  style={{
+                    padding: '7px 18px', borderRadius: 5, border: '1px solid rgba(74,143,204,0.4)',
+                    backgroundColor: 'rgba(74,143,204,0.14)',
+                    color: reqStatus === 'sending' || !req.request.trim() || !req.email.trim() ? t.muted : 'rgba(74,143,204,0.95)',
+                    fontSize: '0.65rem', fontWeight: 700,
+                    cursor: reqStatus === 'sending' || !req.request.trim() || !req.email.trim() ? 'default' : 'pointer',
+                  }}
+                >
+                  {reqStatus === 'sending' ? 'Sending…' : 'Send request'}
+                </button>
+                {reqStatus === 'error' && (
+                  <span style={{ fontSize: '0.6rem', color: 'rgba(250,82,82,0.85)' }}>Something went wrong — try again.</span>
+                )}
+              </div>
+              <p style={{ fontSize: '0.55rem', color: t.lblMuted, marginTop: 8, lineHeight: 1.5 }}>
+                Your email is used only to follow up on this request.
+              </p>
+            </form>
+          )}
         </div>
 
         {/* Feedback form */}
