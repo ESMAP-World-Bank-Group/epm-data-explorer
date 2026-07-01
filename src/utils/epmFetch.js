@@ -207,20 +207,22 @@ function parseCSV(text) {
   });
 }
 
-export async function fetchLinestringGeoJSON(branch, dataFolder) {
-  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/linestring_countries.geojson`;
+export async function fetchLinestringGeoJSON(branch, dataFolder, stem = null) {
+  const name = stem ? `linestring_${stem}.geojson` : 'linestring_countries.geojson';
+  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/${name}`;
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) return stem ? fetchLinestringGeoJSON(branch, dataFolder, null) : null;
     return await res.json();
   } catch { return null; }
 }
 
-export async function fetchZonesGeoJSON(branch, dataFolder) {
-  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/zones.geojson`;
+export async function fetchZonesGeoJSON(branch, dataFolder, stem = null) {
+  const name = stem ? `zones_${stem}.geojson` : 'zones.geojson';
+  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/${name}`;
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) return stem ? fetchZonesGeoJSON(branch, dataFolder, null) : null;
     return await res.json();
   } catch { return null; }
 }

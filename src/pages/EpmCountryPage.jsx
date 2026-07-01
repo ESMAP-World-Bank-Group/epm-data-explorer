@@ -164,10 +164,12 @@ export default function EpmCountryPage() {
   const countryZonesRef  = useRef([]);
 
   // ── Core state ──────────────────────────────────────────────────────────────
-  const [region,  setRegion]  = useState(null);
-  const [epmData, setEpmData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [region,       setRegion]       = useState(null);
+  const [epmData,      setEpmData]      = useState(null);
+  const [loading,      setLoading]      = useState(false);
+  const [activeTab,    setActiveTab]    = useState('overview');
+  const [activeFolder, setActiveFolder] = useState(null);
+  const [activeZcmap,  setActiveZcmap]  = useState(null);
 
   // ── Scenario / variant state ─────────────────────────────────────────────────
   const [scnMeta,      setScnMeta]      = useState(null);   // parsed config.csv + scenarios.csv
@@ -215,42 +217,64 @@ export default function EpmCountryPage() {
     });
   }, [regionId, countryNameDecoded]);
 
+  // ── Init active folder + zcmap from region ───────────────────────────────────
+  useEffect(() => {
+    if (!region?.epm) return;
+    const folders = region.epm.dataFolders;
+    setActiveFolder(folders?.[0]?.id ?? region.epm.dataFolder);
+    setActiveZcmap(folders?.[0]?.zcmaps?.[0] ?? 'zcmap');
+  }, [region]);
+
+  const activeFolderDef = useMemo(() =>
+    region?.epm?.dataFolders?.find(f => f.id === activeFolder) ?? null,
+  [region, activeFolder]);
+
+  function handleFolderChange(folderId) {
+    const def = region?.epm?.dataFolders?.find(f => f.id === folderId);
+    setActiveFolder(folderId);
+    setActiveZcmap(def?.zcmaps?.[0] ?? 'zcmap');
+    setVarOverrides({});
+  }
+
   // ── Load scenario definitions (config.csv + scenarios.csv) ────────────────────
   useEffect(() => {
     setScnMeta(null);
     setVarOverrides({});
     setScnFilter('');
-    if (!region?.epm) return;
-    const { branch, dataFolder, scenariosFile, configFile } = region.epm;
-    fetchScenarioConfig(branch, dataFolder, { scenariosFile, configFile })
+    if (!region?.epm || !activeFolder) return;
+    const { branch, scenariosFile, configFile } = region.epm;
+    fetchScenarioConfig(branch, activeFolder, { scenariosFile, configFile })
       .then(setScnMeta)
       .catch(() => setScnMeta(null));
-  }, [region]);
+  }, [region, activeFolder]);
 
   // ── Load EPM data ────────────────────────────────────────────────────────────
   const prevRegionRef = useRef(null);
+  const prevFolderRef = useRef(null);
+  const prevZcmapRef  = useRef(null);
   useEffect(() => {
-    if (!region?.epm) { setEpmData(null); return; }
-    const regionChanged = prevRegionRef.current !== region;
+    if (!region?.epm || !activeFolder || !activeZcmap) { if (!region?.epm) setEpmData(null); return; }
+    const regionOrFolderChanged = prevRegionRef.current !== region || prevFolderRef.current !== activeFolder;
+    const zcmapChanged = prevZcmapRef.current !== activeZcmap;
     prevRegionRef.current = region;
-    const { branch, dataFolder } = region.epm;
-    // Effective file for a data type: user-selected variant, else hard-coded default.
+    prevFolderRef.current = activeFolder;
+    prevZcmapRef.current  = activeZcmap;
+    const { branch } = region.epm;
     const rf = (param, fallback) => varOverrides[param] || fallback;
-    // Blank + loading ONLY on region change. On a variant change keep the current
-    // data (and map) visible and swap it in when ready — fluid, no reset.
-    if (regionChanged) { setEpmData(null); setLoading(true); }
+    // Blank + loading ONLY on region/folder change. Variant/zcmap changes swap in-place.
+    if (regionOrFolderChanged) { setEpmData(null); setLoading(true); }
     Promise.all([
-      fetchEpmCSV(branch, dataFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pTransferLimit', 'trade/pTransferLimit.csv')),
-      fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
-      fetchLinestringGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, rf('pDemandProfile', 'load/pDemandProfile.csv')),
-      fetchZonesGeoJSON(branch, dataFolder),
-      fetchEpmCSV(branch, dataFolder, rf('pVREProfile', 'supply/pVREProfile.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
-      fetchEpmCSV(branch, dataFolder, rf('pHours', 'pHours.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pGenDataInput', 'supply/pGenDataInput.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pDemandForecast', 'load/pDemandForecast.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pTransferLimit', 'trade/pTransferLimit.csv')),
+      fetchEpmCSV(branch, activeFolder, `${activeZcmap}.csv`),
+      fetchLinestringGeoJSON(branch, activeFolder, activeZcmap),
+      fetchEpmCSV(branch, activeFolder, rf('pDemandProfile', 'load/pDemandProfile.csv')),
+      fetchZonesGeoJSON(branch, activeFolder, activeZcmap),
+      fetchEpmCSV(branch, activeFolder, rf('pVREProfile', 'supply/pVREProfile.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pHours', 'pHours.csv')),
     ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
       setEpmData(prev => ({
         gen:              genRaw     ? processGenData(genRaw)              : [],
@@ -262,13 +286,13 @@ export default function EpmCountryPage() {
         availability:      availRaw  ? processAvailability(availRaw)       : {},
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)             : {},
         hours:             hoursRaw  ? processHours(hoursRaw)              : {},
-        // Preserve geojson refs on a variant change so the map doesn't rebuild/recenter.
-        linestringGJ: (regionChanged || !prev) ? linestringGJ : prev.linestringGJ,
-        zonesGJ:      (regionChanged || !prev) ? zonesGJ      : prev.zonesGJ,
+        // Preserve geojson on variant-only change (no region/folder/zcmap change).
+        linestringGJ: (regionOrFolderChanged || zcmapChanged || !prev) ? linestringGJ : prev.linestringGJ,
+        zonesGJ:      (regionOrFolderChanged || zcmapChanged || !prev) ? zonesGJ      : prev.zonesGJ,
         branch,
       }));
     }).finally(() => setLoading(false));
-  }, [region, varOverrides]);
+  }, [region, activeFolder, activeZcmap, varOverrides]);
 
   // ── Map ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -861,6 +885,22 @@ export default function EpmCountryPage() {
           <span style={{ color:t.lblMuted }}>›</span>
           <span style={{ color:t.lbl, fontWeight:600 }}>{countryNameDecoded}</span>
         </div>
+        {activeFolderDef?.zcmaps?.length > 1 && (
+          <div style={{ position:'absolute', bottom:10, left:10, zIndex:10, display:'flex', gap:4, alignItems:'center',
+            fontSize:'0.5rem', backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`,
+            borderRadius:5, padding:'4px 8px', boxShadow:'0 1px 4px rgba(0,0,0,.18)' }}>
+            <span style={{ color:t.lblMuted }}>Zone map:</span>
+            {activeFolderDef.zcmaps.map(zc => (
+              <button key={zc} onClick={()=>setActiveZcmap(zc)} style={{
+                fontFamily:'inherit', fontSize:'0.5rem', padding:'2px 8px', borderRadius:3,
+                border:`1px solid ${activeZcmap===zc ? t.lbl : t.panelBorder}`,
+                backgroundColor: activeZcmap===zc ? t.lbl : 'transparent',
+                color: activeZcmap===zc ? t.panel : t.lblMuted,
+                cursor:'pointer',
+              }}>{zc}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
@@ -878,6 +918,18 @@ export default function EpmCountryPage() {
             {countryZoneIds.length} zone{countryZoneIds.length!==1?'s':''} · EPM study
           </div>
         </div>
+
+        {/* Data folder selector */}
+        {region.epm?.dataFolders?.length > 1 && (
+          <div style={{ marginBottom:10, display:'flex', alignItems:'center', gap:6, fontSize:'0.5rem', color:t.lblMuted }}>
+            <span>Data folder:</span>
+            <select value={activeFolder ?? ''} onChange={e=>handleFolderChange(e.target.value)}
+              style={{ fontSize:'0.5rem', fontFamily:'inherit', padding:'2px 6px', borderRadius:3,
+                border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.lbl, cursor:'pointer' }}>
+              {region.epm.dataFolders.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* Tabs */}
         <div style={{ display:'flex', gap:0, marginBottom:16, borderBottom:`1px solid ${t.panelBorder}` }}>
