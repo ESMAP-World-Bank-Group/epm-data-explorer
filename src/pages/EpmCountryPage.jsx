@@ -877,7 +877,7 @@ export default function EpmCountryPage() {
   // ── JSX ───────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display:'flex', height:'calc(100vh - 46px)' }}
-      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(1600,drStartW.current+(drStartX.current-e.clientX)))); }}
+      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,drStartW.current+(drStartX.current-e.clientX))); }}
       onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
     >
 
