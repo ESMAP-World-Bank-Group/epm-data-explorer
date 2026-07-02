@@ -1103,7 +1103,7 @@ export default function ResultsRegionPage() {
   // ── JSX ─────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display:'flex', height:'calc(100vh - 46px)' }}
-      onMouseMove={e=>{ if(!isDraggingRef.current)return; const dx=dragStartX.current-e.clientX; setPanelWidth(Math.max(380,Math.min(760,dragStartW.current+dx))); }}
+      onMouseMove={e=>{ if(!isDraggingRef.current)return; const dx=dragStartX.current-e.clientX; setPanelWidth(Math.max(380,dragStartW.current+dx)); }}
       onMouseUp={()=>{ isDraggingRef.current=false; }}
       onMouseLeave={()=>{ isDraggingRef.current=false; }}
     >

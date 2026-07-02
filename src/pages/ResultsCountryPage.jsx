@@ -443,7 +443,7 @@ export default function ResultsCountryPage() {
   // ── JSX ───────────────────────────────────────────────────────────────────────
   return (
     <div style={{display:'flex',height:'calc(100vh - 46px)'}}
-      onMouseMove={e=>{if(!isDrRef.current)return;setPanelWidth(w=>Math.max(380,Math.min(760,drStartW.current+(drStartX.current-e.clientX))));}}
+      onMouseMove={e=>{if(!isDrRef.current)return;setPanelWidth(w=>Math.max(380,drStartW.current+(drStartX.current-e.clientX)));}}
       onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
     >
       <div style={{position:'relative',flex:1}}>
