@@ -387,12 +387,15 @@ export default function ResultsRegionPage() {
       map.addLayer({ id:'ntc-arrows', type:'symbol', source:'ntc-results',
         layout:{ 'icon-image':'ntc-arrow', 'icon-allow-overlap':false, 'symbol-placement':'line', 'symbol-spacing':55, 'icon-rotation-alignment':'map', 'icon-pitch-alignment':'viewport', 'icon-size':0.9 },
         paint:{ 'icon-color':['interpolate',['linear'],['get','util'],0,'#FFD700',0.5,'#FF8C00',1,'#E53935'] } });
+      // Wide invisible hit layer on top — makes lines easy to click/hover
+      map.addLayer({ id:'ntc-hit', type:'line', source:'ntc-results',
+        paint:{ 'line-color':'rgba(0,0,0,0)', 'line-width':20 } });
 
-      // Hover on NTC line
-      map.on('mouseenter','ntc-bg',()=>{ map.getCanvas().style.cursor='pointer'; });
-      map.on('mouseleave','ntc-bg',()=>{ map.getCanvas().style.cursor=''; });
-      const ntcPopup = new maplibregl.Popup({ closeButton:true, closeOnClick:false, offset:10, className:`popup-${theme}` });
-      map.on('click','ntc-bg',e=>{
+      // Click / hover on NTC hit layer
+      const ntcPopup = new maplibregl.Popup({ closeButton:true, closeOnClick:true, offset:10, className:`popup-${theme}` });
+      map.on('mouseenter','ntc-hit',()=>{ map.getCanvas().style.cursor='pointer'; });
+      map.on('mouseleave','ntc-hit',()=>{ map.getCanvas().style.cursor=''; });
+      map.on('click','ntc-hit',e=>{
         e.preventDefault();
         const p=e.features[0].properties;
         const fwd=parseFloat(p.fwd)||0, rev=parseFloat(p.rev)||0, net=fwd-rev;
@@ -435,7 +438,7 @@ export default function ResultsRegionPage() {
         popup.setLngLat(e.lngLat).setHTML(`<b>${z||c}</b>${statsHtml}<br><span style="opacity:.5;font-size:0.7em">click to explore country</span>`).addTo(map);
       });
       map.on('mouseleave','zone-fill',()=>{ map.getCanvas().style.cursor=''; hovZ=null; map.setFilter('zone-hover',['==',['get','z'],'']),popup.remove(); });
-      map.on('click','zone-fill',e=>{ if(map.queryRenderedFeatures(e.point,{layers:['ntc-bg']}).length) return; const c=isoToCountry[e.features[0].properties.ISO_A3]||''; navigate(`/region/${regionId}/results/country/${encodeURIComponent(c)}`); });
+      map.on('click','zone-fill',e=>{ if(map.queryRenderedFeatures(e.point,{layers:['ntc-hit']}).length) return; const c=isoToCountry[e.features[0].properties.ISO_A3]||''; navigate(`/region/${regionId}/results/country/${encodeURIComponent(c)}`); });
       // Fire AFTER all sources/layers are added so NTC update effect can find the source
       setMapLoadedCount(c => c + 1);
     });
