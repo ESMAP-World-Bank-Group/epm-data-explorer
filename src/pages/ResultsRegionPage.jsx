@@ -412,9 +412,18 @@ export default function ResultsRegionPage() {
         ).addTo(map);
       });
 
+      // NTC hit hover hint
+      map.on('mousemove','ntc-hit',e=>{
+        map.getCanvas().style.cursor='pointer';
+        const p=e.features[0].properties;
+        popup.setLngLat(e.lngLat).setHTML(`<b>${p.z} ↔ ${p.z2}</b><br><span style="opacity:.6;font-size:0.8em">click to see flow data</span>`).addTo(map);
+      });
+      map.on('mouseleave','ntc-hit',()=>{ map.getCanvas().style.cursor=''; popup.remove(); });
+
       // Zone hover — per-zone stats
       let hovZ=null;
       map.on('mousemove','zone-fill',e=>{
+        if(map.queryRenderedFeatures(e.point,{layers:['ntc-hit']}).length){ popup.remove(); return; }
         map.getCanvas().style.cursor='pointer';
         const z=e.features[0].properties.z||''; const c=isoToCountry[e.features[0].properties.ISO_A3]||'';
         if (z!==hovZ) { hovZ=z; map.setFilter('zone-hover',['==',['get','z'],z]); }
