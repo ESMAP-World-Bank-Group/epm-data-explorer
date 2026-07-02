@@ -454,13 +454,13 @@ export default function ResultsRegionPage() {
         const cap  = attrs.TransmissionCapacity?.[refYear]||tx[z2]?.[z]?.TransmissionCapacity?.[refYear]||0;
         const vol  = Math.abs(fwd)+Math.abs(rev);
         if (vol===0 && cap===0) continue;
-        let coords = null;
         const lf = linestringGJ?.features?.find(f=>(f.properties.z===z&&(f.properties.z_other||f.properties.z2)===z2)||(f.properties.z===z2&&(f.properties.z_other||f.properties.z2)===z));
+        const lfFwd = !lf || lf.properties.z === z;
+        let coords = null;
         if (lf) coords=lf.geometry.coordinates;
         else if (zcCentroids[z]&&zcCentroids[z2]) coords=[zcCentroids[z],zcCentroids[z2]];
         if (!coords) continue;
-        // Direction: use fwd direction if fwd > rev, reverse coords otherwise
-        const finalCoords = fwd >= rev ? coords : [...coords].reverse();
+        const finalCoords = (lfFwd === (fwd >= rev)) ? coords : [...coords].reverse();
         features.push({ type:'Feature', properties:{ z, z2, fwd, rev, util:Math.min(1,Math.max(0,util)), vol, cap, yr:refYear }, geometry:{ type:'LineString', coordinates:finalCoords } });
       }
     }
