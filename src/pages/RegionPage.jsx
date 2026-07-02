@@ -10,7 +10,7 @@ import {
 import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList, fetchDataFolderList,
   processGenData, processDemand,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
@@ -1630,6 +1630,7 @@ export default function RegionPage() {
   const [showExtZones,    setShowExtZones]    = useState(false);
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(680);
+  const [autoFolders,     setAutoFolders]     = useState(null);
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   // Static data
@@ -1663,11 +1664,13 @@ export default function RegionPage() {
   // Reset year when region changes
   useEffect(() => { setEpmYear(null); }, [region]);
 
-  // ── Init active folder from region ───────────────────────────────────────────
+  // ── Init active folder + auto-detect all data_* folders from GitHub ──────────
   useEffect(() => {
     if (!region?.epm) return;
-    const folders = region.epm.dataFolders;
-    setActiveFolder(folders?.[0]?.id ?? region.epm.dataFolder);
+    const { branch, dataFolder, dataFolders } = region.epm;
+    setActiveFolder(dataFolders?.[0]?.id ?? dataFolder);
+    setAutoFolders(null);
+    fetchDataFolderList(branch, dataFolder, dataFolders).then(list => setAutoFolders(list));
   }, [region]);
 
   // ── Auto-detect zcmap list when folder changes ────────────────────────────────
@@ -2335,7 +2338,7 @@ export default function RegionPage() {
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 46px)' }}
-      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(1100,drStartW.current+(drStartX.current-e.clientX)))); }}
+      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(1600,drStartW.current+(drStartX.current-e.clientX)))); }}
       onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
     >
 
@@ -2451,13 +2454,13 @@ export default function RegionPage() {
         <div style={{ height: 3, borderRadius: 2, backgroundColor: region.color, width: 36, marginBottom: 20 }} />
 
         {/* Data folder selector */}
-        {region?.epm?.dataFolders?.length > 1 && (
+        {autoFolders?.length > 1 && (
           <div style={{ marginBottom:12, display:'flex', alignItems:'center', gap:6, fontSize:'0.5rem', color:t.lblMuted }}>
             <span>Data folder:</span>
             <select value={activeFolder ?? ''} onChange={e=>handleFolderChange(e.target.value)}
               style={{ fontSize:'0.5rem', fontFamily:'inherit', padding:'2px 6px', borderRadius:3,
                 border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.lbl, cursor:'pointer' }}>
-              {region.epm.dataFolders.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+              {autoFolders.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
           </div>
         )}

@@ -81,6 +81,32 @@ function CJChart({ type, data, options, height, plugins: ep, cacheKey }) {
   useEffect(()=>{ const CJ=window.Chart; if(!CJ||!ref.current)return; chart.current?.destroy(); chart.current=new CJ(ref.current,{type,data,options,plugins:ep||[]}); return()=>{chart.current?.destroy();chart.current=null;}; },[sig]); // eslint-disable-line
   return <div style={{height,width:'100%',position:'relative'}}><canvas ref={ref}/></div>;
 }
+function makeScenPlugin(activeScs, scenColors) {
+  return { id:'scenNames', afterDraw: chart => {
+    if (!activeScs || activeScs.length <= 1) return;
+    const { ctx, chartArea: ca } = chart;
+    if (!ca) return;
+    activeScs.forEach((scen, si) => {
+      const dsIdx = chart.data.datasets.findIndex(d => d.stack === scen);
+      if (dsIdx < 0) return;
+      const meta = chart.getDatasetMeta(dsIdx);
+      if (!meta || !meta.visible) return;
+      const col = scenColors[si % scenColors.length];
+      const label = scen.length > 13 ? scen.slice(0, 13) + '…' : scen;
+      meta.data.forEach(bar => {
+        if (!bar) return;
+        ctx.save();
+        ctx.font = '600 6px system-ui,sans-serif';
+        ctx.fillStyle = col;
+        ctx.globalAlpha = 0.85;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(label, bar.x, ca.top - 2);
+        ctx.restore();
+      });
+    });
+  }};
+}
 function buildNetDotPlugin(netData){
   return{id:'netDot',afterDatasetsDraw(chart){
     if(!netData.length)return;
@@ -689,7 +715,7 @@ export default function ResultsRegionPage() {
         for(let si=0;si<nS;si++){const ss=si*nDT*24;ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(seasons[si],xS.getPixelForValue(ss+nDT*12),top-2);ctx.restore();
           for(let di=0;di<nDT;di++){const dts=ss+di*24;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?sC:dC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
             const midX=xS.getPixelForValue(dts+12);const w=hoursData?.[seasons[si]]?.[days[di]]||0;const pct=w>0?` (${((w/totalDays)*100).toFixed(0)}%)`:'';
-            ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=tC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${days[di]}${pct}`,0,0);ctx.restore();
+            ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='8px system-ui,sans-serif';ctx.fillStyle=tC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${days[di]}${pct}`,0,0);ctx.restore();
           }
         }
       }};
@@ -1019,6 +1045,8 @@ export default function ResultsRegionPage() {
   const cmpEvData=buildCmpEvolution();
   const snapData=buildSnapshot();
   const snapDeltaData=buildSnapshotDelta();
+  const snapActiveSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));
+  const evActiveSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));
   // ── Trade corridor Δ ─────────────────────────────────────────────────────
   const buildTradeCmpDelta = () => {
     if(!cmpRef||!allYears.length||!resultsData[cmpRef])return null;
@@ -1242,15 +1270,16 @@ export default function ResultsRegionPage() {
             {snapData&&snapData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
+                  {(()=>{const snapNeedScen=snapActiveSc.length>1&&snapData.ind?.source!=='yearlyZone';const snapScenPlg=snapNeedScen?makeScenPlugin(snapActiveSc,SCEN_COLORS):null;return(
                   <CJChart type="bar" height={220}
                     cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
-                    plugins={snapData.netPlugin?[snapData.netPlugin]:[]}
+                    plugins={[...(snapData.netPlugin?[snapData.netPlugin]:[]),...(snapScenPlg?[snapScenPlg]:[])]}
                     data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>!isHidden('snap-tf',tfLabel(d)))}}
-                    options={{...cjDefaults(t),scales:{
+                    options={{...cjDefaults(t),layout:{padding:{top:snapNeedScen?16:0}},scales:{
                       x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
                       y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
                     },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
-                  />
+                  />);})()}
                   {[...snapScenarios].filter(s=>resultsData[s]).length>1&&(snapData.ind?.source==='yearlyZone'?
                     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:3,fontSize:'0.42rem',color:t.muted}}>
                       {baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s])).map((s,i)=><span key={s} style={{display:'flex',alignItems:'center',gap:3}}><span style={{display:'inline-block',width:7,height:7,borderRadius:1,backgroundColor:SCEN_COLORS[i%SCEN_COLORS.length]}}/>{s}</span>)}
@@ -1309,15 +1338,17 @@ export default function ResultsRegionPage() {
             {evolutionData?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
+                  {(()=>{const evNeedScen=evActiveSc.length>1&&activeInd.source!=='yearlyZone'&&activeInd.source!=='trade';const evScenPlg=evNeedScen?makeScenPlugin(evActiveSc,SCEN_COLORS):null;return(
                   <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={220}
                     cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}|${theme}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
+                    plugins={evScenPlg?[evScenPlg]:[]}
                     data={{...evolutionData,datasets:evolutionData.datasets.filter(d=>{
                       if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
                       if(activeInd.source==='costs') return !isHidden('ev-cost',tfLabel(d));
                       return true;
                     })}}
-                    options={{...cjDefaults(t),scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
-                  />
+                    options={{...cjDefaults(t),layout:{padding:{top:evNeedScen?16:0}},scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
+                  />);})()}
                   {activeInd.source!=='yearlyZone'&&evScenarios.size>1&&(
                     <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:3}}>Groups (L→R): {baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s])).join(' · ')}</div>
                   )}
@@ -1387,11 +1418,11 @@ export default function ResultsRegionPage() {
             {dispResult.chartData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="line" height={dispMode==='full'?215:165}
+                  <CJChart type="line" height={dispMode==='full'?255:195}
                     data={{...dispResult.chartData,datasets:dispResult.chartData.datasets.filter(d=>!isHidden('disp-tf',d.label))}}
                     plugins={dispResult.plugin?[dispResult.plugin]:[]}
                     cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
-                    options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
+                    options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?70:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
                   />
                 </div>
                 {makeLegend('disp-tf',[
@@ -1414,11 +1445,11 @@ export default function ResultsRegionPage() {
                   <SectionTitle t={t}>Δ {dispScenario} − {cmpRef} (MW)</SectionTitle>
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="line" height={dispMode==='full'?180:130}
+                      <CJChart type="line" height={dispMode==='full'?215:155}
                         data={{...dispDeltaResult.chartData,datasets:dispDeltaResult.chartData.datasets.filter(d=>!isHidden('disp-tf',d.label))}}
                         plugins={dispDeltaResult.plugin?[dispDeltaResult.plugin]:[]}
                         cacheKey={`disp-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
-                        options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},
+                        options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?70:4}},
                           scales:{
                             x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
                             y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'ΔMW',color:t.muted,font:{size:7}}},

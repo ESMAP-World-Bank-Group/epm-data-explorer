@@ -21,6 +21,20 @@ export async function fetchGitHubDir(branch, path) {
   } catch { return null; }
 }
 
+/** List all data_* input folders in a branch (excluding data_test).
+ *  Uses explicit labels from regions.json when available; strips 'data_' prefix otherwise.
+ *  The defaultFolder is always first. Falls back to [{id:defaultFolder, label}] on error. */
+export async function fetchDataFolderList(branch, defaultFolder, explicitFolders) {
+  const items = await fetchGitHubDir(branch, 'epm/input');
+  const fallbackLabel = f => explicitFolders?.find(e => e.id === f)?.label ?? f.replace(/^data_/, '');
+  if (!items) return [{ id: defaultFolder, label: fallbackLabel(defaultFolder) }];
+  const folders = items
+    .filter(i => i.type === 'dir' && /^data_/.test(i.name) && i.name !== 'data_test')
+    .map(i => ({ id: i.name, label: fallbackLabel(i.name) }))
+    .sort((a, b) => (a.id === defaultFolder ? -1 : b.id === defaultFolder ? 1 : a.id.localeCompare(b.id)));
+  return folders.length ? folders : [{ id: defaultFolder, label: fallbackLabel(defaultFolder) }];
+}
+
 /** List zcmap*.csv stems in a data folder (e.g. ['zcmap', 'zcmap_alt']).
  *  Falls back to ['zcmap'] if the directory is unreachable. */
 export async function fetchZcmapList(branch, dataFolder) {
