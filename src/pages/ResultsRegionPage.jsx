@@ -435,7 +435,7 @@ export default function ResultsRegionPage() {
         popup.setLngLat(e.lngLat).setHTML(`<b>${z||c}</b>${statsHtml}<br><span style="opacity:.5;font-size:0.7em">click to explore country</span>`).addTo(map);
       });
       map.on('mouseleave','zone-fill',()=>{ map.getCanvas().style.cursor=''; hovZ=null; map.setFilter('zone-hover',['==',['get','z'],'']),popup.remove(); });
-      map.on('click','zone-fill',e=>{ const c=isoToCountry[e.features[0].properties.ISO_A3]||''; navigate(`/region/${regionId}/results/country/${encodeURIComponent(c)}`); });
+      map.on('click','zone-fill',e=>{ if(map.queryRenderedFeatures(e.point,{layers:['ntc-bg']}).length) return; const c=isoToCountry[e.features[0].properties.ISO_A3]||''; navigate(`/region/${regionId}/results/country/${encodeURIComponent(c)}`); });
       // Fire AFTER all sources/layers are added so NTC update effect can find the source
       setMapLoadedCount(c => c + 1);
     });
