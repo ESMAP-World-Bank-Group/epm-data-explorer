@@ -362,21 +362,24 @@ function SupPill({ active, color, onClick, children }) {
 function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant }) {
   const { gen, zcmap } = epmData;
   const [visStatuses, setVisStatuses] = useState(new Set([1]));
+  const [hiddenFuels, setHiddenFuels] = useState(new Set());
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState('capacity');
 
   const zoneToCountry = Object.fromEntries(zcmap.map(r => [r.z, r.c]));
-  const filtered = gen.filter(r => visStatuses.has(r.status));
+  const filtered = gen.filter(r => visStatuses.has(r.status) && !hiddenFuels.has(r.fuel));
   const searched = search
     ? filtered.filter(r => r.g.toLowerCase().includes(search.toLowerCase()) ||
         r.zone.toLowerCase().includes(search.toLowerCase()) ||
-        r.fuel.toLowerCase().includes(search.toLowerCase()))
+        r.fuel.toLowerCase().includes(search.toLowerCase()) ||
+        (r.tech||'').toLowerCase().includes(search.toLowerCase()))
     : filtered;
   const sorted = [...searched].sort((a, b) => {
     if (sortCol === 'capacity') return b.capacity - a.capacity;
     if (sortCol === 'name')     return a.g.localeCompare(b.g);
     if (sortCol === 'fuel')     return a.fuel.localeCompare(b.fuel);
+    if (sortCol === 'tech')     return (a.tech||'').localeCompare(b.tech||'');
     if (sortCol === 'zone')     return a.zone.localeCompare(b.zone);
     if (sortCol === 'country')  return (zoneToCountry[a.zone]||'').localeCompare(zoneToCountry[b.zone]||'');
     return 0;
@@ -411,6 +414,11 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
     if (next.has(s)) { if (next.size > 1) next.delete(s); } else next.add(s);
     return next;
   });
+  const toggleFuel = f => setHiddenFuels(prev => {
+    const next = new Set(prev);
+    if (next.has(f)) next.delete(f); else next.add(f);
+    return next;
+  });
 
   const statusConfig = [
     { s: 1, label: 'Existing',  color: '#1a5fa8' },
@@ -439,6 +447,20 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
             {label}
           </SupPill>
         ))}
+      </div>
+
+      {/* Fuel filter chips */}
+      <div style={{ display:'flex', gap:3, flexWrap:'wrap', alignItems:'center' }}>
+        {fuels.map(fuel => {
+          const hidden = hiddenFuels.has(fuel);
+          const fc = EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other;
+          return (
+            <SupPill key={fuel} active={!hidden} color={fc} onClick={() => toggleFuel(fuel)}>
+              <span style={{ display:'inline-block', width:6, height:6, borderRadius:1, flexShrink:0, backgroundColor:hidden?'transparent':fc, border:`1px solid ${fc}` }}/>
+              {fuel}
+            </SupPill>
+          );
+        })}
       </div>
 
       {/* Chart by fuel */}
@@ -507,9 +529,9 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
         </div>
         <div style={{ border:`1px solid ${t.panelBorder}`, borderRadius:6, overflow:'hidden' }}>
           {/* Header */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 52px 52px 48px 52px',
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 52px 52px 48px 52px 52px',
             padding:'4px 8px', backgroundColor:hexA(t.panelBorder,0.4), borderBottom:`1px solid ${t.panelBorder}`, position:'sticky', top:0 }}>
-            {[['name','Name'],['zone','Zone'],['country','Country'],['fuel','Fuel'],['capacity','MW']].map(([col,lbl])=>(
+            {[['name','Name'],['zone','Zone'],['country','Country'],['fuel','Fuel'],['tech','Tech'],['capacity','MW']].map(([col,lbl])=>(
               <span key={col} onClick={()=>setSortCol(col)} style={{ fontSize:'0.41rem', color:sortCol===col?t.lbl:t.lblMuted, fontWeight:sortCol===col?700:400, cursor:'pointer', textAlign:col==='capacity'?'right':'left', userSelect:'none' }}>
                 {lbl}{sortCol===col?' ↓':''}
               </span>
@@ -526,7 +548,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
                   <div onClick={()=>setSelectedPlant(isSel?null:r)}
                     onMouseEnter={e=>{if(!isSel)e.currentTarget.style.backgroundColor=hexA('#1a5fa8',0.04);}}
                     onMouseLeave={e=>{if(!isSel)e.currentTarget.style.backgroundColor='transparent';}}
-                    style={{ display:'grid', gridTemplateColumns:'1fr 52px 52px 48px 52px',
+                    style={{ display:'grid', gridTemplateColumns:'1fr 52px 52px 48px 52px 52px',
                       padding:'5px 8px', borderBottom:`1px solid ${t.panelBorder}`, cursor:'pointer',
                       fontSize:'0.5rem', alignItems:'center', backgroundColor:isSel?hexA('#1a5fa8',0.08):'transparent' }}>
                     <span style={{ color:t.lbl, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.g}</span>
@@ -536,6 +558,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
                       <span style={{ display:'inline-block', width:7, height:7, borderRadius:1, backgroundColor:EPM_FUEL_COLORS[r.fuel]||'#aaa' }}/>
                       <span style={{ color:t.muted, fontSize:'0.43rem' }}>{r.fuel}</span>
                     </span>
+                    <span style={{ color:t.muted, fontSize:'0.43rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.tech||'—'}</span>
                     <span style={{ display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end' }}>
                       <span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', backgroundColor:sc?.color||'#aaa' }}/>
                       <span style={{ color:t.lbl, fontWeight:600 }}>{fmt(r.capacity)}</span>
@@ -957,13 +980,11 @@ const VRE_COLOR = {
 
 // ── Resources tab ─────────────────────────────────────────────────────────────
 
-function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant }) {
-  const [section,     setSection]     = useState('vre');
+function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant, availZone, setAvailZone, section, setSection }) {
   const [vreProfileMode, setVreProfileMode] = useState('full');
   const [vreSeason,   setVreSeason]   = useState('Q1');
   const [vreDay,      setVreDay]      = useState('avg');
   const [vreHidden,   setVreHidden]   = useState(new Set());
-  const [availZone,   setAvailZone]   = useState('all');
   const [fpCountries, setFpCountries] = useState(null);
 
   // Auto-detect available VRE techs
@@ -1022,7 +1043,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
       const avgDs = showAvgV ? { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:avgData,
         borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true } : null;
 
-      // Separator plugin (reuse same pattern as demand)
+      // Separator plugin (same pattern as demand/dispatch)
       const separatorPlugin = {
         id: 'vreSep',
         afterDraw: (chart) => {
@@ -1030,30 +1051,35 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
           if (!chartArea || !scales.x) return;
           const { top, bottom } = chartArea;
           const xScale = scales.x;
-          const dashC  = isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';
-          const solidC = isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
-          const textC  = isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';
-          const seasC  = isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
+          const dashC  = isDark?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.15)';
+          const solidC = isDark?'rgba(255,255,255,0.45)':'rgba(0,0,0,0.38)';
+          const textC  = isDark?'rgba(255,255,255,0.60)':'rgba(0,0,0,0.55)';
+          const seasC  = isDark?'rgba(255,255,255,0.85)':'rgba(0,0,0,0.72)';
           for (let si=0;si<nS;si++) {
             const ss = si*nDT*24;
+            // Season border
+            if (si>0) {
+              const bx=xScale.getPixelForValue(ss);
+              ctx.save();ctx.strokeStyle=solidC;ctx.lineWidth=1.5;
+              ctx.beginPath();ctx.moveTo(bx,top);ctx.lineTo(bx,bottom);ctx.stroke();ctx.restore();
+            }
             const sx = xScale.getPixelForValue(ss+nDT*12);
             ctx.save(); ctx.font='700 9px system-ui,sans-serif';
             ctx.fillStyle=seasC; ctx.textAlign='center'; ctx.textBaseline='bottom';
             ctx.fillText(vreAvailSeasons[si], sx, top-2); ctx.restore();
             for (let di=0;di<nDT;di++) {
               const dts = ss+di*24;
-              if (dts>0) {
+              if (di>0) {
                 const lx=xScale.getPixelForValue(dts);
-                const isS=di===0;
-                ctx.save(); ctx.strokeStyle=isS?solidC:dashC; ctx.lineWidth=isS?1.2:0.7;
-                if(!isS)ctx.setLineDash([3,3]);
+                ctx.save(); ctx.strokeStyle=dashC; ctx.lineWidth=0.8;
+                ctx.setLineDash([3,3]);
                 ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();
               }
               const midX=xScale.getPixelForValue(dts+12);
               const w=hoursData?.[vreAvailSeasons[si]]?.[vreAvailDaytypes[di]]||0;
               const pct=w>0?` (${((w/totalDaysV)*100).toFixed(0)}%)`:'';
               ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);
-              ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;
+              ctx.font='7.5px system-ui,sans-serif';ctx.fillStyle=textC;
               ctx.textAlign='right';ctx.textBaseline='middle';
               ctx.fillText(`${vreAvailDaytypes[di]}${pct}`,0,0);ctx.restore();
             }
@@ -1079,7 +1105,8 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
     const allProf = allZones.map(z=>getP(z)).filter(Boolean);
     const techColor = VRE_COLOR[vreTech]||'#1E9AF5';
     const avgLine = (showAvgV && allProf.length) ? { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:Array.from({length:24},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
-    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
+    const seasonLabel = `${vreSeason}${vreDay !== 'avg' ? ` — ${vreDay}` : ''}`;
+    return { chartData:{ labels:Array.from({length:24},(_,i)=>`${i+1}h`), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null, seasonLabel };
   };
 
   const buildAvailData = () => {
@@ -1186,10 +1213,11 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
                         plugins={vd.plugin ? [vd.plugin] : []}
                         cacheKey={`${vreProfileMode}|${vreTech}|${vreSeason}|${vreDay}|${[...vreHidden].sort().join(',')}`}
                         options={{ ...cjDefaults(t),
-                          layout:{ padding:{ top:vreProfileMode==='full'?18:4, bottom:vreProfileMode==='full'?62:4 } },
+                          layout:{ padding:{ top:vreProfileMode==='full'?18:4, bottom:vreProfileMode==='full'?68:4 } },
                           scales:{
                             x:{ grid:{color:t.panelBorder,drawTicks:false},
-                              ticks:{ display:vreProfileMode!=='full', color:t.muted,font:{size:7},maxTicksLimit:12 } },
+                              ticks:{ display:vreProfileMode!=='full', color:t.muted,font:{size:7},maxTicksLimit:12 },
+                              title:{ display:vreProfileMode==='season'&&!!vd.seasonLabel, text:vd.seasonLabel||'', color:t.muted, font:{size:8} } },
                             y:{ min:0, max:1, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}},
                               title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}} },
                           },
@@ -1574,6 +1602,8 @@ export default function RegionPage() {
   const [circleScale,     setCircleScale]     = useState(1.0);
   const [plantSource,     setPlantSource]     = useState('osm');
   const [activeTab,       setActiveTab]       = useState('overview');
+  const [availZone,       setAvailZone]       = useState('all');
+  const [resourceSection, setResourceSection] = useState('vre');
   const [basemap,         setBasemap]         = useState('minimal');
   const [satLabels,       setSatLabels]       = useState(false);
   const [epmData,         setEpmData]         = useState(null);
@@ -1818,6 +1848,8 @@ export default function RegionPage() {
         if (zonesGJ) {
           const isoToCountry = {};
           for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3] = f.properties.c;
+          const countryToFirstZone = {};
+          for (const { z, c } of zcmapRows) { if (!countryToFirstZone[c]) countryToFirstZone[c] = z; }
           const uniqueIsos = [...new Set(zonesGJ.features.map(f => f.properties.ISO_A3))];
           const fillExpr = ['match', ['get', 'ISO_A3'],
             ...uniqueIsos.flatMap(iso => [iso, countryColorMap[isoToCountry[iso]] || '#888']),
@@ -1838,7 +1870,7 @@ export default function RegionPage() {
             const iso = e.features[0].properties.ISO_A3;
             const c = isoToCountry[iso] || iso;
             if (iso !== hovIso) { hovIso = iso; map.setFilter('zone-hover', ['==', ['get', 'ISO_A3'], iso]); }
-            popup.setLngLat(e.lngLat).setHTML(`<b>${c}</b><br><span style="opacity:.65;font-size:0.7em">click to explore</span>`).addTo(map);
+            popup.setLngLat(e.lngLat).setHTML(`<b>${c}</b><br><span style="opacity:.65;font-size:0.7em">click for VRE profile</span>`).addTo(map);
           });
           map.on('mouseleave', 'zone-fill', () => {
             map.getCanvas().style.cursor = '';
@@ -1847,7 +1879,10 @@ export default function RegionPage() {
           map.on('click', 'zone-fill', e => {
             const iso = e.features[0].properties.ISO_A3;
             const c = isoToCountry[iso] || iso;
-            navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`);
+            const zone = countryToFirstZone[c] || 'all';
+            setAvailZone(zone);
+            setResourceSection('avail');
+            setActiveTab('resources');
           });
         } else if (lsgj) {
           // Fallback: country fill from world source (no zones.geojson)
@@ -2458,7 +2493,9 @@ export default function RegionPage() {
         )}
         {activeTab === 'resources' && (
           <ResourcesTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
-            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} />
+            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant}
+            availZone={availZone} setAvailZone={setAvailZone}
+            section={resourceSection} setSection={setResourceSection} />
         )}
         {activeTab === 'scenarios' && (
           <ScenarioTab t={t} scnMeta={scnMeta} />
