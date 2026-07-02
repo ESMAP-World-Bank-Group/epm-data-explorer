@@ -193,6 +193,7 @@ export default function EpmCountryPage() {
 
   // ── Supply state ────────────────────────────────────────────────────────────
   const [statusFilter,  setStatusFilter]  = useState(new Set([1]));
+  const [hiddenFuels,   setHiddenFuels]   = useState(new Set());
   const [supplySort,    setSupplySort]    = useState({ col: 'capacity', dir: 'desc' });
   const [selectedPlant, setSelectedPlant] = useState(null);
 
@@ -559,7 +560,7 @@ export default function EpmCountryPage() {
     return { peak: calcCAGR('peak'), energy: calcCAGR('energy'), firstYr, lastYr };
   }, [countryDemand, allYears, demandSeg, demandHidden]);
 
-  const filteredPlants = useMemo(() => countryGen.filter(r=>statusFilter.has(r.status) && (selZone==='all'||r.zone===selZone)), [countryGen, statusFilter, selZone]);
+  const filteredPlants = useMemo(() => countryGen.filter(r=>statusFilter.has(r.status) && !hiddenFuels.has(r.fuel) && (selZone==='all'||r.zone===selZone)), [countryGen, statusFilter, hiddenFuels, selZone]);
   const sortedPlants   = useMemo(() => {
     const { col, dir } = supplySort;
     return [...filteredPlants].sort((a,b) => {
@@ -588,7 +589,7 @@ export default function EpmCountryPage() {
   }, [ntcAll, zoneToCountry, countryZoneIds, refYr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasData = !!(epmData && !loading);
-  const [panelWidth, setPanelWidth] = useState(530);
+  const [panelWidth, setPanelWidth] = useState(680);
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
   if (!region) return <div style={{ padding: 40, color: t.text }}>Loading…</div>;
 
@@ -738,7 +739,7 @@ export default function EpmCountryPage() {
               const midX=xS.getPixelForValue(dts+12);
               const w=hoursData?.[availSeasons[si]]?.[availDaytypes[di]]||0;
               const pct=w>0?` (${((w/totalDaysPf)*100).toFixed(0)}%)`:'';
-              ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';
+              ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='9px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';
               ctx.fillText(`${availDaytypes[di]}${pct}`,0,0);ctx.restore();
             }
           }
@@ -794,7 +795,7 @@ export default function EpmCountryPage() {
             for(let di=0;di<nDT;di++){
               const dts=ss+di*24;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
               const midX=xS.getPixelForValue(dts+12);const w=hoursData?.[vreAvailSeasons[si]]?.[vreAvailDaytypes[di]]||0;const pct=w>0?` (${((w/totalDaysPf)*100).toFixed(0)}%)`:'';
-              ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${vreAvailDaytypes[di]}${pct}`,0,0);ctx.restore();
+              ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='9px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${vreAvailDaytypes[di]}${pct}`,0,0);ctx.restore();
             }
           }
         },
@@ -873,7 +874,7 @@ export default function EpmCountryPage() {
   // ── JSX ───────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display:'flex', height:'calc(100vh - 46px)' }}
-      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(760,drStartW.current+(drStartX.current-e.clientX)))); }}
+      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(1100,drStartW.current+(drStartX.current-e.clientX)))); }}
       onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
     >
 
@@ -1183,7 +1184,7 @@ export default function EpmCountryPage() {
                         plugins={pd.plugin?[pd.plugin]:[]}
                         cacheKey={`${demandProfileMode}|${demandSeason}|${demandDay}|${[...demandHidden].sort().join(',')}`}
                         options={{ ...cjDefaults(t),
-                          layout:{padding:{top:demandProfileMode==='full'?18:4,bottom:demandProfileMode==='full'?62:4}},
+                          layout:{padding:{top:demandProfileMode==='full'?18:4,bottom:demandProfileMode==='full'?80:4}},
                           scales:{
                             x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
                             y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},min:0,title:{display:true,text:'Load factor',color:t.muted,font:{size:7}}},
@@ -1254,6 +1255,29 @@ export default function EpmCountryPage() {
                       ))}
                     </div>
                   </div>
+                </div>
+              );
+            })()}
+
+            {/* Fuel legend filter */}
+            {(() => {
+              const allGenFuels = [...new Set(countryGen.map(r=>r.fuel))].sort();
+              return allGenFuels.length > 1 && (
+                <div style={{ display:'flex', gap:7, flexWrap:'wrap', alignItems:'center' }}>
+                  {allGenFuels.map(fuel => {
+                    const hidden = hiddenFuels.has(fuel);
+                    const fc = EPM_FUEL_COLORS[fuel]||'#aaa';
+                    return (
+                      <div key={fuel} onClick={()=>setHiddenFuels(s=>{const n=new Set(s);n.has(fuel)?n.delete(fuel):n.add(fuel);return n;})}
+                        style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:hidden?0.3:1, userSelect:'none' }}>
+                        <div style={{ width:8, height:8, borderRadius:1, backgroundColor:fc, flexShrink:0 }}/>
+                        <span style={{ fontSize:'0.42rem', color:t.muted }}>{fuel}</span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ width:1, backgroundColor:t.panelBorder, height:10, margin:'0 2px' }}/>
+                  <span onClick={()=>setHiddenFuels(new Set())} style={{ fontSize:'0.42rem', color:t.lblMuted, cursor:'pointer', userSelect:'none' }}>All</span>
+                  <span onClick={()=>setHiddenFuels(new Set(allGenFuels))} style={{ fontSize:'0.42rem', color:t.lblMuted, cursor:'pointer', userSelect:'none' }}>None</span>
                 </div>
               );
             })()}
@@ -1409,7 +1433,7 @@ export default function EpmCountryPage() {
                               plugins={vd.plugin?[vd.plugin]:[]}
                               cacheKey={`${vreProfileMode}|${activeVreTech}|${vreSeason}|${vreDay}|${[...vreHidden].sort().join(',')}`}
                               options={{ ...cjDefaults(t),
-                                layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?62:4}},
+                                layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?80:4}},
                                 scales:{
                                   x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
                                   y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}}},

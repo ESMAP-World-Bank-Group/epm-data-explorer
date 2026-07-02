@@ -397,15 +397,16 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
     .map(f => ({ fuel: f, ex: Math.round(byFS[f]?.[1] || 0), co: Math.round(byFS[f]?.[2] || 0), ca: Math.round(byFS[f]?.[3] || 0) }))
     .sort((a, b) => (b.ex + b.co + b.ca) - (a.ex + a.co + a.ca));
 
-  // Chart by country
-  const byCountryFuel = {};
+  // Chart by country (split by status for opacity)
+  const byCountryFuelStatus = {};
   for (const r of filtered) {
     const country = zoneToCountry[r.zone] || r.zone;
-    if (!byCountryFuel[country]) byCountryFuel[country] = {};
-    byCountryFuel[country][r.fuel] = (byCountryFuel[country][r.fuel] || 0) + r.capacity;
+    if (!byCountryFuelStatus[country]) byCountryFuelStatus[country] = {};
+    if (!byCountryFuelStatus[country][r.fuel]) byCountryFuelStatus[country][r.fuel] = {1:0,2:0,3:0};
+    byCountryFuelStatus[country][r.fuel][r.status] = (byCountryFuelStatus[country][r.fuel][r.status]||0) + r.capacity;
   }
-  const ctryData = Object.entries(byCountryFuel)
-    .map(([c, fuelMap]) => ({ c, total: Object.values(fuelMap).reduce((s, v) => s + v, 0), fuelMap }))
+  const ctryData = Object.entries(byCountryFuelStatus)
+    .map(([c, fuelMap]) => ({ c, total: Object.values(fuelMap).reduce((s,v)=>s+(v[1]||0)+(v[2]||0)+(v[3]||0),0), fuelMap }))
     .sort((a, b) => b.total - a.total);
   const allFuels = [...new Set(filtered.map(r => r.fuel))];
 
@@ -449,18 +450,22 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
         ))}
       </div>
 
-      {/* Fuel filter chips */}
-      <div style={{ display:'flex', gap:3, flexWrap:'wrap', alignItems:'center' }}>
+      {/* Fuel legend filter */}
+      <div style={{ display:'flex', gap:7, flexWrap:'wrap', alignItems:'center' }}>
         {fuels.map(fuel => {
           const hidden = hiddenFuels.has(fuel);
           const fc = EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other;
           return (
-            <SupPill key={fuel} active={!hidden} color={fc} onClick={() => toggleFuel(fuel)}>
-              <span style={{ display:'inline-block', width:6, height:6, borderRadius:1, flexShrink:0, backgroundColor:hidden?'transparent':fc, border:`1px solid ${fc}` }}/>
-              {fuel}
-            </SupPill>
+            <div key={fuel} onClick={() => toggleFuel(fuel)}
+              style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:hidden?0.3:1, userSelect:'none' }}>
+              <div style={{ width:8, height:8, borderRadius:1, backgroundColor:fc, flexShrink:0 }}/>
+              <span style={{ fontSize:'0.42rem', color:t.muted }}>{fuel}</span>
+            </div>
           );
         })}
+        <div style={{ width:1, backgroundColor:t.panelBorder, height:10, margin:'0 2px' }}/>
+        <span onClick={() => setHiddenFuels(new Set())} style={{ fontSize:'0.42rem', color:t.lblMuted, cursor:'pointer', userSelect:'none' }}>All</span>
+        <span onClick={() => setHiddenFuels(new Set(fuels))} style={{ fontSize:'0.42rem', color:t.lblMuted, cursor:'pointer', userSelect:'none' }}>None</span>
       </div>
 
       {/* Chart by fuel */}
@@ -498,12 +503,14 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
           <CJChart type="bar" height={Math.min(ctryData.length * 24 + 24, 260)}
             data={{
               labels: ctryData.map(d => d.c),
-              datasets: allFuels.map(fuel => ({
-                label: fuel,
-                data: ctryData.map(d => Math.round(d.fuelMap[fuel] || 0)),
-                backgroundColor: EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other,
-                borderWidth: 0, barThickness: 14, stack: 'a',
-              })),
+              datasets: allFuels.flatMap(fuel => {
+                const fc = EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other;
+                return [
+                  { label:fuel, data:ctryData.map(d=>Math.round(d.fuelMap[fuel]?.[1]||0)), backgroundColor:fc, borderWidth:0, barThickness:14, stack:'a' },
+                  { label:fuel, data:ctryData.map(d=>Math.round(d.fuelMap[fuel]?.[2]||0)), backgroundColor:hexA(fc,0.5), borderWidth:0, barThickness:14, stack:'a' },
+                  { label:fuel, data:ctryData.map(d=>Math.round(d.fuelMap[fuel]?.[3]||0)), backgroundColor:hexA(fc,0.22), borderWidth:0, barThickness:14, stack:'a' },
+                ];
+              }),
             }}
             options={{ ...cjDefaults(t), indexAxis: 'y',
               scales: {
@@ -513,6 +520,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
               },
               plugins: { ...cjDefaults(t).plugins, legend: { display: false },
                 tooltip: { ...cjDefaults(t).plugins.tooltip,
+                  filter: item => item.raw > 0,
                   callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW` } } },
             }}
           />
@@ -1213,7 +1221,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
                         plugins={vd.plugin ? [vd.plugin] : []}
                         cacheKey={`${vreProfileMode}|${vreTech}|${vreSeason}|${vreDay}|${[...vreHidden].sort().join(',')}`}
                         options={{ ...cjDefaults(t),
-                          layout:{ padding:{ top:vreProfileMode==='full'?18:4, bottom:vreProfileMode==='full'?68:4 } },
+                          layout:{ padding:{ top:vreProfileMode==='full'?18:4, bottom:vreProfileMode==='full'?80:4 } },
                           scales:{
                             x:{ grid:{color:t.panelBorder,drawTicks:false},
                               ticks:{ display:vreProfileMode!=='full', color:t.muted,font:{size:7},maxTicksLimit:12 },
@@ -1621,7 +1629,7 @@ export default function RegionPage() {
   const [epmYear,         setEpmYear]         = useState(null);
   const [showExtZones,    setShowExtZones]    = useState(false);
   const [mapLoaded,       setMapLoaded]       = useState(0);
-  const [panelWidth,      setPanelWidth]      = useState(560);
+  const [panelWidth,      setPanelWidth]      = useState(680);
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   // Static data
@@ -2327,7 +2335,7 @@ export default function RegionPage() {
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 46px)' }}
-      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(760,drStartW.current+(drStartX.current-e.clientX)))); }}
+      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(1100,drStartW.current+(drStartX.current-e.clientX)))); }}
       onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
     >
 

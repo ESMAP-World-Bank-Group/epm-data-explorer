@@ -140,6 +140,7 @@ export default function EpmZonePage() {
 
   // ── Supply state ────────────────────────────────────────────────────────────
   const [statusFilter,  setStatusFilter]  = useState(new Set([1]));
+  const [hiddenFuels,   setHiddenFuels]   = useState(new Set());
   const [supplySort,    setSupplySort]    = useState({ col: 'capacity', dir: 'desc' });
   const [selectedPlant, setSelectedPlant] = useState(null);
 
@@ -451,7 +452,7 @@ export default function EpmZonePage() {
   },[ntcRows,zoneIdDecoded,zcmapRows,ntcRefYr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Supply filtered + sorted
-  const filteredPlants = useMemo(()=>zoneGen.filter(r=>statusFilter.has(r.status)),[zoneGen,statusFilter]);
+  const filteredPlants = useMemo(()=>zoneGen.filter(r=>statusFilter.has(r.status)&&!hiddenFuels.has(r.fuel)),[zoneGen,statusFilter,hiddenFuels]);
   const sortedPlants   = useMemo(()=>{
     const {col,dir}=supplySort;
     return [...filteredPlants].sort((a,b)=>{
@@ -463,7 +464,7 @@ export default function EpmZonePage() {
   },[filteredPlants,supplySort]);
 
   const hasData = !!(epmData && !loading);
-  const [panelWidth, setPanelWidth] = useState(490);
+  const [panelWidth, setPanelWidth] = useState(600);
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   if (!region) return <div style={{ padding: 40, color: t.text }}>Loading…</div>;
@@ -519,7 +520,7 @@ export default function EpmZonePage() {
   // ── JSX ───────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display:'flex', height:'calc(100vh - 46px)' }}
-      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(760,drStartW.current+(drStartX.current-e.clientX)))); }}
+      onMouseMove={e=>{ if(!isDrRef.current)return; setPanelWidth(w=>Math.max(380,Math.min(1100,drStartW.current+(drStartX.current-e.clientX)))); }}
       onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
     >
 
@@ -859,6 +860,29 @@ export default function EpmZonePage() {
                 </div>
               );
             })()}
+            {/* Fuel legend filter */}
+            {(() => {
+              const allGenFuels = [...new Set(zoneGen.map(r=>r.fuel))].sort();
+              return allGenFuels.length > 1 && (
+                <div style={{ display:'flex', gap:7, flexWrap:'wrap', alignItems:'center' }}>
+                  {allGenFuels.map(fuel => {
+                    const hidden = hiddenFuels.has(fuel);
+                    const fc = EPM_FUEL_COLORS[fuel]||'#aaa';
+                    return (
+                      <div key={fuel} onClick={()=>setHiddenFuels(s=>{const n=new Set(s);n.has(fuel)?n.delete(fuel):n.add(fuel);return n;})}
+                        style={{ display:'flex', alignItems:'center', gap:3, cursor:'pointer', opacity:hidden?0.3:1, userSelect:'none' }}>
+                        <div style={{ width:8, height:8, borderRadius:1, backgroundColor:fc, flexShrink:0 }}/>
+                        <span style={{ fontSize:'0.42rem', color:t.muted }}>{fuel}</span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ width:1, backgroundColor:t.panelBorder, height:10, margin:'0 2px' }}/>
+                  <span onClick={()=>setHiddenFuels(new Set())} style={{ fontSize:'0.42rem', color:t.lblMuted, cursor:'pointer', userSelect:'none' }}>All</span>
+                  <span onClick={()=>setHiddenFuels(new Set(allGenFuels))} style={{ fontSize:'0.42rem', color:t.lblMuted, cursor:'pointer', userSelect:'none' }}>None</span>
+                </div>
+              );
+            })()}
+
             {/* Status filters */}
             <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
               {[1,2,3].map(s=>(
@@ -974,7 +998,7 @@ export default function EpmZonePage() {
                       for(let di=0;di<nDT;di++){
                         const dts=ss+di*24;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
                         const midX=xS.getPixelForValue(dts+12);const w=hoursData?.[vreAvailS[si]]?.[vreAvailD[di]]||0;const pct=w>0?` (${((w/totalD)*100).toFixed(0)}%)`:'';
-                        ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${vreAvailD[di]}${pct}`,0,0);ctx.restore();
+                        ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='9px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${vreAvailD[di]}${pct}`,0,0);ctx.restore();
                       }
                     }
                   }};
@@ -1018,7 +1042,7 @@ export default function EpmZonePage() {
                           plugins={vd.plugin?[vd.plugin]:[]}
                           cacheKey={`${vreProfileMode}|${activeTech}|${vreSeason}|${vreDay}`}
                           options={{ ...cjDefaults(t),
-                            layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?62:4}},
+                            layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?80:4}},
                             scales:{
                               x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
                               y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}}},
