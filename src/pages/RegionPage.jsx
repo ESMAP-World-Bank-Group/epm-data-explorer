@@ -1670,7 +1670,7 @@ export default function RegionPage() {
     const { branch, dataFolder, dataFolders } = region.epm;
     setActiveFolder(dataFolders?.[0]?.id ?? dataFolder);
     setAutoFolders(null);
-    fetchDataFolderList(branch, dataFolder, dataFolders).then(list => setAutoFolders(list));
+    fetchDataFolderList(branch, dataFolder).then(list => setAutoFolders(list));
   }, [region]);
 
   // ── Auto-detect zcmap list when folder changes ────────────────────────────────

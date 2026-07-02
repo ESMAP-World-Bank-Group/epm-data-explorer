@@ -22,17 +22,17 @@ export async function fetchGitHubDir(branch, path) {
 }
 
 /** List all data_* input folders in a branch (excluding data_test).
- *  Uses explicit labels from regions.json when available; strips 'data_' prefix otherwise.
+ *  Label = folder name with 'data_' prefix stripped.
  *  The defaultFolder is always first. Falls back to [{id:defaultFolder, label}] on error. */
-export async function fetchDataFolderList(branch, defaultFolder, explicitFolders) {
+export async function fetchDataFolderList(branch, defaultFolder) {
+  const strip = n => n.replace(/^data_/, '');
   const items = await fetchGitHubDir(branch, 'epm/input');
-  const fallbackLabel = f => explicitFolders?.find(e => e.id === f)?.label ?? f.replace(/^data_/, '');
-  if (!items) return [{ id: defaultFolder, label: fallbackLabel(defaultFolder) }];
+  if (!items) return [{ id: defaultFolder, label: strip(defaultFolder) }];
   const folders = items
     .filter(i => i.type === 'dir' && /^data_/.test(i.name) && i.name !== 'data_test')
-    .map(i => ({ id: i.name, label: fallbackLabel(i.name) }))
+    .map(i => ({ id: i.name, label: strip(i.name) }))
     .sort((a, b) => (a.id === defaultFolder ? -1 : b.id === defaultFolder ? 1 : a.id.localeCompare(b.id)));
-  return folders.length ? folders : [{ id: defaultFolder, label: fallbackLabel(defaultFolder) }];
+  return folders.length ? folders : [{ id: defaultFolder, label: strip(defaultFolder) }];
 }
 
 /** List zcmap*.csv stems in a data folder (e.g. ['zcmap', 'zcmap_alt']).
