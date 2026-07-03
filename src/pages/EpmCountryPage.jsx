@@ -5,8 +5,8 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZcmapList, fetchDataFolderList,
-  processGenData, processDemand, processNTC,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList, fetchDataFolderList,
+  processGenData, processDemand, processNTC, processExtNTC,
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
@@ -209,6 +209,8 @@ export default function EpmCountryPage() {
   const [availZone,     setAvailZone]     = useState('all');
   const [selZone,       setSelZone]       = useState('all');
   const [mapLoadedCount,setMapLoadedCount]= useState(0);
+  const [showDonuts,    setShowDonuts]    = useState(true);
+  const [showExtZones,  setShowExtZones]  = useState(false);
 
   // ── Load region ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -282,7 +284,9 @@ export default function EpmCountryPage() {
       fetchEpmCSV(branch, activeFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
       fetchEpmCSV(branch, activeFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
       fetchEpmCSV(branch, activeFolder, rf('pHours', 'pHours.csv')),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
+      fetchZonesExtGeoJSON(branch, activeFolder),
+      fetchEpmCSV(branch, activeFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw]) => {
       setEpmData(prev => ({
         gen:              genRaw     ? processGenData(genRaw)              : [],
         demand:           demandRaw  ? processDemand(demandRaw)            : [],
@@ -293,9 +297,11 @@ export default function EpmCountryPage() {
         availability:      availRaw  ? processAvailability(availRaw)       : {},
         fuelPrice:         fpRaw     ? processFuelPrice(fpRaw)             : {},
         hours:             hoursRaw  ? processHours(hoursRaw)              : {},
+        extNtc:            extNtcRaw ? processExtNTC(extNtcRaw)            : [],
         // Preserve geojson on variant-only change (no region/folder/zcmap change).
         linestringGJ: (regionOrFolderChanged || zcmapChanged || !prev) ? linestringGJ : prev.linestringGJ,
         zonesGJ:      (regionOrFolderChanged || zcmapChanged || !prev) ? zonesGJ      : prev.zonesGJ,
+        zonesExtGJ:   (regionOrFolderChanged || zcmapChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
         branch,
       }));
     }).finally(() => setLoading(false));
@@ -436,6 +442,76 @@ export default function EpmCountryPage() {
         }
       }
 
+      // ── Ext NTC zones ─────────────────────────────────────────────────────
+      {
+        const extNtc = epmData.extNtc || [];
+        const zonesExtGJ = epmData.zonesExtGJ;
+        const extNodeCoords = {};
+        if (zonesExtGJ) {
+          for (const f of zonesExtGJ.features) {
+            const z = f.properties?.z;
+            if (z && f.geometry?.type === 'Point') extNodeCoords[z] = f.geometry.coordinates;
+          }
+        }
+        const extNtcYrs = extNtc.length > 0 ? Object.keys(extNtc[0].years).sort() : [];
+        const extNtcYr = extNtcYrs[0] || '2024';
+        const extLineFeatures = extNtc
+          .filter(r => zoneCentroids[r.z] && extNodeCoords[r.zext])
+          .map(r => ({ type:'Feature',
+            properties:{ z:r.z, zext:r.zext, ntc_mw:r.years[extNtcYr]||0 },
+            geometry:{ type:'LineString', coordinates:[zoneCentroids[r.z], extNodeCoords[r.zext]] } }));
+        const extNodeFeatures = Object.entries(extNodeCoords).map(([z, coords]) => ({
+          type:'Feature', properties:{ z }, geometry:{ type:'Point', coordinates:coords } }));
+
+        map.addSource('ext-ntc-lines', { type:'geojson', data:{type:'FeatureCollection',features:extLineFeatures} });
+        map.addLayer({ id:'ext-ntc-lines-layer', type:'line', source:'ext-ntc-lines',
+          layout:{ visibility:'none', 'line-cap':'round', 'line-join':'round' },
+          paint:{ 'line-color':'#888888',
+            'line-width':['interpolate',['linear'],['get','ntc_mw'],0,1,500,2,2000,3,5000,4.5],
+            'line-opacity':0.85 } });
+        map.addSource('ext-nodes', { type:'geojson', data:{type:'FeatureCollection',features:extNodeFeatures} });
+        map.addLayer({ id:'ext-nodes-circles', type:'circle', source:'ext-nodes',
+          layout:{ visibility:'none' },
+          paint:{ 'circle-radius':5,
+            'circle-color': tv.isDark ? 'rgba(40,40,40,0.85)' : 'rgba(255,255,255,0.85)',
+            'circle-stroke-width':1.5, 'circle-stroke-color':'#888888' } });
+        map.addLayer({ id:'ext-nodes-labels', type:'symbol', source:'ext-nodes',
+          layout:{ visibility:'none', 'text-field':['get','z'], 'text-size':10,
+            'text-offset':[0,1.4], 'text-anchor':'top', 'text-allow-overlap':false },
+          paint:{ 'text-color': tv.isDark ? '#e0e0e0' : '#222222',
+            'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
+            'text-halo-width':1 } });
+        map.addLayer({ id:'ext-ntc-labels', type:'symbol', source:'ext-ntc-lines',
+          layout:{ visibility:'none', 'text-field':['concat',['to-string',['round',['get','ntc_mw']]],' MW'],
+            'text-size':9, 'symbol-placement':'line-center', 'text-allow-overlap':false },
+          paint:{ 'text-color': tv.isDark ? '#cccccc' : '#444444',
+            'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
+            'text-halo-width':1 } });
+
+        map.on('mouseenter', 'ext-ntc-lines-layer', e => {
+          map.getCanvas().style.cursor = 'pointer';
+          const { z, zext, ntc_mw } = e.features[0].properties;
+          popup.setLngLat(e.lngLat)
+            .setHTML(`<b>${z} ↔ ${zext}</b><br><span style="opacity:.75">NTC: ${Math.round(ntc_mw).toLocaleString()} MW</span>`)
+            .addTo(map);
+        });
+        map.on('mouseleave', 'ext-ntc-lines-layer', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+        map.on('mouseenter', 'ext-nodes-circles', e => {
+          map.getCanvas().style.cursor = 'pointer';
+          const zext = e.features[0].properties.z;
+          const corridors = extNtc.filter(r => r.zext === zext);
+          const rows = corridors.map(r =>
+            `<div style="display:flex;justify-content:space-between;gap:12px">` +
+            `<span style="opacity:.75">${r.z}</span>` +
+            `<span style="font-weight:600">${Math.round(r.years[extNtcYr]||0).toLocaleString()} MW</span></div>`
+          ).join('');
+          popup.setLngLat(e.lngLat)
+            .setHTML(`<b>${zext}</b><br>${rows||'<span style="opacity:.6">No NTC data</span>'}`)
+            .addTo(map);
+        });
+        map.on('mouseleave', 'ext-nodes-circles', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+      }
+
       // Donuts + NTC data are drawn / updated in place by the effects below.
       setMapLoadedCount(c => c + 1);
     });
@@ -455,19 +531,21 @@ export default function EpmCountryPage() {
     try { map.setFilter('zone-selected', ['==', ['get', 'z'], f]); map.setFilter('zone-selected-border', ['==', ['get', 'z'], f]); } catch(e) {}
   }, [selZone, mapLoadedCount]);
 
-  // Donut markers — re-render in place when supply data changes (no map rebuild → no flash).
+
+  // Donut markers visibility toggle (no map rebuild).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !epmData || mapLoadedCount === 0) return;
     const tv = getT(theme);
     const countryZones = countryZonesRef.current, centroids = zoneCentroidsRef.current;
+    donutMarkersRef.current.forEach(m => m.remove());
+    donutMarkersRef.current = [];
+    if (!showDonuts) return;
     const zoneGen = {};
     for (const r of epmData.gen.filter(g => g.status === 1 && countryZones.includes(g.zone))) {
       if (!zoneGen[r.zone]) zoneGen[r.zone] = {};
       zoneGen[r.zone][r.fuel] = (zoneGen[r.zone][r.fuel] || 0) + r.capacity;
     }
-    donutMarkersRef.current.forEach(m => m.remove());
-    donutMarkersRef.current = [];
     for (const z of countryZones) {
       const fuelMix = zoneGen[z], coord = centroids[z];
       if (!fuelMix || !coord) continue;
@@ -477,7 +555,16 @@ export default function EpmCountryPage() {
       el.addEventListener('click', () => navigate(`/region/${regionId}/zone/${encodeURIComponent(z)}`));
       donutMarkersRef.current.push(new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(map));
     }
-  }, [mapLoadedCount, epmData, theme]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapLoadedCount, epmData, theme, showDonuts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ext zones visibility toggle.
+  useEffect(() => {
+    const map = mapRef.current;
+    const vis = showExtZones ? 'visible' : 'none';
+    for (const id of ['ext-ntc-lines-layer','ext-ntc-labels','ext-nodes-circles','ext-nodes-labels']) {
+      if (map?.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    }
+  }, [showExtZones, mapLoadedCount]);
 
   // NTC lines — update MW in place when trade data changes (no map rebuild → no flash).
   useEffect(() => {
@@ -893,22 +980,40 @@ export default function EpmCountryPage() {
           <span style={{ color:t.lblMuted }}>›</span>
           <span style={{ color:t.lbl, fontWeight:600 }}>{countryNameDecoded}</span>
         </div>
-        {zcmapList.length > 1 && (
-          <div style={{ position:'absolute', bottom:10, left:10, zIndex:10, display:'flex', gap:4, alignItems:'center',
-            fontSize:'0.5rem', backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`,
+        <div style={{ position:'absolute', bottom:10, left:10, zIndex:10, display:'flex', gap:6, alignItems:'center',
+          flexWrap:'wrap' }}>
+          {zcmapList.length > 1 && (
+            <div style={{ display:'flex', gap:4, alignItems:'center', fontSize:'0.5rem',
+              backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`,
+              borderRadius:5, padding:'4px 8px', boxShadow:'0 1px 4px rgba(0,0,0,.18)' }}>
+              <span style={{ color:t.lblMuted }}>Zone map:</span>
+              {zcmapList.map(zc => (
+                <button key={zc} onClick={()=>setActiveZcmap(zc)} style={{
+                  fontFamily:'inherit', fontSize:'0.5rem', padding:'2px 8px', borderRadius:3,
+                  border:`1px solid ${activeZcmap===zc ? t.lbl : t.panelBorder}`,
+                  backgroundColor: activeZcmap===zc ? t.lbl : 'transparent',
+                  color: activeZcmap===zc ? t.panel : t.lblMuted, cursor:'pointer',
+                }}>{zc}</button>
+              ))}
+            </div>
+          )}
+          <div style={{ display:'flex', gap:4, alignItems:'center', fontSize:'0.5rem',
+            backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`,
             borderRadius:5, padding:'4px 8px', boxShadow:'0 1px 4px rgba(0,0,0,.18)' }}>
-            <span style={{ color:t.lblMuted }}>Zone map:</span>
-            {zcmapList.map(zc => (
-              <button key={zc} onClick={()=>setActiveZcmap(zc)} style={{
-                fontFamily:'inherit', fontSize:'0.5rem', padding:'2px 8px', borderRadius:3,
-                border:`1px solid ${activeZcmap===zc ? t.lbl : t.panelBorder}`,
-                backgroundColor: activeZcmap===zc ? t.lbl : 'transparent',
-                color: activeZcmap===zc ? t.panel : t.lblMuted,
-                cursor:'pointer',
-              }}>{zc}</button>
-            ))}
+            <button onClick={()=>setShowDonuts(v=>!v)} style={{
+              fontFamily:'inherit', fontSize:'0.46rem', cursor:'pointer', padding:'2px 7px', borderRadius:3, border:'none',
+              backgroundColor: showDonuts ? 'rgba(74,143,204,0.2)' : 'transparent',
+              color: showDonuts ? t.lbl : t.lblMuted, fontWeight: showDonuts ? 700 : 400,
+            }}>Donuts</button>
+            {epmData?.extNtc?.length > 0 && epmData?.zonesExtGJ && (
+              <button onClick={()=>setShowExtZones(v=>!v)} style={{
+                fontFamily:'inherit', fontSize:'0.46rem', cursor:'pointer', padding:'2px 7px', borderRadius:3, border:'none',
+                backgroundColor: showExtZones ? 'rgba(136,136,136,0.2)' : 'transparent',
+                color: showExtZones ? t.lbl : t.lblMuted, fontWeight: showExtZones ? 700 : 400,
+              }}>Ext. zones</button>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>

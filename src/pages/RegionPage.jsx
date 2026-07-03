@@ -1560,7 +1560,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVa
 
 // ── About tab ─────────────────────────────────────────────────────────────────
 
-function AboutTab({ region, t, epmData }) {
+function AboutTab({ region, t, epmData, activeFolder }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
@@ -2088,7 +2088,6 @@ export default function RegionPage() {
 
         // Hover popup: line shows "Z ↔ Ext · NTC MW"
         map.on('mouseenter', 'ext-ntc-lines-layer', e => {
-          if (!map.getLayoutProperty('ext-ntc-lines-layer', 'visibility') === 'none') return;
           map.getCanvas().style.cursor = 'pointer';
           const { z, zext, ntc_mw } = e.features[0].properties;
           popup.setLngLat(e.lngLat)
@@ -2447,7 +2446,7 @@ export default function RegionPage() {
                   </button>
                 ))}
               </div>
-              {epmData.extNtc?.length > 0 && (
+              {epmData.extNtc?.length > 0 && epmData.zonesExtGJ && (
                 <button onClick={() => setShowExtZones(v => !v)} style={{
                   fontSize: '0.46rem', fontFamily: 'inherit', cursor: 'pointer',
                   padding: '3px 8px', borderRadius: 4,
@@ -2568,7 +2567,7 @@ export default function RegionPage() {
             scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} />
         )}
         {activeTab === 'about' && (
-          <AboutTab region={region} t={t} epmData={epmData} />
+          <AboutTab region={region} t={t} epmData={epmData} activeFolder={activeFolder} />
         )}
       </div>
     </div>
