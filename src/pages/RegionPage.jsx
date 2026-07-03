@@ -366,6 +366,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState('capacity');
+  const [selectedCountries, setSelectedCountries] = useState(new Set());
 
   const zoneToCountry = Object.fromEntries(zcmap.map(r => [r.z, r.c]));
   const filtered = gen.filter(r => visStatuses.has(r.status) && !hiddenFuels.has(r.fuel));
@@ -382,6 +383,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
     if (sortCol === 'tech')     return (a.tech||'').localeCompare(b.tech||'');
     if (sortCol === 'zone')     return a.zone.localeCompare(b.zone);
     if (sortCol === 'country')  return (zoneToCountry[a.zone]||'').localeCompare(zoneToCountry[b.zone]||'');
+    if (sortCol === 'status')   return a.status - b.status;
     return 0;
   });
 
@@ -409,6 +411,17 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
     .map(([c, fuelMap]) => ({ c, total: Object.values(fuelMap).reduce((s,v)=>s+(v[1]||0)+(v[2]||0)+(v[3]||0),0), fuelMap }))
     .sort((a, b) => b.total - a.total);
   const allFuels = [...new Set(filtered.map(r => r.fuel))];
+
+  const ytClickPlugin = {
+    id: 'ytClick',
+    afterEvent: (chart, args) => {
+      const e = args.event;
+      if (e.type !== 'mousemove') return;
+      const ca = chart.chartArea;
+      if (!ca) return;
+      chart.canvas.style.cursor = (e.x < ca.left && e.x >= 0) ? 'pointer' : '';
+    }
+  };
 
   const toggleStatus = s => setVisStatuses(prev => {
     const next = new Set(prev);
@@ -474,6 +487,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
         <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
           <div style={{ flex:1, minWidth:0 }}>
             <CJChart type="bar" height={Math.min(fuelChartData.length * 22 + 24, 260)}
+              cacheKey={`supply-fuel|${[...visStatuses].sort().join(',')}|${[...hiddenFuels].sort().join(',')}`}
               data={{ labels: fuelChartData.map(d => d.fuel), datasets: [
                 { label:'Existing',  data:fuelChartData.map(d=>d.ex), backgroundColor:fuelChartData.map(d=>EPM_FUEL_COLORS[d.fuel]||EPM_FUEL_COLORS.other), borderWidth:0, barThickness:12, stack:'a' },
                 { label:'Committed', data:fuelChartData.map(d=>d.co), backgroundColor:fuelChartData.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||EPM_FUEL_COLORS.other,0.5)), borderWidth:0, barThickness:12, stack:'a' },
@@ -499,24 +513,61 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
       {/* Chart by country */}
       {ctryData.length > 0 && (
         <div>
-          <SectionTitle t={t}>Capacity by country (MW)</SectionTitle>
+          <SectionTitle t={t}>
+            Capacity by country (MW)
+            {selectedCountries.size > 0 && (
+              <span onClick={() => setSelectedCountries(new Set())}
+                style={{ marginLeft:6, fontSize:'0.38rem', color:t.lblMuted, cursor:'pointer', fontWeight:400, opacity:0.7 }}>
+                × clear
+              </span>
+            )}
+          </SectionTitle>
           <CJChart type="bar" height={Math.min(ctryData.length * 24 + 24, 260)}
+            cacheKey={`supply-country|${[...visStatuses].sort().join(',')}|${[...hiddenFuels].sort().join(',')}|${[...selectedCountries].sort().join(',')}`}
+            plugins={[ytClickPlugin]}
             data={{
               labels: ctryData.map(d => d.c),
               datasets: allFuels.flatMap(fuel => {
                 const fc = EPM_FUEL_COLORS[fuel] || EPM_FUEL_COLORS.other;
+                const vis = d => selectedCountries.size === 0 || selectedCountries.has(d.c);
                 return [
-                  { label:fuel, data:ctryData.map(d=>Math.round(d.fuelMap[fuel]?.[1]||0)), backgroundColor:fc, borderWidth:0, barThickness:14, stack:'a' },
-                  { label:fuel, data:ctryData.map(d=>Math.round(d.fuelMap[fuel]?.[2]||0)), backgroundColor:hexA(fc,0.5), borderWidth:0, barThickness:14, stack:'a' },
-                  { label:fuel, data:ctryData.map(d=>Math.round(d.fuelMap[fuel]?.[3]||0)), backgroundColor:hexA(fc,0.22), borderWidth:0, barThickness:14, stack:'a' },
+                  { label:fuel, data:ctryData.map(d=>vis(d)?Math.round(d.fuelMap[fuel]?.[1]||0):0),
+                    backgroundColor:fc, borderWidth:0, barThickness:14, stack:'a' },
+                  { label:fuel, data:ctryData.map(d=>vis(d)?Math.round(d.fuelMap[fuel]?.[2]||0):0),
+                    backgroundColor:hexA(fc,0.5), borderWidth:0, barThickness:14, stack:'a' },
+                  { label:fuel, data:ctryData.map(d=>vis(d)?Math.round(d.fuelMap[fuel]?.[3]||0):0),
+                    backgroundColor:hexA(fc,0.22), borderWidth:0, barThickness:14, stack:'a' },
                 ];
               }),
             }}
             options={{ ...cjDefaults(t), indexAxis: 'y',
+              onClick: (event, _els, chart) => {
+                const { chartArea, scales } = chart;
+                if (!chartArea || !scales.y) return;
+                if (event.x > chartArea.left) return;
+                const yScale = scales.y;
+                let closest = null, minDist = Infinity;
+                yScale.ticks.forEach((tick, i) => {
+                  const dist = Math.abs(yScale.getPixelForTick(i) - event.y);
+                  if (dist < minDist) { minDist = dist; closest = tick.label; }
+                });
+                if (closest && minDist < 14) {
+                  setSelectedCountries(prev => {
+                    const next = new Set(prev);
+                    if (next.has(closest)) next.delete(closest); else next.add(closest);
+                    return next;
+                  });
+                }
+              },
               scales: {
                 x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
                   callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
-                y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+                y: { stacked: true, grid: { display: false },
+                  ticks: {
+                    color: ctryData.map(d => selectedCountries.size === 0 || selectedCountries.has(d.c) ? t.muted : 'rgba(128,128,128,0.15)'),
+                    font: { size: 8 }
+                  }
+                },
               },
               plugins: { ...cjDefaults(t).plugins, legend: { display: false },
                 tooltip: { ...cjDefaults(t).plugins.tooltip,
@@ -537,9 +588,9 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
         </div>
         <div style={{ border:`1px solid ${t.panelBorder}`, borderRadius:6, overflow:'hidden' }}>
           {/* Header */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 52px 52px 48px 52px 52px',
+          <div style={{ display:'grid', gridTemplateColumns:'2fr 72px 22px 54px 52px 52px',
             padding:'4px 8px', backgroundColor:hexA(t.panelBorder,0.4), borderBottom:`1px solid ${t.panelBorder}`, position:'sticky', top:0 }}>
-            {[['name','Name'],['zone','Zone'],['country','Country'],['fuel','Fuel'],['tech','Tech'],['capacity','MW']].map(([col,lbl])=>(
+            {[['name','Plant'],['country','Country / Zone'],['status','St'],['fuel','Fuel'],['tech','Tech'],['capacity','MW']].map(([col,lbl])=>(
               <span key={col} onClick={()=>setSortCol(col)} style={{ fontSize:'0.41rem', color:sortCol===col?t.lbl:t.lblMuted, fontWeight:sortCol===col?700:400, cursor:'pointer', textAlign:col==='capacity'?'right':'left', userSelect:'none' }}>
                 {lbl}{sortCol===col?' ↓':''}
               </span>
@@ -556,19 +607,23 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
                   <div onClick={()=>setSelectedPlant(isSel?null:r)}
                     onMouseEnter={e=>{if(!isSel)e.currentTarget.style.backgroundColor=hexA('#1a5fa8',0.04);}}
                     onMouseLeave={e=>{if(!isSel)e.currentTarget.style.backgroundColor='transparent';}}
-                    style={{ display:'grid', gridTemplateColumns:'1fr 52px 52px 48px 52px 52px',
+                    style={{ display:'grid', gridTemplateColumns:'2fr 72px 22px 54px 52px 52px',
                       padding:'5px 8px', borderBottom:`1px solid ${t.panelBorder}`, cursor:'pointer',
                       fontSize:'0.5rem', alignItems:'center', backgroundColor:isSel?hexA('#1a5fa8',0.08):'transparent' }}>
                     <span style={{ color:t.lbl, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.g}</span>
-                    <span style={{ color:t.muted, fontSize:'0.43rem' }}>{r.zone}</span>
-                    <span style={{ color:t.muted, fontSize:'0.43rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{zoneToCountry[r.zone]||'—'}</span>
+                    <span style={{ display:'flex', flexDirection:'column', lineHeight:1.3, overflow:'hidden' }}>
+                      <span style={{ color:t.muted, fontSize:'0.43rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{zoneToCountry[r.zone]||r.zone}</span>
+                      <span style={{ color:t.lblMuted, fontSize:'0.38rem', opacity:0.7 }}>{r.zone}</span>
+                    </span>
+                    <span style={{ display:'flex', justifyContent:'center', alignItems:'center' }}>
+                      <span style={{ display:'inline-block', width:7, height:7, borderRadius:'50%', backgroundColor:sc?.color||'#aaa' }}/>
+                    </span>
                     <span style={{ display:'flex', alignItems:'center', gap:3 }}>
                       <span style={{ display:'inline-block', width:7, height:7, borderRadius:1, backgroundColor:EPM_FUEL_COLORS[r.fuel]||'#aaa' }}/>
                       <span style={{ color:t.muted, fontSize:'0.43rem' }}>{r.fuel}</span>
                     </span>
                     <span style={{ color:t.muted, fontSize:'0.43rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.tech||'—'}</span>
-                    <span style={{ display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end' }}>
-                      <span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', backgroundColor:sc?.color||'#aaa' }}/>
+                    <span style={{ display:'flex', justifyContent:'flex-end', alignItems:'center' }}>
                       <span style={{ color:t.lbl, fontWeight:600 }}>{fmt(r.capacity)}</span>
                     </span>
                   </div>
@@ -1890,10 +1945,7 @@ export default function RegionPage() {
           map.on('click', 'zone-fill', e => {
             const iso = e.features[0].properties.ISO_A3;
             const c = isoToCountry[iso] || iso;
-            const zone = countryToFirstZone[c] || 'all';
-            setAvailZone(zone);
-            setResourceSection('avail');
-            setActiveTab('resources');
+            navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`);
           });
         } else if (lsgj) {
           // Fallback: country fill from world source (no zones.geojson)
