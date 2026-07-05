@@ -30,7 +30,7 @@ const COST_COLORS={'Fuel costs: $m':'#E8C547','Fixed O&M: $m':'#4DA6FF','Variabl
 const COST_LABELS={'Fuel costs: $m':'Fuel','Fixed O&M: $m':'Fixed O&M','Variable O&M: $m':'Var O&M','Investment costs: $m':'CAPEX','Carbon costs: $m':'Carbon','VRE curtailment: $m':'Curtailment','Transmission costs: $m':'Transmission'};
 const MAIN_COST_CATS=['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Investment costs: $m','Carbon costs: $m','VRE curtailment: $m','Transmission costs: $m'];
 function costColor(cat){return COST_COLORS[cat]||'#888888';}
-function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+9);}});ctx.restore();}};}
+function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
 
 const INDICATORS=[
   {key:'CapacityTechFuel',label:'Capacity (MW)',source:'techFuel',unit:'MW'},
@@ -382,7 +382,7 @@ export default function ResultsCountryPage() {
   const buildMix=()=>{const sd=resultsData[ovScenario];if(!sd||!refYear)return null;const zones=visZones.filter(z=>sd.techFuel[z]?.CapacityTechFuel?.[refYear]);if(!zones.length)return null;const tfs=allTechfuels.filter(tf=>zones.some(z=>(sd.techFuel[z]?.CapacityTechFuel?.[refYear]?.[tf]||0)>0));return{labels:zones,datasets:tfs.filter(tf=>!isHidden('mix-c',tf)).map(tf=>({label:tf,data:zones.map(z=>Math.round(sd.techFuel[z]?.CapacityTechFuel?.[refYear]?.[tf]||0)),backgroundColor:techColor(tf),borderWidth:0,barThickness:14,stack:'a'}))};};
 
   const buildEvolution=()=>{
-    const activeSc=scenarioList.filter(s=>evScenarios.has(s));if(!activeSc.length||!allYears.length)return null;
+    const activeSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)));if(!activeSc.length||!allYears.length)return null;
     const ind=activeInd;
     if(ind.source==='yearlyZone')return{labels:allYears,datasets:activeSc.map((s,i)=>({label:s,data:allYears.map(y=>+visZones.reduce((acc,z)=>acc+(resultsData[s]?.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)),backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.75),borderColor:SCEN_COLORS[i%SCEN_COLORS.length],borderWidth:2,fill:false,tension:0.3,type:'line'}))};
     if(ind.source==='costs'){const cats=MAIN_COST_CATS.filter(cat=>activeSc.some(s=>visZones.some(z=>resultsData[s]?.costs[z]?.[cat])));const datasets=[];for(const scen of activeSc)for(const cat of cats){const data=allYears.map(y=>Math.round(visZones.reduce((s,z)=>s+(resultsData[scen]?.costs[z]?.[cat]?.[y]||0),0)*10)/10);if(data.some(v=>v!==0))datasets.push({label:`${activeSc.length>1?scen+' — ':''}${COST_LABELS[cat]||cat}`,data,backgroundColor:hexA(costColor(cat),activeSc.length>1?0.5:0.82),borderColor:costColor(cat),borderWidth:activeSc.length>1?1:0,stack:scen});}return{labels:allYears,datasets};}
@@ -545,7 +545,7 @@ export default function ResultsCountryPage() {
               <select value={snapIndicator} onChange={e=>setSnapIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {scenarioList.map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              {baseFirst(scenarioList).map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
             </div>
             {snapData&&snapData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
@@ -554,7 +554,7 @@ export default function ResultsCountryPage() {
                     cacheKey={`snap-c|${snapIndicator}|${refYear}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-c-tf']||[]].join(',')}`}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[snapData.netPlugin,sp].filter(Boolean);})()}
                     data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>{const lbl=d.label.includes(' — ')?d.label.split(' — ')[1]:d.label;return!isHidden('snap-c-tf',lbl);})}}
-                    options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20,padding:16}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
+                    options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20,padding:16}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
                   />
                 </div>
                 {makeLegend('snap-c-tf',[...new Set(snapData.datasets.map(d=>d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
@@ -594,7 +594,7 @@ export default function ResultsCountryPage() {
             <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
               <select value={evIndicator} onChange={e=>setEvIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {scenarioList.map(s=><Pill key={s} active={evScenarios.has(s)} onClick={()=>setEvScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              {baseFirst(scenarioList).map(s=><Pill key={s} active={evScenarios.has(s)} onClick={()=>setEvScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
             </div>
             {evData?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
@@ -602,7 +602,7 @@ export default function ResultsCountryPage() {
                   <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={200} cacheKey={`ev-c|${evIndicator}|${theme}|${[...evScenarios].sort().join(',')}|${[...hiddenMap['ev-c']||[]].join(',')}`}
                     data={{...evData,datasets:evData.datasets.filter(d=>{if(activeInd.source==='techFuel')return!isHidden('ev-c',tfLabel(d));if(activeInd.source==='costs')return!isHidden('ev-cost',tfLabel(d));return true;})}}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return sp?[sp]:[];})()}
-                    options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10,padding:16}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}/>
+                    options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10,padding:16}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}/>
                 </div>
                 {activeInd.source==='techFuel'&&makeLegend('ev-c',allTechfuels.filter(tf=>evData.datasets.some(d=>tfLabel(d)===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
                 {activeInd.source==='costs'&&makeLegend('ev-cost',MAIN_COST_CATS.filter(cat=>evData.datasets.some(d=>tfLabel(d)===(COST_LABELS[cat]||cat))).map(cat=>({label:COST_LABELS[cat]||cat,color:costColor(cat)})))}
@@ -695,7 +695,7 @@ export default function ResultsCountryPage() {
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <select value={trScenario||''} onChange={e=>setTrScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {scenarioList.map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              {baseFirst(scenarioList).map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
             </div>
             {tradeEvData&&(()=>{const allCorridors=tradeEvData.corridors||[];const unit=tradeEvData.unit||'GWh';return<>
               <div style={{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap',marginTop:4}}>
