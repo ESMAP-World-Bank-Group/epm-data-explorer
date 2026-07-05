@@ -45,6 +45,7 @@ const COST_LABELS = {
 };
 const MAIN_COST_CATS = ['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Investment costs: $m','Carbon costs: $m','VRE curtailment: $m','Transmission costs: $m'];
 function costColor(cat) { return COST_COLORS[cat] || '#888888'; }
+function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
 
 const INDICATORS = [
   { key:'CapacityTechFuel',             label:'Capacity (MW)',             source:'techFuel',   unit:'MW' },
@@ -64,7 +65,7 @@ const INDICATORS = [
 function fmt(n, d = 0) { if (n == null || isNaN(n)) return '—'; return n.toLocaleString('en-US', { maximumFractionDigits: d }); }
 function fmtBig(n) { if (!n) return '—'; const a=Math.abs(n); if(a>=1e9)return`${(n/1e9).toFixed(1)}B`; if(a>=1e6)return`${(n/1e6).toFixed(1)}M`; if(a>=1e3)return`${(n/1e3).toFixed(1)}k`; return n.toFixed(1); }
 function hexA(hex, a) { if (!hex||hex.length<7) return `rgba(128,128,128,${a})`; const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
-function cjDefaults(t) { return { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:9},bodyFont:{size:9},padding:6}}, scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}}}}; }
+function cjDefaults(t) { return { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:11},bodyFont:{size:11},padding:6}}, scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:10}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:10}}}}}; }
 
 function priceColor(t_) {
   // t_ = 0-1: white → #1B6CA8 (medium blue)
@@ -203,7 +204,7 @@ export default function ResultsRegionPage() {
   const [plIndicator,  setPlIndicator]  = useState('CapacityPlant');
   const [plTopN,       setPlTopN]       = useState(20);
   const [plShowBubble,   setPlShowBubble]   = useState(false);
-  const [panelWidth,     setPanelWidth]     = useState(560);
+  const [panelWidth,     setPanelWidth]     = useState(680);
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
   const [hiddenMap,      setHiddenMap]      = useState({}); // { chartId: Set<label> }
   const [pieDispMode,    setPieDispMode]    = useState('none'); // 'none'|'capacity'|'energy'
@@ -806,8 +807,8 @@ export default function ResultsRegionPage() {
   };
 
   // ── Scenario comparison (shared across tabs) ──────────────────────────────
-  const findBase = scens => scens.find(s=>/^base(line)?$/i.test(s))||scens[0];
-  const baseFirst = arr => [...arr].sort((a,b)=>(/^base(line)?$/i.test(a)?-1:/^base(line)?$/i.test(b)?1:0));
+  const findBase = scens => scens.find(s=>/^base/i.test(s))||scens[0];
+  const baseFirst = arr => [...arr].sort((a,b)=>(/^base/i.test(a)?-1:/^base/i.test(b)?1:0));
   const SCEN_COLORS = ['#1B6CA8','#36B5B5','#4169E1','#D4A820','#B83838','#7048A8','#4A9E6A','#2E9EC8'];
   const getEvVal = (scen, y, ind) => {
     if(ind.source==='techFuel') return evZones.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]||{}).reduce((a,b)=>a+b,0),0);
@@ -1266,10 +1267,10 @@ export default function ResultsRegionPage() {
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart type="bar" height={220}
                     cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
-                    plugins={snapData.netPlugin?[snapData.netPlugin]:[]}
+                    plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[snapData.netPlugin,sp].filter(Boolean);})()}
                     data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>!isHidden('snap-tf',tfLabel(d)))}}
-                    options={{...cjDefaults(t),scales:{
-                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
+                    options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{
+                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20,padding:16}},
                       y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
                     },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
                   />
@@ -1277,7 +1278,7 @@ export default function ResultsRegionPage() {
                     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:3,fontSize:'0.42rem',color:t.muted}}>
                       {baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s])).map((s,i)=><span key={s} style={{display:'flex',alignItems:'center',gap:3}}><span style={{display:'inline-block',width:7,height:7,borderRadius:1,backgroundColor:SCEN_COLORS[i%SCEN_COLORS.length]}}/>{s}</span>)}
                     </div>:
-                    <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:3}}>Groups (L→R): {baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s])).join(' · ')}</div>
+                    <div style={{display:'none'}}></div>
                   )}
                 </div>
                 {makeLegend('snap-tf',[...new Set(snapData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
@@ -1338,11 +1339,9 @@ export default function ResultsRegionPage() {
                       if(activeInd.source==='costs') return !isHidden('ev-cost',tfLabel(d));
                       return true;
                     })}}
-                    options={{...cjDefaults(t),scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
+                    plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return sp?[sp]:[];})()}
+                    options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10,padding:16}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
                   />
-                  {activeInd.source!=='yearlyZone'&&evScenarios.size>1&&(
-                    <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:3}}>Groups (L→R): {baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s])).join(' · ')}</div>
-                  )}
                 </div>
                 {activeInd.source==='techFuel'&&makeLegend('ev-tf',allTechfuels.filter(tf=>evolutionData.datasets.some(d=>tfLabel(d)===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
                 {activeInd.source==='costs'&&makeLegend('ev-cost',MAIN_COST_CATS.filter(cat=>evolutionData.datasets.some(d=>tfLabel(d)===(COST_LABELS[cat]||cat))).map(cat=>({label:COST_LABELS[cat]||cat,color:costColor(cat)})))}

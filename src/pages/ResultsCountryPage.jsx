@@ -95,7 +95,7 @@ export default function ResultsCountryPage() {
   const [plTopN,       setPlTopN]       = useState(15);
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
   const [hiddenMap,    setHiddenMap]    = useState({});
-  const [panelWidth,   setPanelWidth]   = useState(520);
+  const [panelWidth,   setPanelWidth]   = useState(640);
   const [snapIndicator,setSnapIndicator]= useState('CapacityTechFuel');
   const [snapScenarios,setSnapScenarios]= useState(new Set());
   const [cmpRef,       setCmpRef]       = useState(null);

@@ -57,7 +57,7 @@ export default function ResultsZonePage() {
   const [plIndicator,  setPlIndicator]  = useState('CapacityPlant');
   const [plTopN,       setPlTopN]       = useState(15);
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
-  const [panelWidth,   setPanelWidth]   = useState(480);
+  const [panelWidth,   setPanelWidth]   = useState(600);
 
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
   useEffect(()=>{hoursDataRef.current=hoursData;},[hoursData]);
