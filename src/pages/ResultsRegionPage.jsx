@@ -679,7 +679,7 @@ export default function ResultsRegionPage() {
       for(let i=0;i<activeSc.length;i++){const scen=activeSc[i];const col=SCEN_COLORS[i%SCEN_COLORS.length];
         datasets.push({label:`${scen} — Imp.`,type:'bar',data:allYears.map(y=>+(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.imp,0)).toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
         datasets.push({label:`${scen} — Exp.`,type:'bar',data:allYears.map(y=>+(-(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.exp,0))).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        datasets.push({label:`${scen} — Net`,type:'line',data:allYears.map(y=>+(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.net,0)).toFixed(0)),borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,stack:undefined});
+        datasets.push({label:`${scen} — Net`,type:'line',data:allYears.map(y=>+(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.net,0)).toFixed(0)),borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,stack:`__net_${i}__`});
       }
       return{labels:allYears,datasets};
     }
@@ -869,7 +869,7 @@ export default function ResultsRegionPage() {
         const dNet=allYears.map(y=>+(Object.values(tvCmp(y)).reduce((s,v)=>s+v.net,0)-Object.values(tvRef(y)).reduce((s,v)=>s+v.net,0)).toFixed(0));
         if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
         if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'line',data:dNet,borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false});
+        if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'line',data:dNet,borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,stack:`__dnet_${i}__`});
       }
       return{labels:allYears,datasets};
     }
