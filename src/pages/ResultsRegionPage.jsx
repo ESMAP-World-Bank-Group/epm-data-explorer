@@ -1289,7 +1289,7 @@ export default function ResultsRegionPage() {
               <Pill active={snapView==='zone'} onClick={()=>setSnapView('zone')}>Zone</Pill>
               <Pill active={snapView==='country'} onClick={()=>setSnapView('country')}>Country</Pill>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
+              {baseFirst(scenarioList).map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
             </div>
             {/* Absolute chart */}
             {snapData&&snapData.datasets.length>0?
@@ -1357,7 +1357,7 @@ export default function ResultsRegionPage() {
               <select value={evIndicator} onChange={e=>setEvIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
               <select value={evCountry} onChange={e=>setEvCountry(e.target.value)} style={selectStyle}><option value="all">All countries</option>{allCountries.map(c=><option key={c} value={c}>{c}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={evScenarios.has(s)} onClick={()=>setEvScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
+              {baseFirst(scenarioList).map(s=><Pill key={s} active={evScenarios.has(s)} onClick={()=>setEvScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
             </div>
             {evolutionData?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
@@ -1493,7 +1493,7 @@ export default function ResultsRegionPage() {
         {hasData&&activeTab==='trade'&&(
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
+              {baseFirst(scenarioList).map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
             </div>
 
             {/* Evolution stacked by corridor — right legend */}
