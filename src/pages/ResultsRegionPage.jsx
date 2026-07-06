@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTransmissionResults, processPlants, processCosts,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
@@ -184,6 +184,8 @@ export default function ResultsRegionPage() {
   const [resultsData,  setResultsData]  = useState({});
   const [loadingRuns,  setLoadingRuns]  = useState(false);
   const [loadingData,  setLoadingData]  = useState(false);
+  const [loadingDisp,  setLoadingDisp]  = useState(false);
+  const dispLoadedRef  = useRef(new Set());
   const [activeTab,    setActiveTab]    = useState('overview');
   const [refYear,      setRefYear]      = useState(null);
   const [ovScenario,   setOvScenario]   = useState(null);
@@ -302,10 +304,10 @@ export default function ResultsRegionPage() {
     setLoadingData(true);
     const { branch } = region.epm;
     Promise.all(scenarioList.map(async scen => {
-      const [tfR, yzR, dpR, prR, txR, plR, coR] = await Promise.all([
+      // Dispatch (pDispatchComplete) is huge -> loaded lazily per year (see effect below)
+      const [tfR, yzR, prR, txR, plR, coR] = await Promise.all([
         fetchResultCSV(branch, simRun, scen, 'pTechFuelMerged.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pYearlyZoneMerged.csv', outputDir),
-        fetchResultCSV(branch, simRun, scen, 'pDispatchComplete.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pHourlyPrice.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pTransmissionMerged.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pPlantMerged.csv', outputDir),
@@ -314,7 +316,7 @@ export default function ResultsRegionPage() {
       return { scen,
         techFuel:     tfR  ? processTechFuel(tfR)              : {},
         yearlyZone:   yzR  ? processYearlyZone(yzR)            : {},
-        dispatch:     dpR  ? processDispatchResults(dpR)       : {},
+        dispatch:     {},
         price:        prR  ? processHourlyPrice(prR)           : {},
         transmission: txR  ? processTransmissionResults(txR)   : {},
         plants:       plR  ? processPlants(plR)                : [],
@@ -323,10 +325,38 @@ export default function ResultsRegionPage() {
     })).then(results => {
       const rd = Object.fromEntries(results.map(r=>[r.scen, r]));
       setResultsData(rd);
+      dispLoadedRef.current = new Set(); // dispatch cache is per-run
       const yrs = resultYears(results[0]?.techFuel||{});
       if (yrs.length) setRefYear(yrs[0]);
     }).finally(()=>setLoadingData(false));
   }, [region, simRun, scenarioList]); // eslint-disable-line
+
+  // Lazy-load dispatch for the year/scenarios actually shown (big file, split per year).
+  useEffect(() => {
+    if (activeTab !== 'dispatch' || !region?.epm || !simRun || !refYear) return;
+    const { branch } = region.epm;
+    const wanted = [dispScenario, (cmpRef && cmpRef !== dispScenario) ? cmpRef : null]
+      .filter(s => s && resultsData[s]);
+    wanted.forEach(async scen => {
+      const key = `${scen}|${refYear}`;
+      if (dispLoadedRef.current.has(key)) return;
+      dispLoadedRef.current.add(key);
+      setLoadingDisp(true);
+      try {
+        const rows = await fetchDispatchYear(branch, simRun, scen, refYear, outputDir);
+        const parsed = rows ? processDispatchResults(rows) : {};
+        // Legacy unsplit file returns every year -> mark them all cached
+        const years = new Set(); for (const ym of Object.values(parsed)) for (const y of Object.keys(ym)) years.add(y);
+        years.forEach(y => dispLoadedRef.current.add(`${scen}|${y}`));
+        setResultsData(prev => {
+          const sd = prev[scen]; if (!sd) return prev;
+          const dispatch = { ...sd.dispatch };
+          for (const [z, ym] of Object.entries(parsed)) dispatch[z] = { ...(dispatch[z]||{}), ...ym };
+          return { ...prev, [scen]: { ...sd, dispatch } };
+        });
+      } finally { setLoadingDisp(false); }
+    });
+  }, [activeTab, dispScenario, cmpRef, refYear, simRun, region, outputDir, resultsData]); // eslint-disable-line
 
   // ── Map ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1421,7 +1451,7 @@ export default function ResultsRegionPage() {
                   {label:'Marginal cost',color:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',shape:'line'},
                 ])}
               </div>
-            :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
+            :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>{loadingDisp?'Loading dispatch…':'No dispatch data.'}</div>}
             {/* ── Dispatch Δ section ── */}
             {scenarioList.length>1&&(
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>

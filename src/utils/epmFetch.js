@@ -79,6 +79,15 @@ export async function fetchResultCSV(branch, simRun, scenario, filename, outputD
   } catch { return null; }
 }
 
+/** Fetch dispatch rows for ONE year. pDispatchComplete is split per year at
+ *  publish (pDispatchComplete/y{year}.csv) to stay small & fluid in the browser;
+ *  falls back to the full unsplit CSV for runs published before the split. */
+export async function fetchDispatchYear(branch, simRun, scenario, year, outputDir = 'epm/output') {
+  const split = await fetchResultCSV(branch, simRun, scenario, `pDispatchComplete/y${year}.csv`, outputDir);
+  if (split) return split;
+  return fetchResultCSV(branch, simRun, scenario, 'pDispatchComplete.csv', outputDir);
+}
+
 // ── Result processors ─────────────────────────────────────────────────────────
 
 /** pTechFuelMerged → { zone: { attribute: { year: { techfuel: val } } } } */

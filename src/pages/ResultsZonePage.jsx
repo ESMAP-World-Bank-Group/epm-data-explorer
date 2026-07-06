@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios,
+  fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTransmissionResults, processPlants,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
@@ -48,6 +48,8 @@ export default function ResultsZonePage() {
   const [resultsData,  setResultsData]  = useState({});
   const [loadingRuns,  setLoadingRuns]  = useState(false);
   const [loadingData,  setLoadingData]  = useState(false);
+  const [loadingDisp,  setLoadingDisp]  = useState(false);
+  const dispLoadedRef  = useRef(new Set());
   const [activeTab,    setActiveTab]    = useState('overview');
   const [refYear,      setRefYear]      = useState(null);
   const [scenario,     setScenario]     = useState(null);
@@ -69,9 +71,27 @@ export default function ResultsZonePage() {
   useEffect(()=>{
     if(!region?.epm||!simRun||!scenarioList.length)return;
     setLoadingData(true);const{branch}=region.epm;
-    Promise.all(scenarioList.map(async scen=>{const[tf,yz,dp,pr,tx,pl]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pDispatchComplete.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pTransmissionMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv',outputDir)]);return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:dp?processDispatchResults(dp):{},price:pr?processHourlyPrice(pr):{},transmission:tx?processTransmissionResults(tx):{},plants:pl?processPlants(pl):[]};}))
-    .then(res=>{const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);}).finally(()=>setLoadingData(false));
+    // Dispatch (pDispatchComplete) is huge -> loaded lazily per year (see effect below)
+    Promise.all(scenarioList.map(async scen=>{const[tf,yz,pr,tx,pl]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pTransmissionMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv',outputDir)]);return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:{},price:pr?processHourlyPrice(pr):{},transmission:tx?processTransmissionResults(tx):{},plants:pl?processPlants(pl):[]};}))
+    .then(res=>{const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);dispLoadedRef.current=new Set();const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);}).finally(()=>setLoadingData(false));
   },[region,simRun,scenarioList]); // eslint-disable-line
+
+  // Lazy-load dispatch for the shown scenario/year (big file, split per year).
+  useEffect(()=>{
+    if(activeTab!=='dispatch'||!region?.epm||!simRun||!refYear||!scenario||!resultsData[scenario])return;
+    const{branch}=region.epm; const key=`${scenario}|${refYear}`;
+    if(dispLoadedRef.current.has(key))return;
+    dispLoadedRef.current.add(key); setLoadingDisp(true);
+    (async()=>{
+      try{
+        const rows=await fetchDispatchYear(branch,simRun,scenario,refYear,outputDir);
+        const parsed=rows?processDispatchResults(rows):{};
+        const years=new Set(); for(const ym of Object.values(parsed))for(const y of Object.keys(ym))years.add(y);
+        years.forEach(y=>dispLoadedRef.current.add(`${scenario}|${y}`));
+        setResultsData(prev=>{const sd=prev[scenario];if(!sd)return prev;const dispatch={...sd.dispatch};for(const[z,ym]of Object.entries(parsed))dispatch[z]={...(dispatch[z]||{}),...ym};return{...prev,[scenario]:{...sd,dispatch}};});
+      }finally{setLoadingDisp(false);}
+    })();
+  },[activeTab,scenario,refYear,simRun,region,outputDir,resultsData]); // eslint-disable-line
 
   const countryName = zcmapRows.find(r=>r.z===zoneIdDecoded)?.c||'';
   const allYears = useMemo(()=>{const f=Object.values(resultsData)[0];return f?resultYears(f.techFuel):[];},[resultsData]);
@@ -261,7 +281,7 @@ export default function ResultsZonePage() {
                 <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:'#8B0000',borderRadius:1}}/><span>Demand</span></div>
                 <div style={{display:'flex',alignItems:'center',gap:3,fontSize:'0.43rem',color:t.muted}}><div style={{width:12,height:2,backgroundColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',borderRadius:1}}/><span>Marg. cost</span></div>
               </div>
-            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No dispatch data.</div>}
+            </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>{loadingDisp?'Loading dispatch…':'No dispatch data.'}</div>}
           </div>
         )}
 
