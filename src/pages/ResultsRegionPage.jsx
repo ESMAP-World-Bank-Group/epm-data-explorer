@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchInputScenarios,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTransmissionResults, processPlants, processCosts,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
@@ -268,8 +268,8 @@ export default function ResultsRegionPage() {
       setRunList(runs); if (runs.length) setSimRun(runs[0]);
       setLoadingRuns(false);
     } else {
-      resolveOutputDir(branch).then(dir => { setOutputDir(dir); return fetchGitHubDir(branch, dir); }).then(items => {
-        const runs = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort().reverse();
+      resolveOutputDir(branch).then(dir => { setOutputDir(dir); return fetchRunList(branch, dir); }).then(names => {
+        const runs = (names||[]).slice().sort().reverse();
         setRunList(runs); if (runs.length) setSimRun(runs[0]);
       }).finally(()=>setLoadingRuns(false));
     }

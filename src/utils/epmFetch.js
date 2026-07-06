@@ -54,6 +54,21 @@ export async function resolveOutputDir(branch) {
   return hasRuns ? 'epm/output_view' : 'epm/output';
 }
 
+/** List result run folder names in a branch. Returns string[] (unsorted).
+ *  R2 branches read a manifest.json (public R2 can't list directories);
+ *  GitHub branches list the output dir via the Contents API. */
+export async function fetchRunList(branch, outputDir) {
+  if (R2_BRANCHES.has(branch)) {
+    try {
+      const res = await fetch(`${R2_BASE}/${branch}/${outputDir}/manifest.json`);
+      if (res.ok) { const j = await res.json(); return Array.isArray(j.runs) ? j.runs : []; }
+    } catch { /* fall through */ }
+    return [];
+  }
+  const items = await fetchGitHubDir(branch, outputDir);
+  return (items || []).filter(i => i.type === 'dir').map(i => i.name);
+}
+
 /** Fetch a result CSV: {outputDir}/{simRun}/{scenario}/output_csv/{filename} */
 export async function fetchResultCSV(branch, simRun, scenario, filename, outputDir = 'epm/output') {
   const url = `${rawBase(branch)}/${branch}/${outputDir}/${simRun}/${scenario}/output_csv/${filename}`;
