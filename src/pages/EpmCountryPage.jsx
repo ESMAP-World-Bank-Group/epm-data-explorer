@@ -6,7 +6,8 @@ import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList, fetchDataFolderList,
-  processGenData, processDemand, processNTC, processExtNTC,
+  fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
+  processGenData, processDemand, processNTC, processExtNTC, processTransmissionResults,
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
@@ -124,12 +125,14 @@ function SectionTitle({ t, children, right }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 // NTC line features (shared by the map build + the in-place data-update effect).
-function buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ) {
-  const ntcYrs = availableYears(epmData.ntc);
+function buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ, outputNtc = []) {
+  const inputKeys = new Set(epmData.ntc.map(r => [r.z, r.z2].sort().join('||')));
+  const allNtc = [...epmData.ntc, ...outputNtc.filter(r => !inputKeys.has([r.z, r.z2].sort().join('||')))];
+  const ntcYrs = availableYears(allNtc);
   const ntcYr  = ntcYrs[0] || '2024';
   const seen = new Set();
   if (Object.keys(zoneCentroids).length > 0) {
-    return epmData.ntc
+    return allNtc
       .filter(r => { const key = [r.z, r.z2].sort().join('||'); if (seen.has(key)) return false; seen.add(key);
         return (r.years[ntcYr] || 0) > 0 && zoneCentroids[r.z] && zoneCentroids[r.z2]; })
       .map(r => ({ type: 'Feature',
@@ -140,10 +143,10 @@ function buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ) {
     return linestringGJ.features
       .filter(f => { const { z, z_other } = f.properties; if (!z || !z_other) return false;
         const key = [z, z_other].sort().join('||'); if (seen.has(key)) return false; seen.add(key);
-        const entry = epmData.ntc.find(r => (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+        const entry = allNtc.find(r => (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
         return (entry?.years[ntcYr] || 0) > 0; })
       .map(f => { const { z, z_other } = f.properties;
-        const entry = epmData.ntc.find(r => (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+        const entry = allNtc.find(r => (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
         return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0,
           isCountry: countryZones.includes(z) || countryZones.includes(z_other) } }; });
   }
@@ -171,6 +174,7 @@ export default function EpmCountryPage() {
   const [activeFolder, setActiveFolder] = useState(null);
   const [activeZcmap,  setActiveZcmap]  = useState(null);
   const [autoFolders,  setAutoFolders]  = useState(null);
+  const [outputNtc,    setOutputNtc]    = useState([]);
 
   // ── Scenario / variant state ─────────────────────────────────────────────────
   const [scnMeta,      setScnMeta]      = useState(null);   // parsed config.csv + scenarios.csv
@@ -307,6 +311,44 @@ export default function EpmCountryPage() {
     }).finally(() => setLoading(false));
   }, [region, activeFolder, activeZcmap, varOverrides]);
 
+  // Load output-only NTC corridors (lines present in scenario outputs but not in pTransferLimit input)
+  useEffect(() => {
+    if (!region?.epm) return;
+    const { branch } = region.epm;
+    let cancelled = false;
+    (async () => {
+      try {
+        const outDir = await resolveOutputDir(branch);
+        const runs = await fetchRunList(branch, outDir);
+        if (!runs.length || cancelled) return;
+        const simRun = [...runs].sort().at(-1);
+        const items = await fetchGitHubDir(branch, `${outDir}/${simRun}`);
+        const scens = (items || []).filter(i => i.type === 'dir').map(i => i.name);
+        if (!scens.length || cancelled) return;
+        const txArrays = await Promise.all(
+          scens.map(s => fetchResultCSV(branch, simRun, s, 'pTransmissionMerged.csv', outDir).catch(() => null))
+        );
+        if (cancelled) return;
+        const pairs = {};
+        for (const rows of txArrays) {
+          if (!rows) continue;
+          const tx = processTransmissionResults(rows);
+          for (const [z, zm] of Object.entries(tx)) {
+            for (const [z2, attrs] of Object.entries(zm)) {
+              const key = [z, z2].sort().join('||');
+              if (!pairs[key]) pairs[key] = { z, z2, years: {} };
+              for (const [y, mw] of Object.entries(attrs.TransmissionCapacity || {})) {
+                pairs[key].years[y] = Math.max(pairs[key].years[y] || 0, mw);
+              }
+            }
+          }
+        }
+        setOutputNtc(Object.values(pairs));
+      } catch { /* non-blocking */ }
+    })();
+    return () => { cancelled = true; };
+  }, [region]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Map ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !region || !epmData) return;
@@ -425,7 +467,7 @@ export default function EpmCountryPage() {
       }
 
       {
-        const ntcFeatures = buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ);
+        const ntcFeatures = buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ, outputNtc);
         if (ntcFeatures.length > 0) {
           map.addSource('ntc-lines', { type:'geojson', data:{type:'FeatureCollection',features:ntcFeatures} });
           map.addLayer({ id:'ntc-lines-bg', type:'line', source:'ntc-lines',
