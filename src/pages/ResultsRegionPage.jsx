@@ -219,6 +219,7 @@ export default function ResultsRegionPage() {
   const [snapCountry,    setSnapCountry]    = useState('all');
   const [snapScenarios,  setSnapScenarios]  = useState(new Set());
   const [plZone,         setPlZone]         = useState('all');
+  const [summaryRef,     setSummaryRef]     = useState(null);
   const isDraggingRef = useRef(false);
   const dragStartX    = useRef(0);
   const dragStartW    = useRef(0);
@@ -676,8 +677,8 @@ export default function ResultsRegionPage() {
   const selectStyle = { fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer' };
   const csvUrl = (scen, file) => `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm?.branch}/${outputDir}/${simRun}/${scen}/output_csv/${file}`;
   const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} t={t}/>)}</div>:null;
-  const TABS = ['overview','snapshot','evolution','dispatch','trade','plants'];
-  const TAB_LABELS = { overview:'Overview', snapshot:'Snapshot', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants' };
+  const TABS = ['overview','snapshot','evolution','dispatch','trade','plants','summary'];
+  const TAB_LABELS = { overview:'Overview', snapshot:'Snapshot', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants', summary:'Summary' };
 
   // ── Overview mix ────────────────────────────────────────────────────────────
   const buildOverviewMix = () => {
@@ -817,6 +818,30 @@ export default function ResultsRegionPage() {
       return{label,data,backgroundColor:hexA(col,0.82),borderColor:col,borderWidth:0,stack:scen,type:'bar'};
     }));
     return{labels:allYears,corridors,unit,datasets};
+  };
+
+  // ── Summary ─────────────────────────────────────────────────────────────────
+  const buildSummary=()=>{
+    const allSc=baseFirst(scenarioList.filter(s=>resultsData[s]));
+    if(!allSc.length||!allYears.length)return null;
+    const ref=summaryRef||allSc[0];
+    const lastY=allYears[allYears.length-1];
+    const RE=new Set(['Solar','PV','CSP','RPV','OnshoreWind','Onshore Wind','OffshoreWind','Offshore Wind','Reservoir','ReservoirHydro','ROR','PSH','Biomass','Geothermal']);
+    const compute=scen=>{
+      const sd=resultsData[scen];if(!sd)return{};
+      const yZS=key=>allZones.reduce((s,z)=>{for(const y of allYears)s+=(sd.yearlyZone[z]?.[key]?.[y]||0);return s;},0);
+      const yZL=key=>allZones.reduce((s,z)=>s+(sd.yearlyZone[z]?.[key]?.[lastY]||0),0);
+      let cT=0,cR=0,gT=0,gR=0;
+      for(const z of allZones){
+        for(const[tf,v]of Object.entries(sd.techFuel[z]?.CapacityTechFuel?.[lastY]||{})){cT+=v;if(RE.has(tf))cR+=v;}
+        for(const[tf,v]of Object.entries(sd.techFuel[z]?.GenerationTechFuel?.[lastY]||{})){gT+=v;if(RE.has(tf))gR+=v;}
+      }
+      const cc={};let ct=0;
+      for(const cat of MAIN_COST_CATS){let v=0;for(const z of allZones)for(const y of allYears)v+=(sd.costs[z]?.[cat]?.[y]||0);cc[cat]=v;ct+=v;}
+      return{demCumul:yZS('DemandEnergyZone')/1000,demLast:yZL('DemandEnergyZone')/1000,cT:cT/1000,cR:cR/1000,cRsh:cT>0?(cR/cT)*100:null,gRsh:gT>0?(gR/gT)*100:null,niCumul:yZS('NetImport')/1000,niLast:yZL('NetImport')/1000,costTotal:ct,...cc};
+    };
+    const data=Object.fromEntries(allSc.map(s=>[s,compute(s)]));
+    return{allSc,ref,nonRef:allSc.filter(s=>s!==ref),data,lastY};
   };
 
   // ── Plants ──────────────────────────────────────────────────────────────────
@@ -1116,7 +1141,7 @@ export default function ResultsRegionPage() {
   const plantsCompareMap=buildPlantsCompare();
   const tradeCmpDeltaData=buildTradeCmpDelta();
   const tradeEvData=buildTradeEvolution();
-  const plantsData=buildPlantsList(), lcoeData=buildLCOEBubble();
+  const plantsData=buildPlantsList(), lcoeData=buildLCOEBubble(), summaryData=buildSummary();
   const dispTechfuels=dispResult.chartData.datasets.filter(d=>d.label!=='Marginal cost'&&d.label!=='Demand').map(d=>d.label);
 
   // ── Legend helpers ──────────────────────────────────────────────────────────
@@ -1626,6 +1651,73 @@ export default function ResultsRegionPage() {
             <DlRow files={[[plScenario,'pPlantMerged.csv'],[plScenario,'pCostsMerged.csv']]}/>
           </div>
         )}
+        {hasData&&activeTab==='summary'&&summaryData&&(()=>{
+          const{allSc,ref,nonRef,data,lastY}=summaryData;
+          const hasGen=allSc.some(s=>allZones.some(z=>Object.keys(resultsData[s]?.techFuel[z]?.GenerationTechFuel?.[lastY]||{}).length>0));
+          const ROWS=[
+            {sec:`DEMAND  ·  ${allYears[0]}–${lastY}`},
+            {k:'demCumul',l:'Cumulative demand',u:'TWh',d:1},
+            {k:'demLast',l:`Last year (${lastY})`,u:'TWh/yr',d:1},
+            {sec:`CAPACITY  ·  ${lastY}`},
+            {k:'cT',l:'Total installed',u:'GW',d:1},
+            {k:'cR',l:'Renewables',u:'GW',d:1,ind:true},
+            {k:'cRsh',l:'RE capacity share',u:'%',d:1,pct:true,ind:true,gP:true},
+            ...(hasGen?[{k:'gRsh',l:'RE generation share',u:'%',d:1,pct:true,ind:true,gP:true}]:[]),
+            {sec:`TRADE  ·  ${allYears[0]}–${lastY}`},
+            {k:'niCumul',l:'Net import (cumul.)',u:'TWh',d:1,sgn:true},
+            {k:'niLast',l:`Net import (${lastY})`,u:'TWh/yr',d:1,sgn:true},
+            {sec:'SYSTEM COST  ·  cumulative  (M$)'},
+            {k:'costTotal',l:'Total',u:'M$',d:0,gP:false},
+            ...MAIN_COST_CATS.map(cat=>({k:cat,l:COST_LABELS[cat]||cat,u:'M$',d:0,gP:false,ind:true})),
+          ];
+          const fmtS=(v,r,force)=>{
+            if(v==null||isNaN(v))return'—';
+            const s=force||r.sgn;const a=Math.abs(v);
+            const p=s?(v>=0?'+':'-'):(v<0?'-':'');
+            const str=r.pct?`${a.toFixed(r.d)}%`:a>=10000?`${Math.round(a/1000).toLocaleString()}k`:a>=1000?`${(a/1000).toFixed(1)}k`:a.toFixed(r.d);
+            return p+str;
+          };
+          const dCol=(dv,gP)=>dv==null||gP==null?t.muted:(gP===true?dv>0:dv<0)?'#4A9E6A':'#B83838';
+          const cs={fontSize:'0.46rem',textAlign:'right',padding:'2px 8px',borderBottom:`1px solid ${t.panelBorder}`,whiteSpace:'nowrap'};
+          const hs={fontSize:'0.4rem',color:t.lblMuted,textAlign:'right',padding:'3px 8px',borderBottom:`1px solid ${t.panelBorder}`,fontWeight:600,whiteSpace:'nowrap'};
+          const ls={fontSize:'0.46rem',color:t.muted,textAlign:'left',padding:'2px 8px',borderBottom:`1px solid ${t.panelBorder}`,whiteSpace:'nowrap'};
+          const ss={fontSize:'0.39rem',color:t.lblMuted,letterSpacing:'1px',textTransform:'uppercase',textAlign:'left',padding:'5px 8px 3px',borderBottom:`1px solid ${t.panelBorder}`,backgroundColor:t.isDark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)',fontWeight:700};
+          const mkTbl=(cols,delta)=>(
+            <table style={{borderCollapse:'collapse',width:'100%'}}>
+              <thead><tr>
+                <th style={{...hs,textAlign:'left',minWidth:130}}/>
+                {cols.map(s=><th key={s} style={hs}>{delta?`Δ ${s} vs ${ref}`:s}</th>)}
+                <th style={{...hs,width:34}}/>
+              </tr></thead>
+              <tbody>{ROWS.map((r,i)=>r.sec
+                ?<tr key={i}><td colSpan={cols.length+2} style={ss}>{r.sec}</td></tr>
+                :<tr key={i}>
+                  <td style={{...ls,paddingLeft:r.ind?20:8}}>{r.l}</td>
+                  {cols.map(scen=>{
+                    const v=delta?(data[scen]?.[r.k]!=null&&data[ref]?.[r.k]!=null?data[scen][r.k]-data[ref][r.k]:null):data[scen]?.[r.k];
+                    return<td key={scen} style={{...cs,color:delta?dCol(v,r.gP):t.lbl}}>{fmtS(v,r,delta)}</td>;
+                  })}
+                  <td style={{...cs,color:t.lblMuted,fontSize:'0.38rem'}}>{r.u}</td>
+                </tr>
+              )}</tbody>
+            </table>
+          );
+          return(
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                <span style={{fontSize:'0.45rem',letterSpacing:'1.5px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Reference:</span>
+                <select value={ref} onChange={e=>setSummaryRef(e.target.value)} style={selectStyle}>{allSc.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                <span style={{fontSize:'0.4rem',color:t.lblMuted,marginLeft:8}}>Period: {allYears[0]}–{lastY} · {allYears.length} yrs · {allZones.length} zones</span>
+              </div>
+              {mkTbl(allSc,false)}
+              {nonRef.length>0&&<>
+                <div style={{height:1,backgroundColor:t.panelBorder,margin:'4px 0'}}/>
+                <SectionTitle t={t}>{`Δ vs ${ref}`}</SectionTitle>
+                {mkTbl(nonRef,true)}
+              </>}
+            </div>
+          );
+        })()}
 
       </div>
     </div>
