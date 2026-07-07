@@ -1677,11 +1677,11 @@ export default function ResultsRegionPage() {
             const str=r.pct?`${a.toFixed(r.d)}%`:a>=10000?`${Math.round(a/1000).toLocaleString()}k`:a>=1000?`${(a/1000).toFixed(1)}k`:a.toFixed(r.d);
             return p+str;
           };
-          const dCol=(dv,gP)=>dv==null||gP==null?t.muted:(gP===true?dv>0:dv<0)?'#4A9E6A':'#B83838';
-          const cs={fontSize:'0.46rem',textAlign:'right',padding:'2px 8px',borderBottom:`1px solid ${t.panelBorder}`,whiteSpace:'nowrap'};
-          const hs={fontSize:'0.4rem',color:t.lblMuted,textAlign:'right',padding:'3px 8px',borderBottom:`1px solid ${t.panelBorder}`,fontWeight:600,whiteSpace:'nowrap'};
-          const ls={fontSize:'0.46rem',color:t.muted,textAlign:'left',padding:'2px 8px',borderBottom:`1px solid ${t.panelBorder}`,whiteSpace:'nowrap'};
-          const ss={fontSize:'0.39rem',color:t.lblMuted,letterSpacing:'1px',textTransform:'uppercase',textAlign:'left',padding:'5px 8px 3px',borderBottom:`1px solid ${t.panelBorder}`,backgroundColor:t.isDark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)',fontWeight:700};
+          const dBg=(dv,gP)=>{if(dv==null||gP==null||dv===0)return'transparent';const good=gP===true?dv>0:dv<0;return good?'rgba(52,199,89,0.15)':'rgba(255,59,48,0.13)';};
+          const cs={fontSize:'0.52rem',textAlign:'right',padding:'3px 10px',borderBottom:`1px solid ${t.panelBorder}`,whiteSpace:'nowrap'};
+          const hs={fontSize:'0.46rem',color:t.lblMuted,textAlign:'right',padding:'4px 10px',borderBottom:`1px solid ${t.panelBorder}`,fontWeight:600,whiteSpace:'nowrap'};
+          const ls={fontSize:'0.52rem',color:t.muted,textAlign:'left',padding:'3px 10px',borderBottom:`1px solid ${t.panelBorder}`,whiteSpace:'nowrap'};
+          const ss={fontSize:'0.44rem',color:t.lblMuted,letterSpacing:'1px',textTransform:'uppercase',textAlign:'left',padding:'6px 10px 3px',borderBottom:`1px solid ${t.panelBorder}`,backgroundColor:t.isDark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)',fontWeight:700};
           const mkTbl=(cols,delta)=>(
             <table style={{borderCollapse:'collapse',width:'100%'}}>
               <thead><tr>
@@ -1695,9 +1695,9 @@ export default function ResultsRegionPage() {
                   <td style={{...ls,paddingLeft:r.ind?20:8}}>{r.l}</td>
                   {cols.map(scen=>{
                     const v=delta?(data[scen]?.[r.k]!=null&&data[ref]?.[r.k]!=null?data[scen][r.k]-data[ref][r.k]:null):data[scen]?.[r.k];
-                    return<td key={scen} style={{...cs,color:delta?dCol(v,r.gP):t.lbl}}>{fmtS(v,r,delta)}</td>;
+                    return<td key={scen} style={{...cs,color:t.lbl,backgroundColor:delta?dBg(v,r.gP):'transparent'}}>{fmtS(v,r,delta)}</td>;
                   })}
-                  <td style={{...cs,color:t.lblMuted,fontSize:'0.38rem'}}>{r.u}</td>
+                  <td style={{...cs,color:t.lblMuted,fontSize:'0.44rem'}}>{r.u}</td>
                 </tr>
               )}</tbody>
             </table>
