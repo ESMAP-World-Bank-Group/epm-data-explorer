@@ -97,7 +97,7 @@ function makeDonutSVG(fuelMix, tv, size = 48) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function CJChart({ type, data, options, height }) {
+function CJChart({ type, data, options, height, onClickYear }) {
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
   const sig = JSON.stringify({ type, labels: data.labels,
@@ -106,7 +106,11 @@ function CJChart({ type, data, options, height }) {
     const CJ = window.Chart;
     if (!CJ || !canvasRef.current) return;
     chartRef.current?.destroy();
-    chartRef.current = new CJ(canvasRef.current, { type, data, options });
+    const mergedOptions = onClickYear ? { ...options,
+      onClick: (e, _els, chart) => { const pts = chart.getElementsAtEventForMode(e, 'index', { intersect: false }, true); if (pts.length) onClickYear(String(data.labels[pts[0].index])); },
+      onHover: (_e, els) => { if (canvasRef.current) canvasRef.current.style.cursor = els.length ? 'pointer' : 'default'; },
+    } : options;
+    chartRef.current = new CJ(canvasRef.current, { type, data, options: mergedOptions });
     return () => { chartRef.current?.destroy(); chartRef.current = null; };
   }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
   return <div style={{ height, width: '100%', position: 'relative' }}><canvas ref={canvasRef} /></div>;
@@ -125,11 +129,11 @@ function SectionTitle({ t, children, right }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 // NTC line features (shared by the map build + the in-place data-update effect).
-function buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ, outputNtc = []) {
+function buildNtcFeatures(epmData, zoneCentroids, countryZones, linestringGJ, outputNtc = [], year = null) {
   const inputKeys = new Set(epmData.ntc.map(r => [r.z, r.z2].sort().join('||')));
   const allNtc = [...epmData.ntc, ...outputNtc.filter(r => !inputKeys.has([r.z, r.z2].sort().join('||')))];
   const ntcYrs = availableYears(allNtc);
-  const ntcYr  = ntcYrs[0] || '2024';
+  const ntcYr  = year || ntcYrs[0] || '2024';
   const seen = new Set();
   if (Object.keys(zoneCentroids).length > 0) {
     return allNtc
@@ -175,6 +179,7 @@ export default function EpmCountryPage() {
   const [activeZcmap,  setActiveZcmap]  = useState(null);
   const [autoFolders,  setAutoFolders]  = useState(null);
   const [outputNtc,    setOutputNtc]    = useState([]);
+  const [epmYear,      setEpmYear]      = useState(null);
 
   // ── Scenario / variant state ─────────────────────────────────────────────────
   const [scnMeta,      setScnMeta]      = useState(null);   // parsed config.csv + scenarios.csv
@@ -348,6 +353,14 @@ export default function EpmCountryPage() {
     })();
     return () => { cancelled = true; };
   }, [region]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // NTC year update — runs when user clicks a year on a chart
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !epmData || !map.getSource('ntc-lines')) return;
+    const features = buildNtcFeatures(epmData, zoneCentroidsRef.current, countryZonesRef.current, epmData.linestringGJ, outputNtc, epmYear);
+    map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
+  }, [epmYear, epmData, outputNtc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Map ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1279,6 +1292,7 @@ export default function EpmCountryPage() {
                           yR: { type:'linear', position:'right', title:{display:true,text:'GW',color:t.muted,font:{size:7}},
                             grid:{drawOnChartArea:false}, ticks:{color:t.muted,font:{size:8}} },
                         } }}
+                      onClickYear={setEpmYear}
                     />
                   </div>
                   {demandSeg==='zone' && demandZones.length>0 && (

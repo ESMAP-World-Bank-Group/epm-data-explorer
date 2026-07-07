@@ -22,7 +22,7 @@ import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 
 // chart.js via CDN — no npm dep
-function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey }) {
+function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey, onClickYear }) {
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
   const sig = JSON.stringify({ type, labels: data.labels, ck: cacheKey,
@@ -31,7 +31,11 @@ function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey 
     const CJ = window.Chart;
     if (!CJ || !canvasRef.current) return;
     chartRef.current?.destroy();
-    chartRef.current = new CJ(canvasRef.current, { type, data, options, plugins: extraPlugins || [] });
+    const mergedOptions = onClickYear ? { ...options,
+      onClick: (e, _els, chart) => { const pts = chart.getElementsAtEventForMode(e, 'index', { intersect: false }, true); if (pts.length) onClickYear(String(data.labels[pts[0].index])); },
+      onHover: (_e, els) => { if (canvasRef.current) canvasRef.current.style.cursor = els.length ? 'pointer' : 'default'; },
+    } : options;
+    chartRef.current = new CJ(canvasRef.current, { type, data, options: mergedOptions, plugins: extraPlugins || [] });
     return () => { chartRef.current?.destroy(); chartRef.current = null; };
   }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -676,7 +680,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
 
 const SEASON_LABEL = { Q1: 'Winter', Q2: 'Spring', Q3: 'Summer', Q4: 'Autumn' };
 
-function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant }) {
+function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant, setEpmYear }) {
   const allYears = availableYears(epmData?.demand || []);
   const allZones = [...new Set((epmData?.demand || []).map(r => r.zone))].sort();
   const zcmap    = epmData?.zcmap || [];
@@ -908,6 +912,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
                     grid:{drawOnChartArea:false}, ticks:{color:t.muted,font:{size:8}} },
                 },
               }}
+              onClickYear={setEpmYear}
             />
           </div>
           {segments.length > 0 && (
@@ -1391,7 +1396,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
 
 // ── Trade / Transmission tab ──────────────────────────────────────────────────
 
-function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant }) {
+function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant, setEpmYear }) {
   const ntcYears = availableYears(epmData?.ntc || []);
   const [yr, setYr]       = useState(null);
   const [chartType, setChartType] = useState('bar'); // bar | line
@@ -1476,6 +1481,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVa
                 plugins:{...cjDefaults(t).plugins,legend:{display:false},
                   tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW`}}},
               }}
+              onClickYear={setEpmYear}
             />
           </div>
           <div style={{ width:90, flexShrink:0, display:'flex', flexDirection:'column', gap:2, paddingTop:4, maxHeight:200, overflowY:'auto' }}>
@@ -2593,7 +2599,7 @@ export default function RegionPage() {
         )}
         {activeTab === 'demand' && (
           <DemandTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
-            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} />
+            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} setEpmYear={setEpmYear} />
         )}
         {activeTab === 'resources' && (
           <ResourcesTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
@@ -2606,7 +2612,7 @@ export default function RegionPage() {
         )}
         {activeTab === 'trade' && (
           <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
-            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} />
+            scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} setEpmYear={setEpmYear} />
         )}
         {activeTab === 'about' && (
           <AboutTab region={region} t={t} epmData={epmData} activeFolder={activeFolder} />
