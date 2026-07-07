@@ -705,11 +705,12 @@ export default function ResultsRegionPage() {
       return { labels:allYears, datasets:activeSc.map((scen,i)=>({ label:scen, data:allYears.map(y=>+evZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)), backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.75), borderColor:SCEN_COLORS[i%SCEN_COLORS.length], borderWidth:2, fill:false, tension:0.3, type:'line' })) };
     }
     if(ind.source==='trade'){
-      const datasets=[];
+      const multi=activeSc.length>1;const datasets=[];const partnerSet=new Set();const pdCache={};
+      for(const scen of activeSc){pdCache[scen]={};for(const y of allYears){const d=getTradePartners(scen,evZones,y);pdCache[scen][y]=d;Object.keys(d).forEach(p=>partnerSet.add(p));}}
+      const allPartners=[...partnerSet].sort();const pColor=Object.fromEntries(allPartners.map((p,i)=>[p,MAP_PALETTE[i%MAP_PALETTE.length]]));
       for(let i=0;i<activeSc.length;i++){const scen=activeSc[i];const col=SCEN_COLORS[i%SCEN_COLORS.length];
-        datasets.push({label:`${scen} — Imp.`,type:'bar',data:allYears.map(y=>+(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.imp,0)).toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
-        datasets.push({label:`${scen} — Exp.`,type:'bar',data:allYears.map(y=>+(-(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.exp,0))).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        datasets.push({label:`${scen} — Net`,type:'line',data:allYears.map(y=>+(Object.values(getTradeVals(scen,evZones,y)).reduce((s,v)=>s+v.net,0)).toFixed(0)),borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,stack:`__net_${i}__`});
+        for(const p of allPartners){const pc=pColor[p];const impData=allYears.map(y=>+((pdCache[scen][y][p]?.imp)||0).toFixed(0));const expData=allYears.map(y=>+(-(pdCache[scen][y][p]?.exp||0)).toFixed(0));if(impData.some(v=>v!==0))datasets.push({label:multi?`${scen} — ${p} Imp.`:`${p} Imp.`,type:'bar',data:impData,backgroundColor:hexA(pc,0.82),borderWidth:0,stack:scen,_partner:p});if(expData.some(v=>v!==0))datasets.push({label:multi?`${scen} — ${p} Exp.`:`${p} Exp.`,type:'bar',data:expData,backgroundColor:hexA(pc,0.42),borderWidth:0,stack:scen,_partner:p});}
+        datasets.push({label:multi?`${scen} — Net`:'Net',type:'line',data:allYears.map(y=>+Object.values(pdCache[scen][y]).reduce((s,v)=>s+(v.imp-v.exp),0).toFixed(0)),borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,stack:`__net_${i}__`});
       }
       return{labels:allYears,datasets};
     }
@@ -847,6 +848,14 @@ export default function ResultsRegionPage() {
     return 0;
   };
   // Trade helper: {imp, exp, net} per zone for a given year
+  const getTradePartners = (scen, zones, y) => {
+    const tx=resultsData[scen]?.transmission||{};const zSet=new Set(zones);const partners={};
+    for(const z of zones){
+      for(const[z2,attrs]of Object.entries(tx[z]||{})){if(zSet.has(z2))continue;const v=attrs.Interchange?.[y]||0;if(v){if(!partners[z2])partners[z2]={imp:0,exp:0};partners[z2].exp+=v;}}
+      for(const[z2,zm]of Object.entries(tx)){if(zSet.has(z2))continue;const v=zm[z]?.Interchange?.[y]||0;if(v){if(!partners[z2])partners[z2]={imp:0,exp:0};partners[z2].imp+=v;}}
+    }
+    return partners;
+  };
   const getTradeVals = (scen, zones, y) => {
     const tx=resultsData[scen]?.transmission||{};
     return Object.fromEntries(zones.map(z=>{
@@ -891,14 +900,12 @@ export default function ResultsRegionPage() {
     }
 
     if(ind.source==='trade'){
-      const datasets=[];
+      const datasets=[];const partnerSet=new Set();const pdS={},pdR={};
+      for(const scen of compareScs){pdS[scen]={};pdR[scen]={};for(const y of allYears){const s=getTradePartners(scen,evZones,y);const r=getTradePartners(cmpRef,evZones,y);pdS[scen][y]=s;pdR[scen][y]=r;Object.keys(s).forEach(p=>partnerSet.add(p));Object.keys(r).forEach(p=>partnerSet.add(p));}}
+      const allPartners=[...partnerSet].sort();const pColor=Object.fromEntries(allPartners.map((p,i)=>[p,MAP_PALETTE[i%MAP_PALETTE.length]]));
       for(let i=0;i<compareScs.length;i++){const scen=compareScs[i];const col=SCEN_COLORS[(i+1)%SCEN_COLORS.length];
-        const tvCmp=y=>getTradeVals(scen,evZones,y); const tvRef=y=>getTradeVals(cmpRef,evZones,y);
-        const dImp=allYears.map(y=>+(Object.values(tvCmp(y)).reduce((s,v)=>s+v.imp,0)-Object.values(tvRef(y)).reduce((s,v)=>s+v.imp,0)).toFixed(0));
-        const dExp=allYears.map(y=>+(Object.values(tvCmp(y)).reduce((s,v)=>s+v.exp,0)-Object.values(tvRef(y)).reduce((s,v)=>s+v.exp,0)).toFixed(0));
-        const dNet=allYears.map(y=>+(Object.values(tvCmp(y)).reduce((s,v)=>s+v.net,0)-Object.values(tvRef(y)).reduce((s,v)=>s+v.net,0)).toFixed(0));
-        if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen});
-        if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
+        for(const p of allPartners){const pc=pColor[p];const dImp=allYears.map(y=>+((pdS[scen][y][p]?.imp||0)-(pdR[scen][y][p]?.imp||0)).toFixed(0));const dExp=allYears.map(y=>+((pdR[scen][y][p]?.exp||0)-(pdS[scen][y][p]?.exp||0)).toFixed(0));if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} ${p} Imp.`:`Δ ${p} Imp.`,type:'bar',data:dImp,backgroundColor:hexA(pc,0.82),borderWidth:0,stack:scen,_partner:p});if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} ${p} Exp.`:`Δ ${p} Exp.`,type:'bar',data:dExp,backgroundColor:hexA(pc,0.42),borderWidth:0,stack:scen,_partner:p});}
+        const dNet=allYears.map(y=>+(Object.values(pdS[scen][y]).reduce((acc,v)=>acc+(v.imp-v.exp),0)-Object.values(pdR[scen][y]).reduce((acc,v)=>acc+(v.imp-v.exp),0)).toFixed(0));
         if(dNet.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Net`:'Δ Net',type:'line',data:dNet,borderColor:col,borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,stack:`__dnet_${i}__`});
       }
       return{labels:allYears,datasets};
@@ -940,13 +947,14 @@ export default function ResultsRegionPage() {
       return{labels:groups,datasets,ind};
     }
     if(ind.source==='trade'){
-      const datasets=[];const netPluginData=[];
+      const datasets=[];const netPluginData=[];const partnerSet=new Set();const gpCache={};
+      const zToG={};for(const g of groups)for(const z of getZones(g))zToG[z]=g;
+      const buildGpMap=(scen)=>{const tx=resultsData[scen]?.transmission||{};const r={};for(const g of groups){r[g]={};for(const z of getZones(g)){for(const[z2,attrs]of Object.entries(tx[z]||{})){const pg=zToG[z2];if(!pg||pg===g)continue;const v=attrs.Interchange?.[refYear]||0;if(v){r[g][pg]=r[g][pg]||{imp:0,exp:0};r[g][pg].exp+=v;}}for(const[z2,zm]of Object.entries(tx)){const pg=zToG[z2];if(!pg||pg===g)continue;const v=zm[z]?.Interchange?.[refYear]||0;if(v){r[g][pg]=r[g][pg]||{imp:0,exp:0};r[g][pg].imp+=v;}}}}return r;};
+      for(const scen of activeSc){gpCache[scen]=buildGpMap(scen);for(const g of groups)Object.keys(gpCache[scen][g]||{}).forEach(p=>partnerSet.add(p));}
+      const allPartners=[...partnerSet].sort();const pColor=Object.fromEntries(allPartners.map((p,i)=>[p,MAP_PALETTE[i%MAP_PALETTE.length]]));
       for(let i=0;i<activeSc.length;i++){const scen=activeSc[i];const col=SCEN_COLORS[i%SCEN_COLORS.length];
-        const tv=getTradeVals(scen,allZones,refYear);
-        const getGrpVal=(grp,key)=>getZones(grp).reduce((s,z)=>s+(tv[z]?.[key]||0),0);
-        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Imp.`,type:'bar',data:groups.map(g=>+getGrpVal(g,'imp').toFixed(0)),backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen,_si:i});
-        datasets.push({label:`${activeSc.length>1?scen+' — ':''}Exp.`,type:'bar',data:groups.map(g=>+(-getGrpVal(g,'exp')).toFixed(0)),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
-        netPluginData.push({si:i,data:groups.map(g=>+getGrpVal(g,'net').toFixed(0)),color:col});
+        for(const p of allPartners){const pc=pColor[p];const impData=groups.map(g=>+((gpCache[scen][g]?.[p]?.imp)||0).toFixed(0));const expData=groups.map(g=>+(-(gpCache[scen][g]?.[p]?.exp||0)).toFixed(0));if(impData.some(v=>v!==0))datasets.push({label:multi?`${scen} — ${p} Imp.`:`${p} Imp.`,type:'bar',data:impData,backgroundColor:hexA(pc,0.82),borderWidth:0,stack:scen,_partner:p});if(expData.some(v=>v!==0))datasets.push({label:multi?`${scen} — ${p} Exp.`:`${p} Exp.`,type:'bar',data:expData,backgroundColor:hexA(pc,0.42),borderWidth:0,stack:scen,_partner:p});}
+        netPluginData.push({si:i,data:groups.map(g=>+Object.values(gpCache[scen][g]||{}).reduce((s,v)=>s+(v.imp-v.exp),0).toFixed(0)),color:col});
       }
       return{labels:groups,datasets,ind,netPlugin:buildNetDotPlugin(netPluginData)};
     }
@@ -978,13 +986,15 @@ export default function ResultsRegionPage() {
       return{labels:groups,datasets,ind};
     }
     if(ind.source==='trade'){
-      const datasets=[];const netPluginData=[];
+      const datasets=[];const netPluginData=[];const partnerSet=new Set();const gpS={};
+      const zToG={};for(const g of groups)for(const z of getZones(g))zToG[z]=g;
+      const buildGpMap2=(scen)=>{const tx=resultsData[scen]?.transmission||{};const r={};for(const g of groups){r[g]={};for(const z of getZones(g)){for(const[z2,attrs]of Object.entries(tx[z]||{})){const pg=zToG[z2];if(!pg||pg===g)continue;const v=attrs.Interchange?.[refYear]||0;if(v){r[g][pg]=r[g][pg]||{imp:0,exp:0};r[g][pg].exp+=v;}}for(const[z2,zm]of Object.entries(tx)){const pg=zToG[z2];if(!pg||pg===g)continue;const v=zm[z]?.Interchange?.[refYear]||0;if(v){r[g][pg]=r[g][pg]||{imp:0,exp:0};r[g][pg].imp+=v;}}}}return r;};
+      const gpRef=buildGpMap2(cmpRef);
+      for(const scen of compareScs){gpS[scen]=buildGpMap2(scen);for(const g of groups){Object.keys(gpS[scen][g]||{}).forEach(p=>partnerSet.add(p));Object.keys(gpRef[g]||{}).forEach(p=>partnerSet.add(p));}}
+      const allPartners=[...partnerSet].sort();const pColor=Object.fromEntries(allPartners.map((p,i)=>[p,MAP_PALETTE[i%MAP_PALETTE.length]]));
       for(let i=0;i<compareScs.length;i++){const scen=compareScs[i];const col=SCEN_COLORS[(i+1)%SCEN_COLORS.length];
-        const tvCmp=getTradeVals(scen,allZones,refYear); const tvRef=getTradeVals(cmpRef,allZones,refYear);
-        const getD=(grp,key)=>getZones(grp).reduce((s,z)=>s+((tvCmp[z]?.[key]||0)-(tvRef[z]?.[key]||0)),0);
-        const dImp=groups.map(g=>+getD(g,'imp').toFixed(0)); const dExp=groups.map(g=>+getD(g,'exp').toFixed(0)); const dNet=groups.map(g=>+getD(g,'net').toFixed(0));
-        if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Imp.`:'Δ Imp.',type:'bar',data:dImp,backgroundColor:hexA(col,0.75),borderWidth:0,stack:scen,_si:i});
-        if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} Exp.`:'Δ Exp.',type:'bar',data:dExp.map(v=>-v),backgroundColor:hexA(col,0.40),borderWidth:0,stack:scen});
+        for(const p of allPartners){const pc=pColor[p];const dImp=groups.map(g=>+((gpS[scen][g]?.[p]?.imp||0)-(gpRef[g]?.[p]?.imp||0)).toFixed(0));const dExp=groups.map(g=>+((gpRef[g]?.[p]?.exp||0)-(gpS[scen][g]?.[p]?.exp||0)).toFixed(0));if(dImp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} ${p} Imp.`:`Δ ${p} Imp.`,type:'bar',data:dImp,backgroundColor:hexA(pc,0.82),borderWidth:0,stack:scen,_partner:p});if(dExp.some(v=>v!==0))datasets.push({label:multi?`Δ ${scen} ${p} Exp.`:`Δ ${p} Exp.`,type:'bar',data:dExp,backgroundColor:hexA(pc,0.42),borderWidth:0,stack:scen,_partner:p});}
+        const dNet=groups.map(g=>+(Object.values(gpS[scen][g]||{}).reduce((s,v)=>s+(v.imp-v.exp),0)-Object.values(gpRef[g]||{}).reduce((s,v)=>s+(v.imp-v.exp),0)).toFixed(0));
         if(dNet.some(v=>v!==0))netPluginData.push({si:i,data:dNet,color:col});
       }
       return{labels:groups,datasets,ind,netPlugin:buildNetDotPlugin(netPluginData)};
@@ -1298,7 +1308,7 @@ export default function ResultsRegionPage() {
                   <CJChart type="bar" height={220}
                     cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[snapData.netPlugin,sp].filter(Boolean);})()}
-                    data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>!isHidden('snap-tf',tfLabel(d)))}}
+                    data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>{if(snapData.ind?.source==='trade')return!isHidden('snap-trade-p',d._partner||'');return!isHidden('snap-tf',tfLabel(d));})}}
                     options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{
                       x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20,padding:16}},
                       y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
@@ -1311,7 +1321,8 @@ export default function ResultsRegionPage() {
                     <div style={{display:'none'}}></div>
                   )}
                 </div>
-                {makeLegend('snap-tf',[...new Set(snapData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
+                {snapData.ind?.source!=='trade'&&makeLegend('snap-tf',[...new Set(snapData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
+                {snapData.ind?.source==='trade'&&(()=>{const ps=[...new Set(snapData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();return makeLegend('snap-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})));})()}
               </div>
             :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
             {/* Δ vs ref section */}
@@ -1332,7 +1343,7 @@ export default function ResultsRegionPage() {
                       <CJChart type="bar" height={180}
                         cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${theme}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
                         plugins={snapDeltaData.netPlugin?[snapDeltaData.netPlugin]:[]}
-                        data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>!isHidden('snap-tf',tfLabel(d)))}}
+                        data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>{if(snapDeltaData.ind?.source==='trade')return!isHidden('snap-trade-p',d._partner||'');return!isHidden('snap-tf',tfLabel(d));})}}
                         options={{...cjDefaults(t),scales:{
                           x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
                           y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapDeltaData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
@@ -1342,7 +1353,8 @@ export default function ResultsRegionPage() {
                         <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:3}}>Δ vs <b style={{color:t.muted}}>{cmpRef}</b>: {baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef)).join(' · ')}</div>
                       )}
                     </div>
-                    {makeLegend('snap-tf',[...new Set(snapDeltaData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
+                    {snapDeltaData.ind?.source!=='trade'&&makeLegend('snap-tf',[...new Set(snapDeltaData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
+                    {snapDeltaData.ind?.source==='trade'&&(()=>{const ps=[...new Set(snapDeltaData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();return makeLegend('snap-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})));})()}
                   </div>
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No differences found.':'Select at least one scenario to compare.'}</div>}
               </div>
@@ -1367,6 +1379,7 @@ export default function ResultsRegionPage() {
                     data={{...evolutionData,datasets:evolutionData.datasets.filter(d=>{
                       if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
                       if(activeInd.source==='costs') return !isHidden('ev-cost',tfLabel(d));
+                      if(activeInd.source==='trade') return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');
                       return true;
                     })}}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return sp?[sp]:[];})()}
@@ -1375,6 +1388,7 @@ export default function ResultsRegionPage() {
                 </div>
                 {activeInd.source==='techFuel'&&makeLegend('ev-tf',allTechfuels.filter(tf=>evolutionData.datasets.some(d=>tfLabel(d)===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
                 {activeInd.source==='costs'&&makeLegend('ev-cost',MAIN_COST_CATS.filter(cat=>evolutionData.datasets.some(d=>tfLabel(d)===(COST_LABELS[cat]||cat))).map(cat=>({label:COST_LABELS[cat]||cat,color:costColor(cat)})))}
+                {activeInd.source==='trade'&&(()=>{const ps=[...new Set(evolutionData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));return <div style={{flexShrink:0,display:'flex',flexDirection:'column',gap:6}}>{makeLegend('ev-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})))}{aSc.length>1&&makeLegend('__ev_scen__',aSc.map((s,i)=>({label:s,color:SCEN_COLORS[i%SCEN_COLORS.length],shape:'line'})),false)}</div>;})()}
               </div>
             :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
             {/* ── Compare scenarios (Δ vs ref, stacked by techfuel) ── */}
@@ -1398,6 +1412,7 @@ export default function ResultsRegionPage() {
                         data={{...cmpEvData,datasets:cmpEvData.datasets.filter(d=>{
                           if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
                           if(activeInd.source==='costs') return !isHidden('ev-cost',tfLabel(d));
+                          if(activeInd.source==='trade') return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');
                           return true;
                         })}}
                         options={{...cjDefaults(t),scales:{
@@ -1411,6 +1426,7 @@ export default function ResultsRegionPage() {
                     </div>
                     {activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
                     {activeInd.source==='costs'&&makeLegend('ev-cost',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:costColor(tf)})))}
+                    {activeInd.source==='trade'&&(()=>{const ps=[...new Set(cmpEvData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();const compareScsL=baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef));return <div style={{flexShrink:0,display:'flex',flexDirection:'column',gap:6}}>{makeLegend('ev-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})))}{compareScsL.length>1&&makeLegend('__cmp_scen__',compareScsL.map((s,i)=>({label:s,color:SCEN_COLORS[(i+1)%SCEN_COLORS.length],shape:'line'})),false)}</div>;})()}
                   </div>
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{hasSc?'No differences found for this indicator between selected scenarios.':'Select at least one scenario to compare.'}</div>;})()}
               </div>
