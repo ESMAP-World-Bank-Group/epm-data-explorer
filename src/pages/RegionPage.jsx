@@ -11,7 +11,8 @@ import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList, fetchDataFolderList,
-  processGenData, processDemand,
+  fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
+  processGenData, processDemand, processTransmissionResults,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
   computeCentroid, normalizeFuel,
@@ -1682,6 +1683,7 @@ export default function RegionPage() {
   });
   const [pieMode,         setPieMode]         = useState('zone');
   const [epmYear,         setEpmYear]         = useState(null);
+  const [outputNtc,       setOutputNtc]       = useState([]);
   const [showExtZones,    setShowExtZones]    = useState(false);
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(680);
@@ -1806,6 +1808,44 @@ export default function RegionPage() {
       }));
     }).finally(() => setEpmLoading(false));
   }, [region, activeFolder, activeZcmap, varOverrides]);
+
+  // Load output-only NTC corridors (lines present in scenario outputs but not in pTransferLimit input)
+  useEffect(() => {
+    if (!region?.epm) return;
+    const { branch } = region.epm;
+    let cancelled = false;
+    (async () => {
+      try {
+        const outDir = await resolveOutputDir(branch);
+        const runs = await fetchRunList(branch, outDir);
+        if (!runs.length || cancelled) return;
+        const simRun = [...runs].sort().at(-1);
+        const items = await fetchGitHubDir(branch, `${outDir}/${simRun}`);
+        const scens = (items || []).filter(i => i.type === 'dir').map(i => i.name);
+        if (!scens.length || cancelled) return;
+        const txArrays = await Promise.all(
+          scens.map(s => fetchResultCSV(branch, simRun, s, 'pTransmissionMerged.csv', outDir).catch(() => null))
+        );
+        if (cancelled) return;
+        const pairs = {};
+        for (const rows of txArrays) {
+          if (!rows) continue;
+          const tx = processTransmissionResults(rows);
+          for (const [z, zm] of Object.entries(tx)) {
+            for (const [z2, attrs] of Object.entries(zm)) {
+              const key = [z, z2].sort().join('||');
+              if (!pairs[key]) pairs[key] = { z, z2, years: {} };
+              for (const [y, mw] of Object.entries(attrs.TransmissionCapacity || {})) {
+                pairs[key].years[y] = Math.max(pairs[key].years[y] || 0, mw);
+              }
+            }
+          }
+        }
+        setOutputNtc(Object.values(pairs));
+      } catch { /* non-blocking */ }
+    })();
+    return () => { cancelled = true; };
+  }, [region]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fleet age — GPPD only
   useEffect(() => {
@@ -2341,8 +2381,10 @@ export default function RegionPage() {
     const yr = epmYear
       || ntcYrs.find(y => epmData.ntc.some(r => (r.years[y] || 0) > 0))
       || ntcYrs[0] || '2024';
+    const inputKeys = new Set(epmData.ntc.map(r => [r.z, r.z2].sort().join('||')));
+    const allNtc = [...epmData.ntc, ...outputNtc.filter(r => !inputKeys.has([r.z, r.z2].sort().join('||')))];
     const seen = new Set();
-    const features = epmData.ntc
+    const features = allNtc
       .filter(r => {
         const key = [r.z, r.z2].sort().join('||');
         if (seen.has(key)) return false;
@@ -2356,7 +2398,7 @@ export default function RegionPage() {
         geometry: { type: 'LineString', coordinates: [zoneCentroidsRef.current[r.z], zoneCentroidsRef.current[r.z2]] },
       }));
     map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
-  }, [epmYear, mapLoaded, epmData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [epmYear, mapLoaded, epmData, outputNtc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Plant source hot-swap (OSM mode only)
   useEffect(() => {
