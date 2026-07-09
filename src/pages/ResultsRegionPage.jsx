@@ -612,7 +612,7 @@ export default function ResultsRegionPage() {
   const evZones       = useMemo(()=>evCountry==='all'?allZones:allZones.filter(z=>zoneToCountry[z]===evCountry),[evCountry,allZones,zoneToCountry]);
   const allTechfuels  = useMemo(()=>{ const tfs=new Set(); for(const d of Object.values(resultsData)) for(const z of Object.values(d.techFuel)) for(const a of Object.values(z)) for(const y of Object.values(a)) for(const tf of Object.keys(y)) tfs.add(tf); return[...tfs].filter(t=>t!=='Demand').sort();},[resultsData]);
 
-  const firstDisp      = Object.values(resultsData)[0]?.dispatch||{};
+  const firstDisp      = resultsData[dispScenario]?.dispatch||Object.values(resultsData)[0]?.dispatch||{};
   const dispAvailS     = useMemo(()=>{ const qs=new Set(); for(const z of Object.values(firstDisp)) for(const yr of Object.values(z)) for(const q of Object.keys(yr)) qs.add(q); return[...qs].sort();},[firstDisp]);
   const dispAvailD     = useMemo(()=>{ const ds=new Set(); for(const z of Object.values(firstDisp)) for(const yr of Object.values(z)) for(const q of Object.values(yr)) for(const d of Object.keys(q)) ds.add(d); return[...ds].sort();},[firstDisp]);
   const totalDays      = useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
@@ -1179,6 +1179,13 @@ export default function ResultsRegionPage() {
           <span style={{ color:t.lblMuted }}>›</span>
           <span style={{ color:t.lbl, fontWeight:600 }}>Results</span>
         </div>
+        {/* Year selector (map overlay) */}
+        {allYears.length>0 && (
+          <div style={{ position:'absolute', top:10, right:10, zIndex:10, display:'flex', gap:5, alignItems:'center', fontSize:'0.52rem', color:t.text, backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`, borderRadius:5, padding:'4px 8px', boxShadow:'0 1px 4px rgba(0,0,0,.18)' }}>
+            <span style={{ color:t.lblMuted, fontSize:'0.44rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>Year</span>
+            <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
+          </div>
+        )}
         {/* Map legend */}
         {hasData && (
           <div style={{ position:'absolute', bottom:14, left:10, zIndex:10, backgroundColor:hexA(t.panel,0.92), border:`1px solid ${t.panelBorder}`, borderRadius:6, padding:'8px 10px', fontSize:'0.43rem', color:t.muted, minWidth:120 }}>

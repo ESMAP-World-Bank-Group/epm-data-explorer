@@ -97,7 +97,7 @@ export default function ResultsZonePage() {
   const allYears = useMemo(()=>{const f=Object.values(resultsData)[0];return f?resultYears(f.techFuel):[];},[resultsData]);
   const hasData = Object.keys(resultsData).length>0;
   const totalDays = useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
-  const firstDisp = Object.values(resultsData)[0]?.dispatch||{};
+  const firstDisp = resultsData[scenario]?.dispatch||Object.values(resultsData)[0]?.dispatch||{};
   const dispSeasons = useMemo(()=>{const qs=new Set();for(const yr of Object.values(firstDisp[zoneIdDecoded]||{}))for(const q of Object.keys(yr))qs.add(q);return[...qs].sort();},[firstDisp,zoneIdDecoded]);
   const dispDays = useMemo(()=>{const ds=new Set();for(const yr of Object.values(firstDisp[zoneIdDecoded]||{}))for(const q of Object.values(yr))for(const d of Object.keys(q))ds.add(d);return[...ds].sort();},[firstDisp,zoneIdDecoded]);
 
@@ -112,6 +112,7 @@ export default function ResultsZonePage() {
     const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center,zoom:5,minZoom:1,maxZoom:14,attributionControl:false});
     mapRef.current=map;
     const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
+    const ntcClickPopup=new maplibregl.Popup({closeButton:true,closeOnClick:true,offset:10,className:`popup-${theme}`});
     map.on('load',async()=>{
       const tv=getT(theme);
       const countries=await fetch('/data/countries_10m.geojson').then(r=>r.json());countries.features.forEach((f,i)=>{f.id=i;});
@@ -133,6 +134,7 @@ export default function ResultsZonePage() {
       map.addLayer({id:'ntc-arrows',type:'symbol',source:'ntc-results',layout:{'icon-image':'ntc-arrow-z','icon-allow-overlap':false,'symbol-placement':'line','symbol-spacing':55,'icon-rotation-alignment':'map','icon-size':0.9},paint:{'icon-color':['interpolate',['linear'],['get','util'],0,'#FFD700',0.5,'#FF8C00',1,'#E53935']}});
       map.on('mouseenter','ntc-bg',e=>{map.getCanvas().style.cursor='pointer';const p=e.features[0].properties;popup.setLngLat(e.lngLat).setHTML(`<b>${p.z} ↔ ${p.z2}</b><br><span style="opacity:.8;font-size:0.8em">Interchange ${p.yr}: ${fmtBig(parseFloat(p.fwd))} / ${fmtBig(parseFloat(p.rev))} GWh<br>Util: ${p.util!=null?(parseFloat(p.util)*100).toFixed(0)+'%':'—'} · Cap: ${fmtBig(parseFloat(p.cap)||0)} MW</span>`).addTo(map);});
       map.on('mouseleave','ntc-bg',()=>{map.getCanvas().style.cursor='';popup.remove();});
+      map.on('click','ntc-bg',e=>{e.preventDefault();const p=e.features[0].properties;const fwd=parseFloat(p.fwd)||0,rev=parseFloat(p.rev)||0,net=fwd-rev;const util=p.util!=null?(parseFloat(p.util)*100).toFixed(0)+'%':'—';const cap=parseFloat(p.cap)||0;ntcClickPopup.setLngLat(e.lngLat).setHTML(`<b>${p.z} ↔ ${p.z2}</b> <span style="opacity:.5;font-size:0.8em">${p.yr}</span><br><span style="font-size:0.82em">${p.z} → ${p.z2}: <b>${fmtBig(fwd)}</b> GWh<br>${p.z2} → ${p.z}: <b>${fmtBig(rev)}</b> GWh<br>Net: <b>${net>=0?'+':''}${fmtBig(net)}</b> GWh<br><span style="opacity:.7">Util: ${util} &nbsp;·&nbsp; Cap: ${fmtBig(cap)} MW</span></span>`).addTo(map);});
       map.on('mousemove','zone-fill-dim',e=>{map.getCanvas().style.cursor='pointer';const z=e.features[0].properties.z||'';popup.setLngLat(e.lngLat).setHTML(`<b>${z}</b><br><span style="opacity:.6;font-size:0.7em">click to explore zone</span>`).addTo(map);});
       map.on('mouseleave','zone-fill-dim',()=>{map.getCanvas().style.cursor='';popup.remove();});
       map.on('click','zone-fill-dim',e=>{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(e.features[0].properties.z||'')}`);});
@@ -224,6 +226,12 @@ export default function ResultsZonePage() {
           {countryName&&<><span style={{color:t.lblMuted}}>›</span><Link to={`/region/${regionId}/results/country/${encodeURIComponent(countryName)}`} style={{color:t.lblMuted,textDecoration:'none'}}>{countryName}</Link></>}
           <span style={{color:t.lblMuted}}>›</span><span style={{color:t.lbl,fontWeight:600}}>{zoneIdDecoded}</span>
         </div>
+        {allYears.length>0&&(
+          <div style={{position:'absolute',top:10,right:10,zIndex:10,display:'flex',gap:5,alignItems:'center',fontSize:'0.52rem',color:t.text,backgroundColor:t.panel,border:`1px solid ${t.panelBorder}`,borderRadius:5,padding:'4px 8px',boxShadow:'0 1px 4px rgba(0,0,0,.18)'}}>
+            <span style={{color:t.lblMuted,fontSize:'0.44rem',textTransform:'uppercase',letterSpacing:'0.04em'}}>Year</span>
+            <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
+          </div>
+        )}
       </div>
 
       <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>

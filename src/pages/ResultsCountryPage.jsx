@@ -173,7 +173,7 @@ export default function ResultsCountryPage() {
   const activeInd = useMemo(()=>INDICATORS.find(i=>i.key===evIndicator)||INDICATORS[0],[evIndicator]);
   const allTechfuels = useMemo(()=>{const tfs=new Set();for(const d of Object.values(resultsData))for(const z of allZones)for(const a of Object.values(d.techFuel[z]||{}))for(const y of Object.values(a))for(const tf of Object.keys(y))tfs.add(tf);return[...tfs].filter(t=>t!=='Demand').sort();},[resultsData,allZones]);
 
-  const firstDisp=Object.values(resultsData)[0]?.dispatch||{};
+  const firstDisp=resultsData[dispScenario]?.dispatch||Object.values(resultsData)[0]?.dispatch||{};
   const dispAvailS=useMemo(()=>{const qs=new Set();for(const z of allZones){for(const yr of Object.values(firstDisp[z]||{}))for(const q of Object.keys(yr))qs.add(q);}return[...qs].sort();},[firstDisp,allZones]);
   const dispAvailD=useMemo(()=>{const ds=new Set();for(const z of allZones)for(const yr of Object.values(firstDisp[z]||{}))for(const q of Object.values(yr))for(const d of Object.keys(q))ds.add(d);return[...ds].sort();},[firstDisp,allZones]);
   const totalDays=useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
@@ -208,6 +208,7 @@ export default function ResultsCountryPage() {
     const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center:[lons.length?lons.reduce((a,b)=>a+b,0)/lons.length:20,lats.length?lats.reduce((a,b)=>a+b,0)/lats.length:0],zoom:4,minZoom:1,maxZoom:14,attributionControl:false});
     mapRef.current=map;
     const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
+    const ntcClickPopup=new maplibregl.Popup({closeButton:true,closeOnClick:true,offset:10,className:`popup-${theme}`});
     map.on('load',async()=>{
       const tv=getT(theme);
       if(bounds)map.fitBounds(bounds,{padding:60,duration:0,maxZoom:7});
@@ -235,6 +236,7 @@ export default function ResultsCountryPage() {
       map.addLayer({id:'ntc-arrows',type:'symbol',source:'ntc-results',layout:{'icon-image':'ntc-arrow-c','icon-allow-overlap':false,'symbol-placement':'line','symbol-spacing':55,'icon-rotation-alignment':'map','icon-size':0.9},paint:{'icon-color':['interpolate',['linear'],['get','util'],0,'#FFD700',0.5,'#FF8C00',1,'#E53935']}});
       map.on('mouseenter','ntc-bg',e=>{map.getCanvas().style.cursor='pointer';const p=e.features[0].properties;popup.setLngLat(e.lngLat).setHTML(`<b>${p.z} ↔ ${p.z2}</b><br><span style="opacity:.8;font-size:0.8em">Interchange ${p.yr}: ${fmtBig(parseFloat(p.fwd))} GWh / ${fmtBig(parseFloat(p.rev))} GWh<br>Utilization: ${p.util!=null?(parseFloat(p.util)*100).toFixed(0)+'%':'—'} · Capacity: ${fmtBig(parseFloat(p.cap)||0)} MW</span>`).addTo(map);});
       map.on('mouseleave','ntc-bg',()=>{map.getCanvas().style.cursor='';popup.remove();});
+      map.on('click','ntc-bg',e=>{e.preventDefault();const p=e.features[0].properties;const fwd=parseFloat(p.fwd)||0,rev=parseFloat(p.rev)||0,net=fwd-rev;const util=p.util!=null?(parseFloat(p.util)*100).toFixed(0)+'%':'—';const cap=parseFloat(p.cap)||0;ntcClickPopup.setLngLat(e.lngLat).setHTML(`<b>${p.z} ↔ ${p.z2}</b> <span style="opacity:.5;font-size:0.8em">${p.yr}</span><br><span style="font-size:0.82em">${p.z} → ${p.z2}: <b>${fmtBig(fwd)}</b> GWh<br>${p.z2} → ${p.z}: <b>${fmtBig(rev)}</b> GWh<br>Net: <b>${net>=0?'+':''}${fmtBig(net)}</b> GWh<br><span style="opacity:.7">Util: ${util} &nbsp;·&nbsp; Cap: ${fmtBig(cap)} MW</span></span>`).addTo(map);});
       let hovZ=null;
       map.on('mousemove','zone-fill',e=>{
         map.getCanvas().style.cursor='pointer';const z=e.features[0].properties.z||'';
@@ -501,6 +503,12 @@ export default function ResultsCountryPage() {
           <Link to={`/region/${regionId}/results`} style={{color:t.lblMuted,textDecoration:'none'}}>{region.name} · Results</Link>
           <span style={{color:t.lblMuted}}>›</span><span style={{color:t.lbl,fontWeight:600}}>{countryDecoded}</span>
         </div>
+        {allYears.length>0&&(
+          <div style={{position:'absolute',top:10,right:10,zIndex:10,display:'flex',gap:5,alignItems:'center',fontSize:'0.52rem',color:t.text,backgroundColor:t.panel,border:`1px solid ${t.panelBorder}`,borderRadius:5,padding:'4px 8px',boxShadow:'0 1px 4px rgba(0,0,0,.18)'}}>
+            <span style={{color:t.lblMuted,fontSize:'0.44rem',textTransform:'uppercase',letterSpacing:'0.04em'}}>Year</span>
+            <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
+          </div>
+        )}
         {hasData&&(
           <div style={{position:'absolute',bottom:14,left:10,zIndex:10,backgroundColor:hexA(t.panel,0.92),border:`1px solid ${t.panelBorder}`,borderRadius:6,padding:'8px 10px',fontSize:'0.43rem',color:t.muted,minWidth:110}}>
             <div style={{marginBottom:5}}>
