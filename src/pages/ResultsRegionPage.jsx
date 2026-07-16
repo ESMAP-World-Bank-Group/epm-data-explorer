@@ -5,11 +5,12 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
-  processHours, processTransmissionResults, processPlants, processCosts,
+  processHours, processTransmissionResults, processPlants, processCosts, processExtNTC,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
 } from '../utils/epmFetch';
+import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,10 @@ export default function ResultsRegionPage() {
   const [zcmapRows,    setZcmapRows]    = useState([]);
   const [zonesGJ,      setZonesGJ]      = useState(null);
   const [linestringGJ, setLinestringGJ] = useState(null);
+  const [zonesExtGJ,   setZonesExtGJ]   = useState(null);
+  const [extNtc,       setExtNtc]       = useState([]);
+  const [showExtZones, setShowExtZones] = useState(false);
+  const showExtRef     = useRef(false);
   const [hoursData,    setHoursData]    = useState({});
   const [runList,      setRunList]      = useState([]);
   const [outputDir,    setOutputDir]    = useState('epm/output');
@@ -253,9 +258,12 @@ export default function ResultsRegionPage() {
       fetchZonesGeoJSON(branch, dataFolder),
       fetchLinestringGeoJSON(branch, dataFolder),
       fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
-    ]).then(([zc, zGJ, lGJ, hr]) => {
+      fetchZonesExtGeoJSON(branch, dataFolder),
+      fetchEpmCSV(branch, dataFolder, 'trade/pExtTransferLimit.csv'),
+    ]).then(([zc, zGJ, lGJ, hr, zExt, extRaw]) => {
       setZcmapRows(zc||[]); setZonesGJ(zGJ); setLinestringGJ(lGJ);
       if (hr) setHoursData(processHours(hr));
+      setZonesExtGJ(zExt||null); setExtNtc(extRaw ? processExtNTC(extRaw) : []);
     });
   }, [region]);
 
@@ -487,6 +495,24 @@ export default function ResultsRegionPage() {
     return () => { popup.remove(); dotMarkersRef.current.forEach(m=>m.remove()); dotMarkersRef.current=[]; pieMarkersRef.current.forEach(m=>m.remove()); pieMarkersRef.current=[]; mapRef.current?.remove(); };
   }, [region, theme, zonesGJ, zcmapRows]); // eslint-disable-line
 
+  // ── External zone layers (added once map + ext data ready) ──────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || mapLoadedCount===0 || !zonesGJ) return;
+    if (!zonesExtGJ && !extNtc.length) return;
+    if (map.getSource('ext-zones')) { setExtZonesVisible(map, showExtZones); return; }
+    const zoneCentroids = {};
+    if (linestringGJ) for (const f of linestringGJ.features) { const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2; if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0]; if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1]; }
+    for (const f of zonesGJ.features) { const z=f.properties.z; if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;} }
+    const extData = buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids);
+    addExtZoneLayers(map, t, extData);
+    const extPopup = new maplibregl.Popup({ closeButton:false, closeOnClick:false, offset:10, className:`popup-${theme}` });
+    bindExtZoneHandlers(map, extPopup, extNtc, extData.extNtcYr);
+    setExtZonesVisible(map, showExtRef.current);
+  }, [mapLoadedCount, zonesGJ, linestringGJ, zonesExtGJ, extNtc, showExtZones, theme]); // eslint-disable-line
+
+  useEffect(() => { showExtRef.current = showExtZones; setExtZonesVisible(mapRef.current, showExtZones); }, [showExtZones]);
+
   // ── Update NTC + price dots when data changes ────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
@@ -671,6 +697,19 @@ export default function ResultsRegionPage() {
     for(const[z,z2map] of Object.entries(tx)) for(const[z2,attrs] of Object.entries(z2map)){const k=[z,z2].sort().join('||');if(seen.has(k))continue;seen.add(k);total+=Math.abs(attrs.Interchange?.[refYear]||0);}
     return total;
   },[resultsData,ovScenario,refYear]);
+
+  // External trade with neighbouring (external) zones — $m aggregates from pCosts.
+  const extTradeData = useMemo(()=>{
+    const scen = resultsData[trScenario] ? trScenario : Object.keys(resultsData)[0];
+    const co = resultsData[scen]?.costs; if(!co||!allYears.length) return null;
+    const IMP='Import costs with external zones: $m', EXP='Export revenues with external zones: $m', SHB='Trade shared benefits: $m';
+    const sum=(cat,y)=>allZones.reduce((s,z)=>s+(co[z]?.[cat]?.[y]||0),0);
+    const imp=allYears.map(y=>+sum(IMP,y).toFixed(1));
+    const exp=allYears.map(y=>+sum(EXP,y).toFixed(1));
+    const shb=allYears.map(y=>+sum(SHB,y).toFixed(1));
+    const net=allYears.map((_,i)=>+(exp[i]-imp[i]).toFixed(1));
+    return (imp.some(v=>v)||exp.some(v=>v)||shb.some(v=>v)) ? {scen,imp,exp,shb,net} : null;
+  },[resultsData,trScenario,allYears,allZones]);
 
   if (!region) return <div style={{ padding:40, color:t.text }}>Loading…</div>;
 
@@ -1213,6 +1252,12 @@ export default function ResultsRegionPage() {
                 <Pill active={pieDispMode==='energy'} onClick={()=>setPieDispMode('energy')}>Gen.</Pill>
               </div>
             </div>
+            {(zonesExtGJ||extNtc.length>0) && (
+              <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${hexA(t.panelBorder,0.5)}` }}>
+                <div style={{ fontSize:'0.38rem', color:t.lblMuted, marginBottom:4 }}>External neighbours</div>
+                <Pill active={showExtZones} onClick={()=>setShowExtZones(v=>!v)}>Ext. zones</Pill>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1609,6 +1654,26 @@ export default function ResultsRegionPage() {
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No corridor differences found.':'Select at least one scenario to compare.'}</div>}
               </div>
             )}
+            {/* External trade ($m) with non-modelled neighbours */}
+            {extTradeData&&(
+              <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:6}}>
+                <SectionTitle t={t}>External trade with neighbours — {extTradeData.scen}</SectionTitle>
+                <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:-2}}>Aggregate value of exchanges with external (non-modelled) zones. EPM reports totals, not per-neighbour flows.</div>
+                <CJChart type="bar" height={190}
+                  cacheKey={`exttr|${extTradeData.scen}|${theme}`}
+                  data={{labels:allYears,datasets:[
+                    {label:'Import costs: $m',data:extTradeData.imp,backgroundColor:hexA('#E05252',0.8),borderWidth:0,order:3},
+                    {label:'Export revenues: $m',data:extTradeData.exp,backgroundColor:hexA('#3FA45B',0.8),borderWidth:0,order:3},
+                    {label:'Net (rev − cost): $m',data:extTradeData.net,type:'line',borderColor:'#1E88E5',borderWidth:1.6,pointRadius:0,tension:0.3,fill:false,order:1},
+                    {label:'Trade shared benefits: $m',data:extTradeData.shb,type:'line',borderColor:'#C8A8F0',borderWidth:1.4,borderDash:[4,3],pointRadius:0,tension:0.3,fill:false,order:2},
+                  ]}}
+                  options={{...cjDefaults(t),scales:{
+                    x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
+                    y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000||v<=-1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:'$m',color:t.muted,font:{size:7}}},
+                  },plugins:{...cjDefaults(t).plugins,legend:{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
+                />
+              </div>
+            )}
             <DlRow files={[[baseFirst([...trScenarios].filter(s=>resultsData[s]))[0]||scenarioList[0],'pTransmissionMerged.csv']]}/>
           </div>
         )}
@@ -1642,7 +1707,7 @@ export default function ResultsRegionPage() {
             </>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data for this run/scenario.</div>}
             {/* LCOE bubble — always below */}
             {lcoeData&&lcoeData.datasets.length>0&&<>
-              <SectionTitle t={t}>LCOE vs Utilization — bubble = capacity</SectionTitle>
+              <SectionTitle t={t}>Annual LCOE vs Utilization — bubble size = capacity</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart type="bubble" height={250} cacheKey={`lcoe|${plScenario}|${refYear}|${theme}|${[...hiddenMap['lcoe-tf']||[]].join(',')}`}

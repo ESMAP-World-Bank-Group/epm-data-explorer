@@ -17,6 +17,7 @@ import {
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
   computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
+import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
@@ -2071,96 +2072,9 @@ export default function RegionPage() {
         }
 
         // ── External zone layers (toggle-controlled) ─────────────────────
-        const zonesExtGJ = epmData.zonesExtGJ;
-        const extNtc     = epmData.extNtc || [];
-        const extNodeCoords = {};
-        if (zonesExtGJ) {
-          for (const f of zonesExtGJ.features) {
-            const z = f.properties?.z;
-            if (z && f.geometry?.type === 'Point')
-              extNodeCoords[z] = f.geometry.coordinates;
-          }
-        }
-
-        const extNtcYrs  = extNtc.length > 0 ? Object.keys(extNtc[0].years).sort() : [];
-        const extNtcYr   = extNtcYrs[0] || '2024';
-        const extLineFeatures = extNtc
-          .filter(r => zoneCentroids[r.z] && extNodeCoords[r.zext])
-          .map(r => ({
-            type: 'Feature',
-            properties: { z: r.z, zext: r.zext, ntc_mw: r.years[extNtcYr] || 0 },
-            geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], extNodeCoords[r.zext]] },
-          }));
-        const extNodeFeatures = Object.entries(extNodeCoords).map(([z, coords]) => ({
-          type: 'Feature',
-          properties: { z },
-          geometry: { type: 'Point', coordinates: coords },
-        }));
-
-        // Build a lookup: zext → max NTC MW (for popup display)
-        const extNtcByPair = {};
-        for (const r of extNtc)
-          extNtcByPair[`${r.z}||${r.zext}`] = r.years[extNtcYr] || 0;
-
-        map.addSource('ext-ntc-lines', { type: 'geojson',
-          data: { type: 'FeatureCollection', features: extLineFeatures } });
-        map.addLayer({ id: 'ext-ntc-lines-layer', type: 'line', source: 'ext-ntc-lines',
-          layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': '#888888',
-            'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3, 5000, 4.5],
-            'line-opacity': 0.85 } });
-
-        map.addSource('ext-nodes', { type: 'geojson',
-          data: { type: 'FeatureCollection', features: extNodeFeatures } });
-        map.addLayer({ id: 'ext-nodes-circles', type: 'circle', source: 'ext-nodes',
-          layout: { visibility: 'none' },
-          paint: { 'circle-radius': 5, 'circle-color': tv.isDark ? 'rgba(40,40,40,0.85)' : 'rgba(255,255,255,0.85)',
-            'circle-stroke-width': 1.5, 'circle-stroke-color': '#888888' } });
-        map.addLayer({ id: 'ext-nodes-labels', type: 'symbol', source: 'ext-nodes',
-          layout: { visibility: 'none', 'text-field': ['get', 'z'],
-            'text-size': 10, 'text-font': ['literal', ['Noto Sans Bold', 'Arial Unicode MS Bold']],
-            'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-allow-overlap': false },
-          paint: { 'text-color': tv.isDark ? '#e0e0e0' : '#222222',
-            'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
-            'text-halo-width': 1 } });
-        map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
-          layout: { visibility: 'none',
-            'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
-            'text-size': 9, 'text-font': ['literal', ['Noto Sans Bold', 'Arial Unicode MS Bold']],
-            'symbol-placement': 'line-center', 'text-allow-overlap': false },
-          paint: { 'text-color': tv.isDark ? '#cccccc' : '#444444',
-            'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
-            'text-halo-width': 1 } });
-
-        // Hover popup: line shows "Z ↔ Ext · NTC MW"
-        map.on('mouseenter', 'ext-ntc-lines-layer', e => {
-          map.getCanvas().style.cursor = 'pointer';
-          const { z, zext, ntc_mw } = e.features[0].properties;
-          popup.setLngLat(e.lngLat)
-            .setHTML(`<b>${z} ↔ ${zext}</b><br><span style="opacity:.75">NTC: ${Math.round(ntc_mw).toLocaleString()} MW</span>`)
-            .addTo(map);
-        });
-        map.on('mouseleave', 'ext-ntc-lines-layer', () => {
-          map.getCanvas().style.cursor = ''; popup.remove();
-        });
-
-        // Hover popup: node shows all connected corridors + NTC
-        map.on('mouseenter', 'ext-nodes-circles', e => {
-          map.getCanvas().style.cursor = 'pointer';
-          const zext = e.features[0].properties.z;
-          const corridors = extNtc.filter(r => r.zext === zext);
-          const rows = corridors.map(r =>
-            `<div style="display:flex;justify-content:space-between;gap:12px">` +
-            `<span style="opacity:.75">${r.z}</span>` +
-            `<span style="font-weight:600">${Math.round(r.years[extNtcYr] || 0).toLocaleString()} MW</span></div>`
-          ).join('');
-          popup.setLngLat(e.lngLat)
-            .setHTML(`<b>${zext}</b><br>${rows || '<span style="opacity:.6">No NTC data</span>'}`)
-            .addTo(map);
-        });
-        map.on('mouseleave', 'ext-nodes-circles', () => {
-          map.getCanvas().style.cursor = ''; popup.remove();
-        });
+        const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids);
+        addExtZoneLayers(map, tv, extData);
+        bindExtZoneHandlers(map, popup, epmData.extNtc || [], extData.extNtcYr);
 
         // Trigger donut rendering via pieMode effect
         setMapLoaded(n => n + 1);
@@ -2307,12 +2221,8 @@ export default function RegionPage() {
 
   // External zones toggle
   useEffect(() => {
-    const map = mapRef.current;
-    const vis = showExtZones ? 'visible' : 'none';
-    for (const id of ['ext-ntc-lines-layer', 'ext-ntc-labels', 'ext-nodes-circles', 'ext-nodes-labels']) {
-      if (map?.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
-    }
-  }, [showExtZones]);
+    setExtZonesVisible(mapRef.current, showExtZones);
+  }, [showExtZones, mapLoaded]);
 
   // Basemap switcher
   useEffect(() => {

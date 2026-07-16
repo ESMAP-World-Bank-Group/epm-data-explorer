@@ -11,6 +11,7 @@ import {
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
+import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 
@@ -497,74 +498,12 @@ export default function EpmCountryPage() {
         }
       }
 
-      // ── Ext NTC zones ─────────────────────────────────────────────────────
+      // ── Ext NTC zones (polygon- or point-based neighbours) ─────────────────
       {
         const extNtc = epmData.extNtc || [];
-        const zonesExtGJ = epmData.zonesExtGJ;
-        const extNodeCoords = {};
-        if (zonesExtGJ) {
-          for (const f of zonesExtGJ.features) {
-            const z = f.properties?.z;
-            if (z && f.geometry?.type === 'Point') extNodeCoords[z] = f.geometry.coordinates;
-          }
-        }
-        const extNtcYrs = extNtc.length > 0 ? Object.keys(extNtc[0].years).sort() : [];
-        const extNtcYr = extNtcYrs[0] || '2024';
-        const extLineFeatures = extNtc
-          .filter(r => zoneCentroids[r.z] && extNodeCoords[r.zext])
-          .map(r => ({ type:'Feature',
-            properties:{ z:r.z, zext:r.zext, ntc_mw:r.years[extNtcYr]||0 },
-            geometry:{ type:'LineString', coordinates:[zoneCentroids[r.z], extNodeCoords[r.zext]] } }));
-        const extNodeFeatures = Object.entries(extNodeCoords).map(([z, coords]) => ({
-          type:'Feature', properties:{ z }, geometry:{ type:'Point', coordinates:coords } }));
-
-        map.addSource('ext-ntc-lines', { type:'geojson', data:{type:'FeatureCollection',features:extLineFeatures} });
-        map.addLayer({ id:'ext-ntc-lines-layer', type:'line', source:'ext-ntc-lines',
-          layout:{ visibility:'none', 'line-cap':'round', 'line-join':'round' },
-          paint:{ 'line-color':'#888888',
-            'line-width':['interpolate',['linear'],['get','ntc_mw'],0,1,500,2,2000,3,5000,4.5],
-            'line-opacity':0.85 } });
-        map.addSource('ext-nodes', { type:'geojson', data:{type:'FeatureCollection',features:extNodeFeatures} });
-        map.addLayer({ id:'ext-nodes-circles', type:'circle', source:'ext-nodes',
-          layout:{ visibility:'none' },
-          paint:{ 'circle-radius':5,
-            'circle-color': tv.isDark ? 'rgba(40,40,40,0.85)' : 'rgba(255,255,255,0.85)',
-            'circle-stroke-width':1.5, 'circle-stroke-color':'#888888' } });
-        map.addLayer({ id:'ext-nodes-labels', type:'symbol', source:'ext-nodes',
-          layout:{ visibility:'none', 'text-field':['get','z'], 'text-size':10,
-            'text-offset':[0,1.4], 'text-anchor':'top', 'text-allow-overlap':false },
-          paint:{ 'text-color': tv.isDark ? '#e0e0e0' : '#222222',
-            'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
-            'text-halo-width':1 } });
-        map.addLayer({ id:'ext-ntc-labels', type:'symbol', source:'ext-ntc-lines',
-          layout:{ visibility:'none', 'text-field':['concat',['to-string',['round',['get','ntc_mw']]],' MW'],
-            'text-size':9, 'symbol-placement':'line-center', 'text-allow-overlap':false },
-          paint:{ 'text-color': tv.isDark ? '#cccccc' : '#444444',
-            'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
-            'text-halo-width':1 } });
-
-        map.on('mouseenter', 'ext-ntc-lines-layer', e => {
-          map.getCanvas().style.cursor = 'pointer';
-          const { z, zext, ntc_mw } = e.features[0].properties;
-          popup.setLngLat(e.lngLat)
-            .setHTML(`<b>${z} ↔ ${zext}</b><br><span style="opacity:.75">NTC: ${Math.round(ntc_mw).toLocaleString()} MW</span>`)
-            .addTo(map);
-        });
-        map.on('mouseleave', 'ext-ntc-lines-layer', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
-        map.on('mouseenter', 'ext-nodes-circles', e => {
-          map.getCanvas().style.cursor = 'pointer';
-          const zext = e.features[0].properties.z;
-          const corridors = extNtc.filter(r => r.zext === zext);
-          const rows = corridors.map(r =>
-            `<div style="display:flex;justify-content:space-between;gap:12px">` +
-            `<span style="opacity:.75">${r.z}</span>` +
-            `<span style="font-weight:600">${Math.round(r.years[extNtcYr]||0).toLocaleString()} MW</span></div>`
-          ).join('');
-          popup.setLngLat(e.lngLat)
-            .setHTML(`<b>${zext}</b><br>${rows||'<span style="opacity:.6">No NTC data</span>'}`)
-            .addTo(map);
-        });
-        map.on('mouseleave', 'ext-nodes-circles', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+        const extData = buildExtZoneData(epmData.zonesExtGJ, extNtc, zoneCentroids);
+        addExtZoneLayers(map, tv, extData);
+        bindExtZoneHandlers(map, popup, extNtc, extData.extNtcYr);
       }
 
       // Donuts + NTC data are drawn / updated in place by the effects below.
@@ -614,11 +553,7 @@ export default function EpmCountryPage() {
 
   // Ext zones visibility toggle.
   useEffect(() => {
-    const map = mapRef.current;
-    const vis = showExtZones ? 'visible' : 'none';
-    for (const id of ['ext-ntc-lines-layer','ext-ntc-labels','ext-nodes-circles','ext-nodes-labels']) {
-      if (map?.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
-    }
+    setExtZonesVisible(mapRef.current, showExtZones);
   }, [showExtZones, mapLoadedCount]);
 
   // NTC lines — update MW in place when trade data changes (no map rebuild → no flash).
