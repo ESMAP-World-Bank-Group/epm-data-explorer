@@ -20,7 +20,7 @@ function buildNetDotPlugin(netData){return{id:'netDot',afterDatasetsDraw(chart){
 function getTradeValsC(resultsData,scen,zones,y){const tx=resultsData[scen]?.transmission||{};const res={};for(const z of zones){let imp=0,exp=0;for(const[z2,attrs]of Object.entries(tx[z]||{}))exp+=(attrs.Interchange?.[y]||0);for(const[z2,zm]of Object.entries(tx))if(z2!==z)imp+=(zm[z]?.Interchange?.[y]||0);res[z]={imp,exp,net:imp-exp};}return res;}
 function getTradePartners(resultsData,scen,visZones,y){const tx=resultsData[scen]?.transmission||{};const visSet=new Set(visZones);const partners={};for(const z of visZones){for(const[z2,attrs]of Object.entries(tx[z]||{})){if(visSet.has(z2))continue;const v=attrs.Interchange?.[y]||0;if(!partners[z2])partners[z2]={imp:0,exp:0};partners[z2].exp+=v;}for(const[z2,zm]of Object.entries(tx)){if(visSet.has(z2))continue;const v=zm[z]?.Interchange?.[y]||0;if(v){if(!partners[z2])partners[z2]={imp:0,exp:0};partners[z2].imp+=v;}}}return partners;}
 function getTradeByZonePartner(resultsData,scen,zones,y){const tx=resultsData[scen]?.transmission||{};const zSet=new Set(zones);const res={};for(const z of zones){res[z]={};for(const[z2,attrs]of Object.entries(tx[z]||{})){if(zSet.has(z2))continue;const v=attrs.Interchange?.[y]||0;if(v){res[z][z2]=res[z][z2]||{imp:0,exp:0};res[z][z2].exp+=v;}}for(const[z2,zm]of Object.entries(tx)){if(zSet.has(z2))continue;const v=zm[z]?.Interchange?.[y]||0;if(v){res[z][z2]=res[z][z2]||{imp:0,exp:0};res[z][z2].imp+=v;}}}return res;}
-const TECHFUEL_COLORS = { Nuclear:'#C8A8F0',Coal:'#808890',Gas:'#9A7040',CCGT:'#B8921A',OCGT:'#C4A820',Diesel:'#6A7888',HFO:'#7A7068',Oil:'#7A7068',Biomass:'#52C860',Waste:'#8A9098',Geothermal:'#D4A820',Reservoir:'#1E9AF5',ROR:'#5DADE2',ReservoirHydro:'#1E9AF5',PSH:'#0D7680',Solar:'#FFD700',PV:'#FFD700',CSP:'#E8C547',RPV:'#FFD700','Onshore Wind':'#44DAEC',OnshoreWind:'#44DAEC','Offshore Wind':'#7CC8FA',OffshoreWind:'#7CC8FA',Battery:'#A3D5FF',Storage:'#AED6F1',ICE:'#6A7888',ST:'#C8A8F0' };
+const TECHFUEL_COLORS = { Nuclear:'#9775FA',Coal:'#495057',Gas:'#20C997',CCGT:'#20C997',OCGT:'#20C997',Diesel:'#F76707',HFO:'#F76707',Oil:'#F76707',Biomass:'#FFD43B',Waste:'#51CF66',Geothermal:'#51CF66',Reservoir:'#74C0FC',ROR:'#E64980',ReservoirHydro:'#74C0FC',PSH:'#74C0FC',Solar:'#FFA94D',PV:'#FFA94D',CSP:'#FFA94D',RPV:'#FFA94D','Onshore Wind':'#4C6EF5',OnshoreWind:'#4C6EF5','Offshore Wind':'#4C6EF5',OffshoreWind:'#4C6EF5',Battery:'#51CF66',Storage:'#51CF66',ICE:'#F76707',ST:'#51CF66' };
 function techColor(tf) { return TECHFUEL_COLORS[tf]||EPM_FUEL_COLORS[normalizeFuel(tf)]||'#AAAAAA'; }
 function fmt(n,d=0){if(n==null||isNaN(n))return'—';return n.toLocaleString('en-US',{maximumFractionDigits:d});}
 function fmtBig(n){if(!n)return'—';const a=Math.abs(n);if(a>=1e3)return`${(n/1e3).toFixed(1)}k`;return n.toFixed(1);}
@@ -48,6 +48,7 @@ const INDICATORS=[
   {key:'DemandEnergyZone',label:'Demand (GWh)',source:'yearlyZone',unit:'GWh'},
   {key:'Trade',label:'Trade (GWh)',source:'trade',unit:'GWh'},
 ];
+const PL_UNITS={CapacityPlant:'MW',EnergyPlant:'GWh',CostsPlant:'m USD',PlantAnnualLCOE:'USD/MWh',UtilizationPlant:'%'};
 
 function CJChart({type,data,options,height,plugins:ep,cacheKey}){
   const ref=useRef(null);const chart=useRef(null);
@@ -262,7 +263,7 @@ export default function ResultsCountryPage() {
   // External zone layers (added once map + ext data ready)
   useEffect(()=>{
     const map=mapRef.current;
-    if(!map||mapLoadedCount===0||!zonesGJ)return;
+    if(!map||!map.isStyleLoaded()||!zonesGJ)return;
     if(!zonesExtGJ&&!extNtc.length)return;
     if(map.getSource('ext-zones')){setExtZonesVisible(map,showExtZones);return;}
     const zoneCentroids={};
@@ -589,7 +590,7 @@ export default function ResultsCountryPage() {
         </div>
         {/* Tabs */}
         <div style={{display:'flex',gap:0,marginBottom:16,borderBottom:`1px solid ${t.panelBorder}`}}>
-          {TABS.map(tab=><button key={tab} onClick={()=>setActiveTab(tab)} style={{fontSize:'0.5rem',fontFamily:'inherit',padding:'6px 11px',border:'none',borderBottom:activeTab===tab?`2px solid ${t.lbl}`:'2px solid transparent',backgroundColor:'transparent',color:activeTab===tab?t.lbl:t.lblMuted,cursor:'pointer',fontWeight:activeTab===tab?600:400,textTransform:'capitalize'}}>{tab}</button>)}
+          {TABS.map(tab=><button key={tab} onClick={()=>setActiveTab(tab)} style={{fontSize:'0.68rem',fontFamily:'inherit',padding:'8px 9px',border:'none',borderBottom:activeTab===tab?`2px solid ${t.lbl}`:'2px solid transparent',backgroundColor:'transparent',color:activeTab===tab?t.lbl:t.lblMuted,cursor:'pointer',fontWeight:activeTab===tab?800:700,textTransform:'uppercase',letterSpacing:'0.2px'}}>{tab}</button>)}
         </div>
         {loadingData&&<div style={{padding:'24px 0',textAlign:'center',color:t.lblMuted,fontSize:'0.6rem'}}>Loading…</div>}
         {hasData&&allZones.length>1&&(
@@ -875,7 +876,7 @@ export default function ResultsCountryPage() {
               <select value={plTopN} onChange={e=>setPlTopN(+e.target.value)} style={selectStyle}>{[10,15,20,30].map(n=><option key={n} value={n}>Top {n}</option>)}</select>
               {allZones.length>1&&<select value={plZone} onChange={e=>setPlZone(e.target.value)} style={selectStyle}><option value="all">All zones</option>{allZones.map(z=><option key={z} value={z}>{z}</option>)}</select>}
             </div>
-            {plantsData.length>0?<><SectionTitle t={t}>Top {plTopN} plants</SectionTitle><CJChart type="bar" height={Math.min(plantsData.length*18+24,250)} cacheKey={`pl-c|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}`} data={{labels:plantsData.map(p=>p.g),datasets:[{data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.8)),borderWidth:0,barThickness:12}]}} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}/></>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data.</div>}
+            {plantsData.length>0?<><SectionTitle t={t}>Top {plTopN} plants ({PL_UNITS[plIndicator]})</SectionTitle><CJChart type="bar" height={Math.min(plantsData.length*18+24,250)} cacheKey={`pl-c|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}`} data={{labels:plantsData.map(p=>p.g),datasets:[{data:plantsData.map(p=>+((plIndicator==='UtilizationPlant'?p.value*100:p.value)).toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.8)),borderWidth:0,barThickness:12}]}} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:PL_UNITS[plIndicator],color:t.muted,font:{size:7}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${fmt(ctx.parsed.x,2)} ${PL_UNITS[plIndicator]}`}}}}}/></>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data.</div>}
             {lcoeData&&lcoeData.datasets.length>0&&<>
               <SectionTitle t={t}>Annual LCOE vs Utilization — bubble size = capacity</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>

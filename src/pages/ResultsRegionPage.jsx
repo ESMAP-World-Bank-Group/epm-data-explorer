@@ -17,16 +17,16 @@ import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVis
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 
 const TECHFUEL_COLORS = {
-  Nuclear:'#C8A8F0', Coal:'#808890', Peat:'#A0856C', 'Domestic Coal':'#6A5C4C',
-  Gas:'#9A7040', CCGT:'#B8921A', OCGT:'#C4A820', Methane:'#D4B030',
-  Diesel:'#6A7888', HFO:'#7A7068', Oil:'#7A7068',
-  Biomass:'#52C860', Waste:'#8A9098', Biogas:'#72DC8A', Geothermal:'#D4A820',
-  Reservoir:'#1E9AF5', ROR:'#5DADE2', PSH:'#0D7680', 'Run-of-River':'#5DADE2', ReservoirHydro:'#1E9AF5',
-  Solar:'#FFD700', PV:'#FFD700', CSP:'#E8C547', RPV:'#FFD700',
-  'Onshore Wind':'#44DAEC', OnshoreWind:'#44DAEC', ST:'#C8A8F0',
-  'Offshore Wind':'#7CC8FA', OffshoreWind:'#7CC8FA',
-  Battery:'#A3D5FF', Storage:'#AED6F1', 'PV+Storage':'#C8E860',
-  Imports:'#E8C547', Demand:'#9B59B6', ICE:'#6A7888',
+  Nuclear:'#9775FA', Coal:'#495057', Peat:'#495057', 'Domestic Coal':'#495057',
+  Gas:'#20C997', CCGT:'#20C997', OCGT:'#20C997', Methane:'#20C997',
+  Diesel:'#F76707', HFO:'#F76707', Oil:'#F76707',
+  Biomass:'#FFD43B', Waste:'#51CF66', Biogas:'#FFD43B', Geothermal:'#51CF66',
+  Reservoir:'#74C0FC', ROR:'#E64980', PSH:'#74C0FC', 'Run-of-River':'#E64980', ReservoirHydro:'#74C0FC',
+  Solar:'#FFA94D', PV:'#FFA94D', CSP:'#FFA94D', RPV:'#FFA94D',
+  'Onshore Wind':'#4C6EF5', OnshoreWind:'#4C6EF5', ST:'#51CF66',
+  'Offshore Wind':'#4C6EF5', OffshoreWind:'#4C6EF5',
+  Battery:'#51CF66', Storage:'#51CF66', 'PV+Storage':'#FFA94D',
+  Imports:'#E8C547', Demand:'#9B59B6', ICE:'#F76707',
 };
 function techColor(tf) { return TECHFUEL_COLORS[tf] || EPM_FUEL_COLORS[normalizeFuel(tf)] || '#AAAAAA'; }
 
@@ -66,6 +66,7 @@ const INDICATORS = [
 function fmt(n, d = 0) { if (n == null || isNaN(n)) return '—'; return n.toLocaleString('en-US', { maximumFractionDigits: d }); }
 function fmtBig(n) { if (!n) return '—'; const a=Math.abs(n); if(a>=1e9)return`${(n/1e9).toFixed(1)}B`; if(a>=1e6)return`${(n/1e6).toFixed(1)}M`; if(a>=1e3)return`${(n/1e3).toFixed(1)}k`; return n.toFixed(1); }
 function hexA(hex, a) { if (!hex||hex.length<7) return `rgba(128,128,128,${a})`; const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
+const PL_UNITS={CapacityPlant:'MW',EnergyPlant:'GWh',CostsPlant:'m USD',PlantAnnualLCOE:'USD/MWh',UtilizationPlant:'%'};
 function cjDefaults(t) { return { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:11},bodyFont:{size:11},padding:6}}, scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:10}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:10}}}}}; }
 
 function priceColor(t_) {
@@ -498,7 +499,7 @@ export default function ResultsRegionPage() {
   // ── External zone layers (added once map + ext data ready) ──────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || mapLoadedCount===0 || !zonesGJ) return;
+    if (!map || !map.isStyleLoaded() || !zonesGJ) return;
     if (!zonesExtGJ && !extNtc.length) return;
     if (map.getSource('ext-zones')) { setExtZonesVisible(map, showExtZones); return; }
     const zoneCentroids = {};
@@ -1289,7 +1290,7 @@ export default function ResultsRegionPage() {
         {/* Tabs */}
         <div style={{ display:'flex', gap:0, marginBottom:16, borderBottom:`1px solid ${t.panelBorder}` }}>
           {TABS.map(tab=>(
-            <button key={tab} onClick={()=>setActiveTab(tab)} style={{ fontSize:'0.5rem', fontFamily:'inherit', padding:'6px 12px', border:'none', borderBottom:activeTab===tab?`2px solid ${t.lbl}`:'2px solid transparent', backgroundColor:'transparent', color:activeTab===tab?t.lbl:t.lblMuted, cursor:'pointer', fontWeight:activeTab===tab?600:400 }}>{TAB_LABELS[tab]}</button>
+            <button key={tab} onClick={()=>setActiveTab(tab)} style={{ fontSize:'0.68rem', fontFamily:'inherit', padding:'8px 9px', border:'none', borderBottom:activeTab===tab?`2px solid ${t.lbl}`:'2px solid transparent', backgroundColor:'transparent', color:activeTab===tab?t.lbl:t.lblMuted, cursor:'pointer', fontWeight:activeTab===tab?800:700, textTransform:'uppercase', letterSpacing:'0.2px'}}>{TAB_LABELS[tab]}</button>
           ))}
         </div>
 
@@ -1692,13 +1693,13 @@ export default function ResultsRegionPage() {
             </div>
             {/* Ranking */}
             {plantsData.length>0?<>
-              <SectionTitle t={t}>Top {plTopN} — {plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</SectionTitle>
+              <SectionTitle t={t}>Top {plTopN} — {plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim()} ({PL_UNITS[plIndicator]})</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   {(()=>{const pd=plantsData.filter(p=>!isHidden('plants-tf',p.techfuel));return(
                     <CJChart type="bar" height={Math.min(pd.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}|${[...hiddenMap['plants-tf']||[]].join(',')}`}
-                      data={{labels:pd.map(p=>p.g),datasets:[{label:plScenario,data:pd.map(p=>+p.value.toFixed(2)),backgroundColor:pd.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
-                      options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
+                      data={{labels:pd.map(p=>p.g),datasets:[{label:plScenario,data:pd.map(p=>+((plIndicator==='UtilizationPlant'?p.value*100:p.value)).toFixed(2)),backgroundColor:pd.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
+                      options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:PL_UNITS[plIndicator],color:t.muted,font:{size:7}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${fmt(ctx.parsed.x,2)} ${PL_UNITS[plIndicator]}`}}}}}
                     />
                   );})()}
                 </div>
