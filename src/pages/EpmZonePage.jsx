@@ -8,9 +8,10 @@ import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesOffgridGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processGenData, processDemand, processDemandData, processNTC, processTransmissionResults,
-  processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices, sliceLabel,
+  processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
+import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
@@ -808,7 +809,7 @@ export default function EpmZonePage() {
             {(() => {
               const pf = epmData?.demandProfileFull||{};
               const hoursData = epmData?.hours||{};
-              const timeSlices = epmData?.timeSlices||{nT:24,isHourly:true,hours:{}};const nT = timeSlices.nT;
+              const timeSlices = epmData?.timeSlices||{nT:24,isHourly:true,hours:{}};
               const firstZ = pf[zoneIdDecoded];
               const availS = firstZ ? Object.keys(firstZ).sort() : [];
               const availD = firstZ && availS[0] ? Object.keys(firstZ[availS[0]]||{}).sort() : [];
@@ -818,9 +819,10 @@ export default function EpmZonePage() {
               const buildZoneProfile = () => {
                 if (demandProfileMode === 'full') {
                   if (!firstZ || !availD.length) return { chartData:{labels:[],datasets:[]}, plugin:null };
-                  const nDT=availD.length, nS=availS.length, nPts=nS*nDT*nT;
-                  const data=[];
-                  for(const s of availS) for(const d of availD){const p=pf[zoneIdDecoded]?.[s]?.[d];data.push(...(p?p:new Array(nT).fill(null)));}
+                  // x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one
+                  const ax=buildTimeAxis(timeSlices,availS,availD);
+                  const nDT=availD.length, nS=availS.length, nPts=ax.slots.length;
+                  const data=ax.slots.map(sl=>pf[zoneIdDecoded]?.[sl.q]?.[sl.d]?.[sl.i]??null);
                   const ds={label:zoneIdDecoded,data,borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.3,fill:true,backgroundColor:hexA('#1a5fa8',0.08),spanGaps:true};
                   const sepPlugin={id:'zpSep',afterDraw:(chart)=>{
                     const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
@@ -828,10 +830,11 @@ export default function EpmZonePage() {
                     const dashC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const solidC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
                     const textC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seasC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
                     for(let si=0;si<nS;si++){
-                      const ss=si*nDT*nT;ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(availS[si],xS.getPixelForValue(ss+nDT*nT/2),top-2);ctx.restore();
+                      const off=(a,b)=>ax.offsets[`${availS[a]}|${availD[b]}`]||0;const spn=(a,b)=>ax.spans[`${availS[a]}|${availD[b]}`]||0;
+                      const ss=off(si,0);const sw=availD.reduce((a,_,di)=>a+spn(si,di),0);ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(availS[si],xS.getPixelForValue(ss+sw/2),top-2);ctx.restore();
                       for(let di=0;di<nDT;di++){
-                        const dts=ss+di*nT;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
-                        const midX=xS.getPixelForValue(dts+nT/2);const w=hoursData?.[availS[si]]?.[availD[di]]||0;const pct=w>0?` (${((w/totalD)*100).toFixed(0)}%)`:'';
+                        const dts=off(si,di);if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
+                        const midX=xS.getPixelForValue(dts+spn(si,di)/2);const w=hoursData?.[availS[si]]?.[availD[di]]||0;const pct=w>0?` (${((w/totalD)*100).toFixed(0)}%)`:'';
                         ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${availD[di]}${pct}`,0,0);ctx.restore();
                       }
                     }
@@ -839,9 +842,11 @@ export default function EpmZonePage() {
                   return { chartData:{labels:new Array(nPts).fill(''),datasets:[ds]}, plugin:sepPlugin };
                 }
                 const sp=pf[zoneIdDecoded]?.[demandSeason];if(!sp)return null;
-                const p=demandDay==='avg'?Array.from({length:nT},(_,h)=>Object.values(sp).reduce((s,d)=>s+(d[h]||0),0)/Object.keys(sp).length):sp[demandDay];
-                if(!p)return null;
-                return { chartData:{labels:Array.from({length:nT},(_,i)=>sliceLabel(timeSlices,i,demandSeason,demandDay==='avg'?availD[0]:demandDay)),datasets:[{label:zoneIdDecoded,data:p,borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.35,fill:true,backgroundColor:hexA('#1a5fa8',0.08)}]}, plugin:null };
+                const refDay=demandDay==='avg'?availD[0]:demandDay;const ax=buildSeasonAxis(timeSlices,demandSeason,[refDay]);
+                const src=demandDay==='avg'?null:sp[demandDay];
+                if(demandDay!=='avg'&&!src)return null;
+                const p=ax.slots.map(sl=>src?(src[sl.i]??null):Object.values(sp).reduce((a,d)=>a+(d[sl.i]||0),0)/Object.keys(sp).length);
+                return { chartData:{labels:blockLabels(ax,timeSlices,demandSeason,refDay),datasets:[{label:zoneIdDecoded,data:p,borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.35,fill:true,backgroundColor:hexA('#1a5fa8',0.08)}]}, plugin:null, xTicks:axisTicks(ax) };
               };
               const pd = buildZoneProfile();
               return (
@@ -871,7 +876,7 @@ export default function EpmZonePage() {
                       options={{ ...cjDefaults(t),
                         layout:{padding:{top:demandProfileMode==='full'?18:4,bottom:demandProfileMode==='full'?62:4}},
                         scales:{
-                          x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
+                          x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12,...(pd.xTicks||{})}},
                           y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},min:0,title:{display:true,text:'Load factor',color:t.muted,font:{size:7}}},
                         }}}
                     />
@@ -1036,7 +1041,7 @@ export default function EpmZonePage() {
             {resSection === 'vre' && (() => {
               const vp = epmData?.vreProfile||{};
               const hoursData = epmData?.hours||{};
-              const timeSlices = epmData?.timeSlices||{nT:24,isHourly:true,hours:{}};const nT = timeSlices.nT;
+              const timeSlices = epmData?.timeSlices||{nT:24,isHourly:true,hours:{}};
               const allTechs = Object.keys(vp[zoneIdDecoded]||{}).sort();
               const activeTech = allTechs.includes(vreTech)?vreTech:(allTechs[0]||'');
               const firstZ = vp[zoneIdDecoded]?.[activeTech];
@@ -1049,9 +1054,10 @@ export default function EpmZonePage() {
               const buildZoneVRE = () => {
                 if (vreProfileMode === 'full') {
                   if (!firstZ || !vreAvailD.length) return { chartData:{labels:[],datasets:[]}, plugin:null };
-                  const nDT=vreAvailD.length, nS=vreAvailS.length, nPts=nS*nDT*nT;
-                  const data=[];
-                  for(const s of vreAvailS) for(const d of vreAvailD){const p=firstZ[s]?.[d];data.push(...(p?p:new Array(nT).fill(null)));}
+                  // x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one
+                  const ax=buildTimeAxis(timeSlices,vreAvailS,vreAvailD);
+                  const nDT=vreAvailD.length, nS=vreAvailS.length, nPts=ax.slots.length;
+                  const data=ax.slots.map(sl=>firstZ[sl.q]?.[sl.d]?.[sl.i]??null);
                   const ds={label:activeTech,data,borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.3,fill:true,backgroundColor:hexA(techColor,0.08),spanGaps:true};
                   const sepPlugin={id:'zvSep',afterDraw:(chart)=>{
                     const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
@@ -1059,10 +1065,11 @@ export default function EpmZonePage() {
                     const dashC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const solidC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
                     const textC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seasC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
                     for(let si=0;si<nS;si++){
-                      const ss=si*nDT*nT;ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(vreAvailS[si],xS.getPixelForValue(ss+nDT*nT/2),top-2);ctx.restore();
+                      const off=(a,b)=>ax.offsets[`${vreAvailS[a]}|${vreAvailD[b]}`]||0;const spn=(a,b)=>ax.spans[`${vreAvailS[a]}|${vreAvailD[b]}`]||0;
+                      const ss=off(si,0);const sw=vreAvailD.reduce((a,_,di)=>a+spn(si,di),0);ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(vreAvailS[si],xS.getPixelForValue(ss+sw/2),top-2);ctx.restore();
                       for(let di=0;di<nDT;di++){
-                        const dts=ss+di*nT;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
-                        const midX=xS.getPixelForValue(dts+nT/2);const w=hoursData?.[vreAvailS[si]]?.[vreAvailD[di]]||0;const pct=w>0?` (${((w/totalD)*100).toFixed(0)}%)`:'';
+                        const dts=off(si,di);if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
+                        const midX=xS.getPixelForValue(dts+spn(si,di)/2);const w=hoursData?.[vreAvailS[si]]?.[vreAvailD[di]]||0;const pct=w>0?` (${((w/totalD)*100).toFixed(0)}%)`:'';
                         ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='9px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${vreAvailD[di]}${pct}`,0,0);ctx.restore();
                       }
                     }
@@ -1070,9 +1077,11 @@ export default function EpmZonePage() {
                   return { chartData:{labels:new Array(nPts).fill(''),datasets:[ds]}, plugin:sepPlugin };
                 }
                 const sp=firstZ?.[vreSeason];if(!sp)return null;
-                const p=vreDay==='avg'?Array.from({length:nT},(_,h)=>Object.values(sp).reduce((s,d)=>s+(d[h]||0),0)/Object.keys(sp).length):sp[vreDay];
-                if(!p)return null;
-                return { chartData:{labels:Array.from({length:nT},(_,i)=>sliceLabel(timeSlices,i,vreSeason,vreDay==='avg'?vreAvailD[0]:vreDay)),datasets:[{label:activeTech,data:p,borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.35,fill:true,backgroundColor:hexA(techColor,0.08)}]}, plugin:null };
+                const refDay=vreDay==='avg'?vreAvailD[0]:vreDay;const ax=buildSeasonAxis(timeSlices,vreSeason,[refDay]);
+                const src=vreDay==='avg'?null:sp[vreDay];
+                if(vreDay!=='avg'&&!src)return null;
+                const p=ax.slots.map(sl=>src?(src[sl.i]??null):Object.values(sp).reduce((a,d)=>a+(d[sl.i]||0),0)/Object.keys(sp).length);
+                return { chartData:{labels:blockLabels(ax,timeSlices,vreSeason,refDay),datasets:[{label:activeTech,data:p,borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.35,fill:true,backgroundColor:hexA(techColor,0.08)}]}, plugin:null, xTicks:axisTicks(ax) };
               };
               const vd = buildZoneVRE();
               return (
@@ -1109,7 +1118,7 @@ export default function EpmZonePage() {
                           options={{ ...cjDefaults(t),
                             layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?80:4}},
                             scales:{
-                              x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
+                              x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12,...(vd.xTicks||{})}},
                               y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}}},
                             }}}
                         />

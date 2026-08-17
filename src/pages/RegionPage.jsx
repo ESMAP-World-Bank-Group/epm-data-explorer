@@ -13,10 +13,11 @@ import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processGenData, processDemand, processDemandData, processTransmissionResults,
-  processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices, sliceLabel,
+  processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
   computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
+import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
@@ -767,35 +768,31 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
 
   // Build profile chart (full year or single season)
   const buildProfileData = () => {
-    const nT = timeSlices.nT;
     const isDark = t.isDark;
     const showAvg = !hidden.has('__avg__');
 
     if (profileMode === 'full') {
       if (!firstZoneWithPf || !availDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
+      // x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one
+      const ax = buildTimeAxis(timeSlices, availSeasons, availDaytypes);
       const nDT = availDaytypes.length, nS = availSeasons.length;
-      const nPts = nS * nDT * nT;
+      const nPts = ax.slots.length;
       const labels = new Array(nPts).fill('');
 
       // Zone lines — use allZones index for stable colors
       const zoneDs = allZones.flatMap((z, i) => {
         if (hidden.has(z)) return [];
-        const data = [];
-        for (const s of availSeasons) for (const d of availDaytypes) {
-          const p = pf[z]?.[s]?.[d];
-          data.push(...(p ? p : new Array(nT).fill(null)));
-        }
+        const data = ax.slots.map(sl => pf[z]?.[sl.q]?.[sl.d]?.[sl.i] ?? null);
         if (!data.some(v => v !== null)) return [];
         return [{ label:z, data, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],
           borderWidth:1.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true }];
       });
 
       // Region avg last (on top) — only if not hidden
-      const avgData = [];
-      for (const s of availSeasons) for (const d of availDaytypes) {
-        const profs = allZones.map(z=>pf[z]?.[s]?.[d]).filter(Boolean);
-        for (let h=0;h<nT;h++) avgData.push(profs.length ? profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length : null);
-      }
+      const avgData = ax.slots.map(sl => {
+        const profs = allZones.map(z=>pf[z]?.[sl.q]?.[sl.d]).filter(Boolean);
+        return profs.length ? profs.reduce((sum,p)=>sum+(p[sl.i]||0),0)/profs.length : null;
+      });
       const avgDs = showAvg ? { label:'Region avg', data:avgData, borderColor:'#1a5fa8',
         borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true } : null;
 
@@ -812,10 +809,13 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
           const textC   = isDark ? 'rgba(255,255,255,0.46)' : 'rgba(0,0,0,0.40)';
           const seasonC = isDark ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.58)';
 
+          const off = (a,b) => ax.offsets[`${availSeasons[a]}|${availDaytypes[b]}`] || 0;
+          const spn = (a,b) => ax.spans[`${availSeasons[a]}|${availDaytypes[b]}`] || 0;
           for (let si=0;si<nS;si++) {
-            const seasonStart = si * nDT * nT;
+            const seasonStart = off(si,0);
+            const seasonWidth = availDaytypes.reduce((a,_,di)=>a+spn(si,di),0);
             // Season label above chartArea
-            const sx = xScale.getPixelForValue(seasonStart + nDT * nT / 2);
+            const sx = xScale.getPixelForValue(seasonStart + seasonWidth / 2);
             ctx.save();
             ctx.font='700 9px system-ui,sans-serif';
             ctx.fillStyle=seasonC; ctx.textAlign='center'; ctx.textBaseline='bottom';
@@ -823,7 +823,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
             ctx.restore();
 
             for (let di=0;di<nDT;di++) {
-              const dtStart = seasonStart + di * nT;
+              const dtStart = off(si,di);
               // Separator line
               if (dtStart > 0) {
                 const lx = xScale.getPixelForValue(dtStart);
@@ -836,7 +836,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
                 ctx.restore();
               }
               // Day type label — rotated −90°, below x-axis
-              const midX = xScale.getPixelForValue(dtStart + nT / 2);
+              const midX = xScale.getPixelForValue(dtStart + spn(si,di) / 2);
               const w    = hoursData?.[availSeasons[si]]?.[availDaytypes[di]] || 0;
               const pct  = w > 0 ? ` (${((w/totalDays)*100).toFixed(0)}%)` : '';
               ctx.save();
@@ -854,11 +854,13 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
     }
 
     // Single season mode
+    const refDay = daytype==='avg' ? availDaytypes[0] : daytype;
+    const ax = buildSeasonAxis(timeSlices, season, [refDay]);
     const getP = (zone) => {
       const sp = pf[zone]?.[season];
       if (!sp) return null;
-      if (daytype === 'avg') { const days=Object.keys(sp); return days.length ? Array.from({length:nT},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length) : null; }
-      return sp[daytype] || null;
+      if (daytype === 'avg') { const days=Object.keys(sp); return days.length ? ax.slots.map(sl=>days.reduce((s,d)=>s+(sp[d][sl.i]||0),0)/days.length) : null; }
+      return sp[daytype] ? ax.slots.map(sl=>sp[daytype][sl.i] ?? null) : null;
     };
     // Use allZones index for stable colors
     const zoneLines = allZones.flatMap((z, i) => {
@@ -867,8 +869,8 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
       return p ? [{ label:z, data:p, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderWidth:1.8, pointRadius:0, tension:0.35, fill:false }] : [];
     });
     const allProf = allZones.map(z=>getP(z)).filter(Boolean);
-    const avgLine = (showAvg && allProf.length) ? { label:'Region avg', data:Array.from({length:nT},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:'#1a5fa8', borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
-    return { chartData:{ labels:Array.from({length:nT},(_,i)=>sliceLabel(timeSlices,i,season,daytype==='avg'?availDaytypes[0]:daytype)), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
+    const avgLine = (showAvg && allProf.length) ? { label:'Region avg', data:ax.slots.map((_,k)=>allProf.reduce((s,p)=>s+(p[k]||0),0)/allProf.length), borderColor:'#1a5fa8', borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
+    return { chartData:{ labels:blockLabels(ax,timeSlices,season,refDay), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null, xTicks:axisTicks(ax) };
   };
 
   const segments = segMode === 'zone' ? allZones : segMode === 'country' ? allCountries : [];
@@ -986,7 +988,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
                   layout:{ padding:{ top: profileMode==='full'?18:4, bottom: profileMode==='full'?62:4 } },
                   scales:{
                     x:{ grid:{ color:t.panelBorder, drawTicks:false },
-                      ticks:{ display: profileMode!=='full', color:t.muted, font:{size:7}, maxTicksLimit:12 } },
+                      ticks:{ display: profileMode!=='full', color:t.muted, font:{size:7}, maxTicksLimit:12, ...(profileResult.xTicks||{}) } },
                     y:{ grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}}, min:0,
                       title:{display:true,text:'Load factor',color:t.muted,font:{size:7}} },
                   },
@@ -1085,35 +1087,31 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
   const totalDaysV = Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0) || 365;
 
   const buildVREData = () => {
-    const nT = timeSlices.nT;
     const isDark   = t.isDark;
     const showAvgV = !vreHidden.has('__avg__');
 
     if (vreProfileMode === 'full') {
       if (!firstZoneWithVre || !vreAvailDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
+      // x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one
+      const ax = buildTimeAxis(timeSlices, vreAvailSeasons, vreAvailDaytypes);
       const nDT = vreAvailDaytypes.length, nS = vreAvailSeasons.length;
-      const nPts = nS * nDT * nT;
+      const nPts = ax.slots.length;
       const labels = new Array(nPts).fill('');
 
       // Zone lines — use allZones index for stable colors
       const zoneDs = allZones.flatMap((z, i) => {
         if (vreHidden.has(z)) return [];
-        const data = [];
-        for (const s of vreAvailSeasons) for (const d of vreAvailDaytypes) {
-          const p = vp[z]?.[vreTech]?.[s]?.[d];
-          data.push(...(p ? p : new Array(nT).fill(null)));
-        }
+        const data = ax.slots.map(sl => vp[z]?.[vreTech]?.[sl.q]?.[sl.d]?.[sl.i] ?? null);
         if (!data.some(v => v !== null)) return [];
         return [{ label:z, data, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],
           borderWidth:1.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true }];
       });
 
       // Avg last
-      const avgData = [];
-      for (const s of vreAvailSeasons) for (const d of vreAvailDaytypes) {
-        const profs = allZones.map(z=>vp[z]?.[vreTech]?.[s]?.[d]).filter(Boolean);
-        for (let h=0;h<nT;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
-      }
+      const avgData = ax.slots.map(sl => {
+        const profs = allZones.map(z=>vp[z]?.[vreTech]?.[sl.q]?.[sl.d]).filter(Boolean);
+        return profs.length?profs.reduce((sum,p)=>sum+(p[sl.i]||0),0)/profs.length:null;
+      });
       const techColor = VRE_COLOR[vreTech] || '#1E9AF5';
       const avgDs = showAvgV ? { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:avgData,
         borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true } : null;
@@ -1130,27 +1128,30 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
           const solidC = isDark?'rgba(255,255,255,0.45)':'rgba(0,0,0,0.38)';
           const textC  = isDark?'rgba(255,255,255,0.60)':'rgba(0,0,0,0.55)';
           const seasC  = isDark?'rgba(255,255,255,0.85)':'rgba(0,0,0,0.72)';
+          const off = (a,b) => ax.offsets[`${vreAvailSeasons[a]}|${vreAvailDaytypes[b]}`] || 0;
+          const spn = (a,b) => ax.spans[`${vreAvailSeasons[a]}|${vreAvailDaytypes[b]}`] || 0;
           for (let si=0;si<nS;si++) {
-            const ss = si*nDT*nT;
+            const ss = off(si,0);
+            const sw = vreAvailDaytypes.reduce((a,_,di)=>a+spn(si,di),0);
             // Season border
             if (si>0) {
               const bx=xScale.getPixelForValue(ss);
               ctx.save();ctx.strokeStyle=solidC;ctx.lineWidth=1.5;
               ctx.beginPath();ctx.moveTo(bx,top);ctx.lineTo(bx,bottom);ctx.stroke();ctx.restore();
             }
-            const sx = xScale.getPixelForValue(ss+nDT*nT/2);
+            const sx = xScale.getPixelForValue(ss+sw/2);
             ctx.save(); ctx.font='700 9px system-ui,sans-serif';
             ctx.fillStyle=seasC; ctx.textAlign='center'; ctx.textBaseline='bottom';
             ctx.fillText(vreAvailSeasons[si], sx, top-2); ctx.restore();
             for (let di=0;di<nDT;di++) {
-              const dts = ss+di*nT;
+              const dts = off(si,di);
               if (di>0) {
                 const lx=xScale.getPixelForValue(dts);
                 ctx.save(); ctx.strokeStyle=dashC; ctx.lineWidth=0.8;
                 ctx.setLineDash([3,3]);
                 ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();
               }
-              const midX=xScale.getPixelForValue(dts+nT/2);
+              const midX=xScale.getPixelForValue(dts+spn(si,di)/2);
               const w=hoursData?.[vreAvailSeasons[si]]?.[vreAvailDaytypes[di]]||0;
               const pct=w>0?` (${((w/totalDaysV)*100).toFixed(0)}%)`:'';
               ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);
@@ -1165,11 +1166,13 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
     }
 
     // Single season mode
+    const refDay = vreDay==='avg' ? vreAvailDaytypes[0] : vreDay;
+    const ax = buildSeasonAxis(timeSlices, vreSeason, [refDay]);
     const getP = (zone) => {
       const sp = vp[zone]?.[vreTech]?.[vreSeason];
       if (!sp) return null;
-      if (vreDay==='avg') { const days=Object.keys(sp); return days.length?Array.from({length:nT},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null; }
-      return sp[vreDay]||null;
+      if (vreDay==='avg') { const days=Object.keys(sp); return days.length?ax.slots.map(sl=>days.reduce((s,d)=>s+(sp[d][sl.i]||0),0)/days.length):null; }
+      return sp[vreDay] ? ax.slots.map(sl=>sp[vreDay][sl.i] ?? null) : null;
     };
     // Use allZones index for stable colors
     const zoneLines = allZones.flatMap((z, i) => {
@@ -1179,9 +1182,9 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
     });
     const allProf = allZones.map(z=>getP(z)).filter(Boolean);
     const techColor = VRE_COLOR[vreTech]||'#1E9AF5';
-    const avgLine = (showAvgV && allProf.length) ? { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:Array.from({length:nT},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length), borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
+    const avgLine = (showAvgV && allProf.length) ? { label:`${VRE_DISPLAY[vreTech]||vreTech} avg`, data:ax.slots.map((_,k)=>allProf.reduce((s,p)=>s+(p[k]||0),0)/allProf.length), borderColor:techColor, borderWidth:2.5, pointRadius:0, tension:0.35, fill:false } : null;
     const seasonLabel = `${vreSeason}${vreDay !== 'avg' ? ` — ${vreDay}` : ''}`;
-    return { chartData:{ labels:Array.from({length:nT},(_,i)=>sliceLabel(timeSlices,i,vreSeason,vreDay==='avg'?vreAvailDaytypes[0]:vreDay)), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null, seasonLabel };
+    return { chartData:{ labels:blockLabels(ax,timeSlices,vreSeason,refDay), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null, seasonLabel, xTicks:axisTicks(ax) };
   };
 
   const buildAvailData = () => {
@@ -1291,7 +1294,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
                           layout:{ padding:{ top:vreProfileMode==='full'?18:4, bottom:vreProfileMode==='full'?80:4 } },
                           scales:{
                             x:{ grid:{color:t.panelBorder,drawTicks:false},
-                              ticks:{ display:vreProfileMode!=='full', color:t.muted,font:{size:7},maxTicksLimit:12 },
+                              ticks:{ display:vreProfileMode!=='full', color:t.muted,font:{size:7},maxTicksLimit:12, ...(vd.xTicks||{}) },
                               title:{ display:vreProfileMode==='season'&&!!vd.seasonLabel, text:vd.seasonLabel||'', color:t.muted, font:{size:8} } },
                             y:{ min:0, max:1, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}},
                               title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}} },

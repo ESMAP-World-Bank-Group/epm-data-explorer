@@ -8,9 +8,10 @@ import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processGenData, processDemand, processDemandData, processNTC, processExtNTC, processTransmissionResults,
-  processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices, sliceLabel,
+  processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
+import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
 import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
@@ -790,29 +791,25 @@ export default function EpmCountryPage() {
 
   // ── Profile builder (Full Year + single season) ───────────────────────────────
   const buildProfileData = () => {
-    const nT       = timeSlices.nT;
     const isDark   = t.isDark;
     const showAvg  = !demandHidden.has('__avg__');
 
     if (demandProfileMode === 'full') {
       if (!firstZoneWithPf || !availDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
+      // x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one
+      const ax = buildTimeAxis(timeSlices, availSeasons, availDaytypes);
       const nDT = availDaytypes.length, nS = availSeasons.length;
-      const nPts = nS * nDT * nT;
+      const nPts = ax.slots.length;
       const zoneDs = visZoneIds.flatMap((z,i) => {
         if (demandHidden.has(z)) return [];
-        const data = [];
-        for (const s of availSeasons) for (const d of availDaytypes) {
-          const p = pf[z]?.[s]?.[d];
-          data.push(...(p ? p : new Array(nT).fill(null)));
-        }
+        const data = ax.slots.map(sl => pf[z]?.[sl.q]?.[sl.d]?.[sl.i] ?? null);
         if (!data.some(v=>v!==null)) return [];
         return [{ label:z, data, borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length], borderWidth:1.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true }];
       });
-      const avgData = [];
-      for (const s of availSeasons) for (const d of availDaytypes) {
-        const profs = visZoneIds.map(z=>pf[z]?.[s]?.[d]).filter(Boolean);
-        for (let h=0;h<nT;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
-      }
+      const avgData = ax.slots.map(sl => {
+        const profs = visZoneIds.map(z=>pf[z]?.[sl.q]?.[sl.d]).filter(Boolean);
+        return profs.length?profs.reduce((sum,p)=>sum+(p[sl.i]||0),0)/profs.length:null;
+      });
       const avgDs = showAvg ? { label:'avg', data:avgData, borderColor:'#1a5fa8', borderWidth:2.5, pointRadius:0, tension:0.3, fill:false, spanGaps:true } : null;
       const separatorPlugin = {
         id:'profSepC',
@@ -823,14 +820,16 @@ export default function EpmCountryPage() {
           const solidC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
           const textC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';
           const seasC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
+          const off=(a,b)=>ax.offsets[`${availSeasons[a]}|${availDaytypes[b]}`]||0;
+          const spn=(a,b)=>ax.spans[`${availSeasons[a]}|${availDaytypes[b]}`]||0;
           for(let si=0;si<nS;si++){
-            const ss=si*nDT*nT;
+            const ss=off(si,0);const sw=availDaytypes.reduce((a,_,di)=>a+spn(si,di),0);
             ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';
-            ctx.fillText(availSeasons[si],xS.getPixelForValue(ss+nDT*nT/2),top-2);ctx.restore();
+            ctx.fillText(availSeasons[si],xS.getPixelForValue(ss+sw/2),top-2);ctx.restore();
             for(let di=0;di<nDT;di++){
-              const dts=ss+di*nT;
+              const dts=off(si,di);
               if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
-              const midX=xS.getPixelForValue(dts+nT/2);
+              const midX=xS.getPixelForValue(dts+spn(si,di)/2);
               const w=hoursData?.[availSeasons[si]]?.[availDaytypes[di]]||0;
               const pct=w>0?` (${((w/totalDaysPf)*100).toFixed(0)}%)`:'';
               ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='9px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';
@@ -843,39 +842,40 @@ export default function EpmCountryPage() {
     }
 
     // Single season
+    const refDay = demandDay==='avg'?availDaytypes[0]:demandDay;
+    const ax = buildSeasonAxis(timeSlices, demandSeason, [refDay]);
     const getP = (zone) => {
       const sp=pf[zone]?.[demandSeason]; if(!sp) return null;
-      if(demandDay==='avg'){const days=Object.keys(sp);return days.length?Array.from({length:nT},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null;}
-      return sp[demandDay]||null;
+      if(demandDay==='avg'){const days=Object.keys(sp);return days.length?ax.slots.map(sl=>days.reduce((s,d)=>s+(sp[d][sl.i]||0),0)/days.length):null;}
+      return sp[demandDay]?ax.slots.map(sl=>sp[demandDay][sl.i]??null):null;
     };
     const zoneLines = visZoneIds.flatMap((z,i)=>{if(demandHidden.has(z))return[];const p=getP(z);return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[];});
     const allProf = visZoneIds.map(z=>getP(z)).filter(Boolean);
-    const avgLine = (showAvg&&allProf.length)?{label:'avg',data:Array.from({length:nT},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length),borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.35,fill:false}:null;
-    return { chartData:{ labels:Array.from({length:nT},(_,i)=>sliceLabel(timeSlices,i,demandSeason,demandDay==='avg'?availDaytypes[0]:demandDay)), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
+    const avgLine = (showAvg&&allProf.length)?{label:'avg',data:ax.slots.map((_,k)=>allProf.reduce((s,p)=>s+(p[k]||0),0)/allProf.length),borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.35,fill:false}:null;
+    return { chartData:{ labels:blockLabels(ax,timeSlices,demandSeason,refDay), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null, xTicks:axisTicks(ax) };
   };
 
   // ── VRE profile builder ───────────────────────────────────────────────────────
   const buildVREData = () => {
-    const nT = timeSlices.nT;
     const isDark = t.isDark;
     const showAvgV = !vreHidden.has('__avg__');
     const tech = activeVreTech;
 
     if (vreProfileMode === 'full') {
       if (!firstZoneWithVre || !vreAvailDaytypes.length) return { chartData:{ labels:[], datasets:[] }, plugin:null };
-      const nDT=vreAvailDaytypes.length, nS=vreAvailSeasons.length, nPts=nS*nDT*nT;
+      // x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one
+      const ax=buildTimeAxis(timeSlices,vreAvailSeasons,vreAvailDaytypes);
+      const nDT=vreAvailDaytypes.length, nS=vreAvailSeasons.length, nPts=ax.slots.length;
       const zoneDs = visZoneIds.flatMap((z,i)=>{
         if(vreHidden.has(z)) return [];
-        const data=[];
-        for(const s of vreAvailSeasons) for(const d of vreAvailDaytypes){const p=vp[z]?.[tech]?.[s]?.[d];data.push(...(p?p:new Array(nT).fill(null)));}
+        const data=ax.slots.map(sl=>vp[z]?.[tech]?.[sl.q]?.[sl.d]?.[sl.i]??null);
         if(!data.some(v=>v!==null)) return [];
         return [{label:z,data,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.5,pointRadius:0,tension:0.3,fill:false,spanGaps:true}];
       });
-      const avgData=[];
-      for(const s of vreAvailSeasons) for(const d of vreAvailDaytypes){
-        const profs=visZoneIds.map(z=>vp[z]?.[tech]?.[s]?.[d]).filter(Boolean);
-        for(let h=0;h<nT;h++) avgData.push(profs.length?profs.reduce((sum,p)=>sum+(p[h]||0),0)/profs.length:null);
-      }
+      const avgData=ax.slots.map(sl=>{
+        const profs=visZoneIds.map(z=>vp[z]?.[tech]?.[sl.q]?.[sl.d]).filter(Boolean);
+        return profs.length?profs.reduce((sum,p)=>sum+(p[sl.i]||0),0)/profs.length:null;
+      });
       const techColor=VRE_COLOR[tech]||'#1E9AF5';
       const avgDs=showAvgV?{label:`${VRE_DISPLAY[tech]||tech} avg`,data:avgData,borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.3,fill:false,spanGaps:true}:null;
       const separatorPlugin={
@@ -886,10 +886,11 @@ export default function EpmCountryPage() {
           const dashC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const solidC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
           const textC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seasC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
           for(let si=0;si<nS;si++){
-            const ss=si*nDT*nT;ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(vreAvailSeasons[si],xS.getPixelForValue(ss+nDT*nT/2),top-2);ctx.restore();
+            const off=(a,b)=>ax.offsets[`${vreAvailSeasons[a]}|${vreAvailDaytypes[b]}`]||0;const spn=(a,b)=>ax.spans[`${vreAvailSeasons[a]}|${vreAvailDaytypes[b]}`]||0;
+            const ss=off(si,0);const sw=vreAvailDaytypes.reduce((a,_,di)=>a+spn(si,di),0);ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(vreAvailSeasons[si],xS.getPixelForValue(ss+sw/2),top-2);ctx.restore();
             for(let di=0;di<nDT;di++){
-              const dts=ss+di*nT;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
-              const midX=xS.getPixelForValue(dts+nT/2);const w=hoursData?.[vreAvailSeasons[si]]?.[vreAvailDaytypes[di]]||0;const pct=w>0?` (${((w/totalDaysPf)*100).toFixed(0)}%)`:'';
+              const dts=off(si,di);if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
+              const midX=xS.getPixelForValue(dts+spn(si,di)/2);const w=hoursData?.[vreAvailSeasons[si]]?.[vreAvailDaytypes[di]]||0;const pct=w>0?` (${((w/totalDaysPf)*100).toFixed(0)}%)`:'';
               ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='9px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${vreAvailDaytypes[di]}${pct}`,0,0);ctx.restore();
             }
           }
@@ -899,12 +900,14 @@ export default function EpmCountryPage() {
     }
 
     // Single season
-    const getP=(zone)=>{const sp=vp[zone]?.[tech]?.[vreSeason];if(!sp)return null;if(vreDay==='avg'){const days=Object.keys(sp);return days.length?Array.from({length:nT},(_,h)=>days.reduce((s,d)=>s+(sp[d][h]||0),0)/days.length):null;}return sp[vreDay]||null;};
+    const refDay=vreDay==='avg'?vreAvailDaytypes[0]:vreDay;
+    const ax=buildSeasonAxis(timeSlices,vreSeason,[refDay]);
+    const getP=(zone)=>{const sp=vp[zone]?.[tech]?.[vreSeason];if(!sp)return null;if(vreDay==='avg'){const days=Object.keys(sp);return days.length?ax.slots.map(sl=>days.reduce((s,d)=>s+(sp[d][sl.i]||0),0)/days.length):null;}return sp[vreDay]?ax.slots.map(sl=>sp[vreDay][sl.i]??null):null;};
     const zoneLines=visZoneIds.flatMap((z,i)=>{if(vreHidden.has(z))return[];const p=getP(z);return p?[{label:z,data:p,borderColor:ZONE_PALETTE[i%ZONE_PALETTE.length],borderWidth:1.8,pointRadius:0,tension:0.35,fill:false}]:[];});
     const allProf=visZoneIds.map(z=>getP(z)).filter(Boolean);
     const techColor=VRE_COLOR[tech]||'#1E9AF5';
-    const avgLine=(showAvgV&&allProf.length)?{label:`${VRE_DISPLAY[tech]||tech} avg`,data:Array.from({length:nT},(_,h)=>allProf.reduce((s,p)=>s+(p[h]||0),0)/allProf.length),borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.35,fill:false}:null;
-    return { chartData:{ labels:Array.from({length:nT},(_,i)=>sliceLabel(timeSlices,i,vreSeason,vreDay==='avg'?vreAvailDaytypes[0]:vreDay)), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null };
+    const avgLine=(showAvgV&&allProf.length)?{label:`${VRE_DISPLAY[tech]||tech} avg`,data:ax.slots.map((_,k)=>allProf.reduce((s,p)=>s+(p[k]||0),0)/allProf.length),borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.35,fill:false}:null;
+    return { chartData:{ labels:blockLabels(ax,timeSlices,vreSeason,refDay), datasets:[...zoneLines,...(avgLine?[avgLine]:[])] }, plugin:null, xTicks:axisTicks(ax) };
   };
 
   // ── Availability builder ──────────────────────────────────────────────────────
@@ -1300,7 +1303,7 @@ export default function EpmCountryPage() {
                         options={{ ...cjDefaults(t),
                           layout:{padding:{top:demandProfileMode==='full'?18:4,bottom:demandProfileMode==='full'?80:4}},
                           scales:{
-                            x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
+                            x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12,...(pd.xTicks||{})}},
                             y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},min:0,title:{display:true,text:'Load factor',color:t.muted,font:{size:7}}},
                           }}}
                       />
@@ -1549,7 +1552,7 @@ export default function EpmCountryPage() {
                               options={{ ...cjDefaults(t),
                                 layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?80:4}},
                                 scales:{
-                                  x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12}},
+                                  x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12,...(vd.xTicks||{})}},
                                   y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}}},
                                 }}}
                             />
