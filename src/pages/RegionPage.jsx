@@ -12,7 +12,7 @@ import StatsPanel from '../components/StatsPanel';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
-  processGenData, processDemand, processTransmissionResults,
+  processGenData, processDemand, processDemandData, processTransmissionResults,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
   computeCentroid, normalizeFuel,
@@ -1791,15 +1791,17 @@ export default function RegionPage() {
       fetchEpmCSV(branch, activeFolder, rf('pHours', 'pHours.csv')),
       fetchZonesExtGeoJSON(branch, activeFolder),
       fetchEpmCSV(branch, activeFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw]) => {
-      const demandYears = (demandRaw || []).length
-        ? Object.keys(demandRaw[0]).filter(k => /^\d{4}$/.test(k)).sort()
-        : [];
+      fetchEpmCSV(branch, activeFolder, rf('pDemandData', 'load/pDemandData.csv')),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw, demandDataRaw]) => {
+      // Folders that carry a full load table instead of a forecast (v7.9 style) fall back to pDemandData
+      const demand = demandRaw?.length ? processDemand(demandRaw)
+                                       : processDemandData(demandDataRaw, hoursRaw);
+      const demandYears = availableYears(demand);
       const defaultYr = demandYears.find(y => parseInt(y) >= 2023) || demandYears[0];
       if (regionOrFolderChanged && defaultYr) setEpmYear(defaultYr);
       setEpmData(prev => ({
         gen:               genRaw    ? processGenData(genRaw)               : [],
-        demand:            demandRaw ? processDemand(demandRaw)             : [],
+        demand,
         ntc:               ntcRaw    ? processNTC(ntcRaw)                   : [],
         zcmap:             zcmapRaw  || [],
         demandProfileFull: profileRaw ? processDemandProfileFull(profileRaw) : {},

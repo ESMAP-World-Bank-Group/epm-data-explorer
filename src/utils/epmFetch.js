@@ -425,6 +425,53 @@ export function processDemand(rows) {
   }));
 }
 
+/** Hours per block: { season: { daytype: [h1, h2, ...] } }.
+ *  processHours() assumes every block of a row carries the same weight; older
+ *  folders (EPM v7.9 style, e.g. data_casa_2020) give one duration per block. */
+export function processHoursBlocks(rows) {
+  if (!rows?.length) return {};
+  const tCols = Object.keys(rows[0]).filter(k => /^t\d+$/.test(k))
+    .sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+  const out = {};
+  for (const r of rows) {
+    const q = rSeason(r), d = rDaytype(r);
+    if (!q || !d) continue;
+    if (!out[q]) out[q] = {};
+    out[q][d] = tCols.map(c => parseFloat(r[c]) || 0);
+  }
+  return out;
+}
+
+/** Demand given as a full load table instead of a forecast — pDemandData
+ *  (z, q, d, y, t1..tN, MW per block) folded into the shape processDemand()
+ *  returns, so the Demand tab works unchanged:
+ *    peak   = highest block MW of the year
+ *    energy = Σ block MW × block hours / 1000  (GWh)
+ *  Used as a fallback when load/pDemandForecast.csv is missing or header-only. */
+export function processDemandData(rows, hoursRows) {
+  if (!rows?.length) return [];
+  const hours = processHoursBlocks(hoursRows);
+  const tCols = Object.keys(rows[0]).filter(k => /^t\d+$/.test(k))
+    .sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+  const agg = {};   // zone -> { peak: {y: MW}, energy: {y: GWh} }
+  for (const r of rows) {
+    const z = rZone(r), y = (r.y || r.year || '').trim();
+    if (!z || !/^\d{4}$/.test(y)) continue;
+    const hRow = hours[rSeason(r)]?.[rDaytype(r)] || [];
+    if (!agg[z]) agg[z] = { peak: {}, energy: {} };
+    tCols.forEach((c, i) => {
+      const mw = parseFloat(r[c]) || 0;
+      if (mw <= 0) return;
+      agg[z].peak[y]   = Math.max(agg[z].peak[y] || 0, mw);
+      agg[z].energy[y] = (agg[z].energy[y] || 0) + mw * (hRow[i] || 0) / 1000;
+    });
+  }
+  return Object.entries(agg).flatMap(([zone, d]) => [
+    { zone, type: 'peak',   years: d.peak },
+    { zone, type: 'energy', years: d.energy },
+  ]);
+}
+
 /** Returns { z, zext, years: { '2024': maxMW, ... } }[] — max NTC over directions/quarters */
 export function processExtNTC(rows) {
   if (!rows?.length) return [];

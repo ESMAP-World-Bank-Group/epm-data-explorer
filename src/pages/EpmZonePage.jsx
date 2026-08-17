@@ -7,7 +7,7 @@ import { getT, mapStyle } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
-  processGenData, processDemand, processNTC, processTransmissionResults,
+  processGenData, processDemand, processDemandData, processNTC, processTransmissionResults,
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
@@ -243,10 +243,13 @@ export default function EpmZonePage() {
       fetchEpmCSV(branch, activeFolder, rf('pAvailabilityDefault', 'supply/pAvailabilityDefault.csv')),
       fetchEpmCSV(branch, activeFolder, rf('pFuelPrice', 'supply/pFuelPrice.csv')),
       fetchEpmCSV(branch, activeFolder, 'pHours.csv'),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw]) => {
+      fetchEpmCSV(branch, activeFolder, rf('pDemandData', 'load/pDemandData.csv')),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, demandDataRaw]) => {
       setEpmData(prev => ({
         gen:               genRaw    ? processGenData(genRaw)              : [],
-        demand:            demandRaw ? processDemand(demandRaw)            : [],
+        // Folders with a full load table instead of a forecast (v7.9 style) fall back to pDemandData
+        demand:            demandRaw?.length ? processDemand(demandRaw)
+                                             : processDemandData(demandDataRaw, hoursRaw),
         ntc:               ntcRaw    ? processNTC(ntcRaw)                  : [],
         zcmap:             zcmapRaw  || [],
         demandProfileFull: profileRaw ? processDemandProfileFull(profileRaw) : {},
