@@ -7,7 +7,7 @@ import { getT, mapStyle } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
-  processHours, processTransmissionResults, processPlants, processCosts, processExtNTC,
+  processHours, processTimeSlices, sliceLabel, processTransmissionResults, processPlants, processCosts, processExtNTC,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
 } from '../utils/epmFetch';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
@@ -184,6 +184,8 @@ export default function ResultsRegionPage() {
   const [showExtZones, setShowExtZones] = useState(false);
   const showExtRef     = useRef(false);
   const [hoursData,    setHoursData]    = useState({});
+  // Slice count comes from pHours: 24 for a chronological model, 6-7 for a load-block one.
+  const [slices,       setSlices]       = useState({nT:24,isHourly:true,hours:{}});
   const [runList,      setRunList]      = useState([]);
   const [outputDir,    setOutputDir]    = useState('epm/output');
   const [simRun,       setSimRun]       = useState(null);
@@ -265,7 +267,7 @@ export default function ResultsRegionPage() {
       fetchZonesOffgridGeoJSON(branch, dataFolder),
     ]).then(([zc, zGJ, lGJ, hr, zExt, extRaw, offGJ]) => {
       setZcmapRows(zc||[]); setZonesGJ(zGJ); setLinestringGJ(lGJ);
-      if (hr) setHoursData(processHours(hr));
+      if (hr) { setHoursData(processHours(hr)); setSlices(processTimeSlices(hr)); }
       setZonesExtGJ(zExt||null); setExtNtc(extRaw ? processExtNTC(extRaw) : []); setOffgridGJ(offGJ||null);
     });
   }, [region]);
@@ -773,28 +775,29 @@ export default function ResultsRegionPage() {
 
   // ── Dispatch ────────────────────────────────────────────────────────────────
   const buildDispatch = () => {
+    const nT=slices.nT;
     const sd=resultsData[dispScenario]; if(!sd||!activeDispZone||!refYear)return{chartData:{labels:[],datasets:[]},plugin:null};
     const zDisp=getZoneDisp(sd,activeDispZone,refYear); const isDark=t.isDark;
     const mcColor=isDark?'rgba(255,255,255,0.88)':'#1E3A8A';
     const seasons=dispAvailS, days=dispAvailD;
     if(dispMode==='full'&&seasons.length&&days.length){
-      const nS=seasons.length,nDT=days.length,nPts=nS*nDT*24;
+      const nS=seasons.length,nDT=days.length,nPts=nS*nDT*nT;
       const tfs=[...new Set(seasons.flatMap(q=>days.flatMap(d=>Object.values(zDisp[q]?.[d]||{}).flatMap(Object.keys))))].filter(t=>t!=='Demand').sort();
-      const datasets=tfs.map(tf=>({label:tf,fill:true,data:seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.[tf]||0))),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));
+      const datasets=tfs.map(tf=>({label:tf,fill:true,data:seasons.flatMap(s=>days.flatMap(d=>Array.from({length:nT},(_,h)=>zDisp[s]?.[d]?.[`t${h+1}`]?.[tf]||0))),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));
       const zP=activeDispZone==='__all__'?sd.price[allZones[0]]?.[refYear]||{}:sd.price[activeDispZone]?.[refYear]||{};
-      const pd=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>zP[s]?.[d]?.[`t${h+1}`]||null)));
+      const pd=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:nT},(_,h)=>zP[s]?.[d]?.[`t${h+1}`]||null)));
       if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:mcColor,borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});
       // Actual demand from dispatch (dark red dashed)
-      const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>{ const v=getDispDemand(sd,activeDispZone,allZones,refYear,s,d,h); return v!=null&&v>0?v:null; })));
+      const demData=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:nT},(_,h)=>{ const v=getDispDemand(sd,activeDispZone,allZones,refYear,s,d,h); return v!=null&&v>0?v:null; })));
       if(demData.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:demData,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});
       const sepPlugin={id:'dSep',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca)return;const dL=(data,yK,col,lw=1.5)=>{if(!data.some(v=>v!=null)||!sc[yK])return;ctx.save();ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.setLineDash([]);let mv=false;data.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc[yK].getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();};dL(demData,'y','#CC0000');dL(pd,'yR',mcColor,1);},afterDraw:(chart)=>{
         const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
         const{top,bottom}=chartArea;const xS=scales.x;
         const dC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const sC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
         const tC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
-        for(let si=0;si<nS;si++){const ss=si*nDT*24;ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(seasons[si],xS.getPixelForValue(ss+nDT*12),top-2);ctx.restore();
-          for(let di=0;di<nDT;di++){const dts=ss+di*24;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?sC:dC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
-            const midX=xS.getPixelForValue(dts+12);const w=hoursData?.[seasons[si]]?.[days[di]]||0;const pct=w>0?` (${((w/totalDays)*100).toFixed(0)}%)`:'';
+        for(let si=0;si<nS;si++){const ss=si*nDT*nT;ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(seasons[si],xS.getPixelForValue(ss+nDT*nT/2),top-2);ctx.restore();
+          for(let di=0;di<nDT;di++){const dts=ss+di*nT;if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?sC:dC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
+            const midX=xS.getPixelForValue(dts+nT/2);const w=hoursData?.[seasons[si]]?.[days[di]]||0;const pct=w>0?` (${((w/totalDays)*100).toFixed(0)}%)`:'';
             ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='8px system-ui,sans-serif';ctx.fillStyle=tC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${days[di]}${pct}`,0,0);ctx.restore();
           }
         }
@@ -803,20 +806,20 @@ export default function ResultsRegionPage() {
     }
     const sp=zDisp[dispSeason];if(!sp)return{chartData:{labels:[],datasets:[]},plugin:null};
     const tfs2=[...new Set(Object.values(sp).flatMap(d=>Object.values(d).flatMap(Object.keys)))].filter(t=>t!=='Demand').sort();
-    const getData=(tf)=>{if(dispDay==='avg'){const ds=Object.keys(sp);return Array.from({length:24},(_,h)=>ds.reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(ds.length,1));}return Array.from({length:24},(_,h)=>sp[dispDay]?.[`t${h+1}`]?.[tf]||0);};
+    const getData=(tf)=>{if(dispDay==='avg'){const ds=Object.keys(sp);return Array.from({length:nT},(_,h)=>ds.reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(ds.length,1));}return Array.from({length:nT},(_,h)=>sp[dispDay]?.[`t${h+1}`]?.[tf]||0);};
     const datasets2=tfs2.map(tf=>({label:tf,fill:true,data:getData(tf),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));
     const demLine=dispAvailD.length>0
-      ?Array.from({length:24},(_,h)=>{
+      ?Array.from({length:nT},(_,h)=>{
           const ds=dispDay==='avg'?dispAvailD:[dispDay];
           const vals=ds.map(d=>getDispDemand(sd,activeDispZone,allZones,refYear,dispSeason,d,h)).filter(v=>v!=null&&v>0);
           if(!vals.length)return null;
           return dispDay==='avg'?vals.reduce((a,b)=>a+b,0)/vals.length:vals[0];
         })
       :[]; if(demLine.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demLine,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});
-    const zPr=sd.price[activeDispZone]?.[refYear]||{}; const prLine=Array.from({length:24},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
+    const zPr=sd.price[activeDispZone]?.[refYear]||{}; const prLine=Array.from({length:nT},(_,h)=>{const d=dispDay==='avg'?Object.keys(sp)[0]:dispDay;return zPr[dispSeason]?.[d]?.[`t${h+1}`]||null;});
     if(prLine.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prLine,yAxisID:'yR',borderColor:mcColor,borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});
     const linePlugin=(demLine.some(v=>v)||prLine.some(v=>v!=null))?{id:'lineS',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca)return;const dL=(data,yK,col,lw=1.5)=>{if(!data.some(v=>v!=null)||!sc[yK])return;ctx.save();ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.setLineDash([]);let mv=false;data.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc[yK].getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();};dL(demLine,'y','#CC0000');dL(prLine,'yR',mcColor,1);}}:null;
-    return{chartData:{labels:Array.from({length:24},(_,i)=>`${i+1}h`),datasets:datasets2},plugin:linePlugin};
+    return{chartData:{labels:Array.from({length:nT},(_,i)=>sliceLabel(slices,i,dispSeason,dispDay==='avg'?Object.keys(sp)[0]:dispDay)),datasets:datasets2},plugin:linePlugin};
   };
 
   // ── Trade ───────────────────────────────────────────────────────────────────
@@ -1081,6 +1084,7 @@ export default function ResultsRegionPage() {
 
   // ── Dispatch Δ ────────────────────────────────────────────────────────────
   const buildDispatchDelta = () => {
+    const nT=slices.nT;
     const cmpScen=cmpRef;
     if(!cmpScen||cmpScen===dispScenario||!refYear||!activeDispZone||!resultsData[cmpScen])return{chartData:{labels:[],datasets:[]},plugin:null};
     const sdA=resultsData[dispScenario],sdB=resultsData[cmpScen];
@@ -1099,9 +1103,9 @@ export default function ResultsRegionPage() {
       return{chartData:{labels,datasets:addMC(ds,labels,prA||[],prB||[])},plugin:null};
     };
     if(dispMode==='full'&&seasons.length&&days.length){
-      const nPts=seasons.length*days.length*24;
+      const nPts=seasons.length*days.length*nT;
       const tfs=[...new Set([zA,zB].flatMap(z=>seasons.flatMap(s=>days.flatMap(d=>Object.values(z[s]?.[d]||{}).flatMap(Object.keys)))))].filter(t=>t!=='Demand').sort();
-      const pts=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:24},(_,h)=>[s,d,h])));
+      const pts=seasons.flatMap(s=>days.flatMap(d=>Array.from({length:nT},(_,h)=>[s,d,h])));
       const zoneKey=activeDispZone==='__all__'?allZones[0]:activeDispZone;
       const prA=pts.map(([s,d,h])=>sdA.price[zoneKey]?.[refYear]?.[s]?.[d]?.[`t${h+1}`]??null);
       const prB=pts.map(([s,d,h])=>sdB.price[zoneKey]?.[refYear]?.[s]?.[d]?.[`t${h+1}`]??null);
@@ -1114,9 +1118,9 @@ export default function ResultsRegionPage() {
     const gv=(sp,h,tf)=>dispDay==='avg'?Object.keys(sp||{}).reduce((s,d)=>s+(sp[d]?.[`t${h+1}`]?.[tf]||0),0)/Math.max(Object.keys(sp||{}).length,1):(sp?.[dispDay]?.[`t${h+1}`]?.[tf]||0);
     const zoneKey=activeDispZone==='__all__'?allZones[0]:activeDispZone;
     const priceA=sdA.price[zoneKey]?.[refYear]?.[dispSeason]||{};const priceB=sdB.price[zoneKey]?.[refYear]?.[dispSeason]||{};
-    const pA=Array.from({length:24},(_,h)=>dispDay==='avg'?Object.keys(priceA).reduce((s,d)=>s+(priceA[d]?.[`t${h+1}`]??0),0)/Math.max(Object.keys(priceA).length,1):(priceA[dispDay]?.[`t${h+1}`]??null));
-    const pB=Array.from({length:24},(_,h)=>dispDay==='avg'?Object.keys(priceB).reduce((s,d)=>s+(priceB[d]?.[`t${h+1}`]??0),0)/Math.max(Object.keys(priceB).length,1):(priceB[dispDay]?.[`t${h+1}`]??null));
-    return mkDatasets(tfs,(i,tf)=>gv(spA,i,tf),(i,tf)=>gv(spB,i,tf),24,Array.from({length:24},(_,i)=>`${i+1}h`),pA,pB);
+    const pA=Array.from({length:nT},(_,h)=>dispDay==='avg'?Object.keys(priceA).reduce((s,d)=>s+(priceA[d]?.[`t${h+1}`]??0),0)/Math.max(Object.keys(priceA).length,1):(priceA[dispDay]?.[`t${h+1}`]??null));
+    const pB=Array.from({length:nT},(_,h)=>dispDay==='avg'?Object.keys(priceB).reduce((s,d)=>s+(priceB[d]?.[`t${h+1}`]??0),0)/Math.max(Object.keys(priceB).length,1):(priceB[dispDay]?.[`t${h+1}`]??null));
+    return mkDatasets(tfs,(i,tf)=>gv(spA,i,tf),(i,tf)=>gv(spB,i,tf),nT,Array.from({length:nT},(_,i)=>sliceLabel(slices,i,dispSeason,dispDay==='avg'?dispAvailD[0]:dispDay)),pA,pB);
   };
 
   // ── Plants compare ────────────────────────────────────────────────────────

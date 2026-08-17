@@ -551,6 +551,7 @@ export function availableYears(rows) {
  *  Returns { zone: { season: { daytype: number[24] } } } */
 export function processDemandProfileFull(rows) {
   if (!rows?.length) return {};
+  const nT = sliceCols(rows[0]).length || 24;   // 24 hours, or a handful of load blocks
   const out = {};
   for (const r of rows) {
     const z = rZone(r);
@@ -559,15 +560,17 @@ export function processDemandProfileFull(rows) {
     if (!z || !s || !d) continue;
     if (!out[z])       out[z]       = {};
     if (!out[z][s])    out[z][s]    = {};
-    out[z][s][d] = Array.from({ length: 24 }, (_, i) => rT(r, i + 1));
+    out[z][s][d] = Array.from({ length: nT }, (_, i) => rT(r, i + 1));
   }
   return out;
 }
 
 /** VRE + ROR generation profiles.
- *  Returns { zone: { tech: { season: { daytype: number[24] } } } } */
+ *  Returns { zone: { tech: { season: { daytype: number[] } } } }, one value per
+ *  time slice of the model — 24 for a chronological one, fewer for load blocks. */
 export function processVREProfile(rows) {
   if (!rows?.length) return {};
+  const nT = sliceCols(rows[0]).length || 24;
   const out = {};
   for (const r of rows) {
     const z    = rZone(r);
@@ -578,7 +581,7 @@ export function processVREProfile(rows) {
     if (!out[z])          out[z]          = {};
     if (!out[z][tech])    out[z][tech]    = {};
     if (!out[z][tech][s]) out[z][tech][s] = {};
-    out[z][tech][s][d] = Array.from({ length: 24 }, (_, i) => rT(r, i + 1));
+    out[z][tech][s][d] = Array.from({ length: nT }, (_, i) => rT(r, i + 1));
   }
   return out;
 }
@@ -602,21 +605,72 @@ export function processAvailability(rows) {
   return out;
 }
 
-/** Representative day weights from pHours.csv.
- *  Returns { season: { daytype: number } } — number = days represented */
+/** t1, t2, … column names of a pHours-like row, in slice order (t01 and t1 both occur). */
+function sliceCols(row) {
+  return Object.keys(row || {}).filter(k => /^t\d+$/i.test(k))
+    .sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
+}
+
+/** Weight of each representative (season, daytype) from pHours.csv.
+ *  Returns { season: { daytype: number } }, the number being the hours the group
+ *  stands for over the year. Only ever used as a share of the total, so the unit
+ *  does not matter — what matters is summing the row instead of reading one cell,
+ *  because in a load-block model the cells hold different durations. */
 export function processHours(rows) {
   if (!rows?.length) return {};
+  const cols = sliceCols(rows[0]);
   const out = {};
   for (const r of rows) {
     const q = r.q || r.Q || r.season || '';
     const d = r.d || r.D || r.daytype || '';
     if (!q || !d) continue;
-    // Weight = any t value (all identical per row in pHours)
-    const w = rT(r, 1);
+    const w = cols.reduce((s, c) => s + (parseFloat(r[c]) || 0), 0);
     if (!out[q]) out[q] = {};
     out[q][d] = w;
   }
   return out;
+}
+
+/** Time-slice structure from pHours.csv.
+ *  Two kinds of EPM model share this file: chronological ones, with 24 one-hour
+ *  slices per representative day, and load-block ones, with as few as 6 slices of
+ *  very unequal length (CASA 2020: 540 h, 445 h, 270 h, …, plus a 7th used only by
+ *  the 130-hour peak season). Charts must take their slice count from here rather
+ *  than assume 24, or the slices a model does not have appear as a flat zero tail.
+ *  Returns { nT, isHourly, hours: { season: { daytype: { t1: hours, … } } } } */
+export function processTimeSlices(rows) {
+  const out = { nT: 24, isHourly: true, hours: {} };
+  if (!rows?.length) return out;
+  const cols = sliceCols(rows[0]);
+  if (!cols.length) return out;
+
+  let nT = 0;
+  for (const r of rows) {
+    const q = r.q || r.Q || r.season || '';
+    const d = r.d || r.D || r.daytype || '';
+    if (!q || !d) continue;
+    const per = {};
+    cols.forEach((c, i) => {
+      const v = parseFloat(r[c]);
+      if (!isFinite(v) || v <= 0) return;   // blank cell: the season skips this slice
+      per[`t${i + 1}`] = v;
+      nT = Math.max(nT, i + 1);
+    });
+    if (!out.hours[q]) out.hours[q] = {};
+    out.hours[q][d] = per;
+  }
+  out.nT = nT || 24;
+  out.isHourly = out.nT === 24;
+  return out;
+}
+
+/** X-axis label of slice i (0-based). Hours keep reading as hours; blocks say t3
+ *  and, when the season is known, how many hours that block stands for — "3h" on a
+ *  270-hour block would be a lie. */
+export function sliceLabel(slices, i, q, d) {
+  if (slices?.isHourly !== false) return `${i + 1}h`;
+  const h = q && d ? slices.hours?.[q]?.[d]?.[`t${i + 1}`] : null;
+  return h ? `t${i + 1} · ${Math.round(h)} h` : `t${i + 1}`;
 }
 
 /** Fuel price trajectories.
