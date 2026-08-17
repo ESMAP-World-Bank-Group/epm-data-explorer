@@ -19,7 +19,7 @@ import {
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
-import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
+import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
@@ -2092,7 +2092,6 @@ export default function RegionPage() {
 
         // ── Areas of the modelled countries that belong to no zone ──────
         addOffgridLayers(map, tv, epmData.offgridGJ);
-        bindOffgridHandlers(map, popup);
 
         // Trigger donut rendering via pieMode effect
         setMapLoaded(n => n + 1);

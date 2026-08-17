@@ -12,7 +12,7 @@ import {
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
-import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
+import { addOffgridLayers } from '../utils/offgridZones';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -519,13 +519,12 @@ export default function ResultsRegionPage() {
 
   useEffect(() => { showExtRef.current = showExtZones; setExtZonesVisible(mapRef.current, showExtZones); }, [showExtZones]);
 
-  // Off-grid areas (no toggle: the gap must explain itself). Independent of the ext
-  // layers above, which return early when a model has no external neighbours.
+  // Off-grid areas (no toggle): painted like the rest of the country so the map has
+  // no hole. Independent of the ext layers above, which return early without them.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || mapLoadedCount===0 || !offgridGJ || map.getSource('offgrid-zones')) return;
     addOffgridLayers(map, t, offgridGJ);
-    bindOffgridHandlers(map, new maplibregl.Popup({ closeButton:false, closeOnClick:false, offset:10, className:`popup-${theme}` }));
   }, [mapLoadedCount, offgridGJ, theme]); // eslint-disable-line
 
   // ── Update NTC + price dots when data changes ────────────────────────────────

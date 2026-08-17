@@ -12,7 +12,7 @@ import {
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
-import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
+import { addOffgridLayers } from '../utils/offgridZones';
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 const TECHFUEL_COLORS = { Nuclear:'#C8A8F0',Coal:'#808890',Gas:'#9A7040',CCGT:'#B8921A',OCGT:'#C4A820',Diesel:'#6A7888',HFO:'#7A7068',Oil:'#7A7068',Biomass:'#52C860',Waste:'#8A9098',Geothermal:'#D4A820',Reservoir:'#1E9AF5',ROR:'#5DADE2',ReservoirHydro:'#1E9AF5',PSH:'#0D7680',Solar:'#FFD700',PV:'#FFD700',CSP:'#E8C547',RPV:'#FFD700','Onshore Wind':'#44DAEC',OnshoreWind:'#44DAEC','Offshore Wind':'#7CC8FA',OffshoreWind:'#7CC8FA',Battery:'#A3D5FF',Storage:'#AED6F1',ICE:'#6A7888',ST:'#C8A8F0' };
@@ -171,13 +171,12 @@ export default function ResultsZonePage() {
   },[mapLoadedCount,zonesGJ,linestringGJ,zonesExtGJ,extNtc,showExtZones,theme]); // eslint-disable-line
   useEffect(()=>{showExtRef.current=showExtZones;setExtZonesVisible(mapRef.current,showExtZones);},[showExtZones]);
 
-  // Off-grid areas (no toggle: the gap must explain itself). Independent of the ext
-  // layers above, which return early when a model has no external neighbours.
+  // Off-grid areas (no toggle): painted like the rest of the country so the map has
+  // no hole. Independent of the ext layers above, which return early without them.
   useEffect(()=>{
     const map=mapRef.current;
     if(!map||mapLoadedCount===0||!offgridGJ||map.getSource('offgrid-zones'))return;
     addOffgridLayers(map,t,offgridGJ);
-    bindOffgridHandlers(map,new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`}));
   },[mapLoadedCount,offgridGJ,theme]); // eslint-disable-line
 
   // Update NTC

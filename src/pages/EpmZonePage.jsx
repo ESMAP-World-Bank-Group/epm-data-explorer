@@ -12,7 +12,7 @@ import {
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
-import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
+import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
@@ -405,7 +405,6 @@ export default function EpmZonePage() {
 
       // ── Areas of the modelled countries that belong to no zone ─────────────
       addOffgridLayers(map, tv, epmData.offgridGJ);
-      bindOffgridHandlers(map, popup);
 
       // NTC lines
       {

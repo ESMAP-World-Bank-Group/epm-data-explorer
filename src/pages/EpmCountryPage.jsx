@@ -13,7 +13,7 @@ import {
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
-import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
+import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 
@@ -517,7 +517,6 @@ export default function EpmCountryPage() {
 
       // ── Areas of the modelled countries that belong to no zone ─────────────
       addOffgridLayers(map, tv, epmData.offgridGJ);
-      bindOffgridHandlers(map, popup);
 
       // Donuts + NTC data are drawn / updated in place by the effects below.
       setMapLoadedCount(c => c + 1);
