@@ -146,6 +146,19 @@ regions:
       - {iso: TKM, name: Turkmenistan}
       - {iso: UZB, name: Uzbekistan}
 
+  - id: casa
+    name: Central Asia - South Asia (CASA)
+    status: available
+    color: "#7A5AA8"
+    countries:
+      - {iso: KAZ, name: Kazakhstan}
+      - {iso: KGZ, name: Kyrgyzstan}
+      - {iso: TJK, name: Tajikistan}
+      - {iso: TKM, name: Turkmenistan}
+      - {iso: UZB, name: Uzbekistan}
+      - {iso: AFG, name: Afghanistan}
+      - {iso: PAK, name: Pakistan}
+
   - id: asean
     name: ASEAN Power Grid
     status: available
