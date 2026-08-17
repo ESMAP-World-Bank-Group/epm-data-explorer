@@ -10,7 +10,7 @@ import {
 import CapacityChart from '../components/CapacityChart';
 import StatsPanel from '../components/StatsPanel';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList, fetchDataFolderList,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processGenData, processDemand, processDemandData, processTransmissionResults,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
@@ -18,6 +18,7 @@ import {
   computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
+import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
@@ -1792,7 +1793,8 @@ export default function RegionPage() {
       fetchZonesExtGeoJSON(branch, activeFolder),
       fetchEpmCSV(branch, activeFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),
       fetchEpmCSV(branch, activeFolder, rf('pDemandData', 'load/pDemandData.csv')),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw, demandDataRaw]) => {
+      fetchZonesOffgridGeoJSON(branch, activeFolder),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw, demandDataRaw, offgridGJ]) => {
       // Folders that carry a full load table instead of a forecast (v7.9 style) fall back to pDemandData
       const demand = demandRaw?.length ? processDemand(demandRaw)
                                        : processDemandData(demandDataRaw, hoursRaw);
@@ -1813,6 +1815,7 @@ export default function RegionPage() {
         linestringGJ: (regionOrFolderChanged || zcmapChanged || !prev) ? linestringGJ : prev.linestringGJ,
         zonesGJ:      (regionOrFolderChanged || zcmapChanged || !prev) ? zonesGJ      : prev.zonesGJ,
         zonesExtGJ:   (regionOrFolderChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
+        offgridGJ:    (regionOrFolderChanged || !prev) ? offgridGJ    : prev.offgridGJ,
         branch,
       }));
     }).finally(() => setEpmLoading(false));
@@ -2077,6 +2080,10 @@ export default function RegionPage() {
         const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids);
         addExtZoneLayers(map, tv, extData);
         bindExtZoneHandlers(map, popup, epmData.extNtc || [], extData.extNtcYr);
+
+        // ── Areas of the modelled countries that belong to no zone ──────
+        addOffgridLayers(map, tv, epmData.offgridGJ);
+        bindOffgridHandlers(map, popup);
 
         // Trigger donut rendering via pieMode effect
         setMapLoaded(n => n + 1);

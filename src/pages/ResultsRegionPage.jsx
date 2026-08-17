@@ -5,12 +5,13 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTransmissionResults, processPlants, processCosts, processExtNTC,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
 } from '../utils/epmFetch';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
+import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,7 @@ export default function ResultsRegionPage() {
   const [zonesGJ,      setZonesGJ]      = useState(null);
   const [linestringGJ, setLinestringGJ] = useState(null);
   const [zonesExtGJ,   setZonesExtGJ]   = useState(null);
+  const [offgridGJ,    setOffgridGJ]    = useState(null);
   const [extNtc,       setExtNtc]       = useState([]);
   const [showExtZones, setShowExtZones] = useState(false);
   const showExtRef     = useRef(false);
@@ -260,10 +262,11 @@ export default function ResultsRegionPage() {
       fetchEpmCSV(branch, dataFolder, 'pHours.csv'),
       fetchZonesExtGeoJSON(branch, dataFolder),
       fetchEpmCSV(branch, dataFolder, 'trade/pExtTransferLimit.csv'),
-    ]).then(([zc, zGJ, lGJ, hr, zExt, extRaw]) => {
+      fetchZonesOffgridGeoJSON(branch, dataFolder),
+    ]).then(([zc, zGJ, lGJ, hr, zExt, extRaw, offGJ]) => {
       setZcmapRows(zc||[]); setZonesGJ(zGJ); setLinestringGJ(lGJ);
       if (hr) setHoursData(processHours(hr));
-      setZonesExtGJ(zExt||null); setExtNtc(extRaw ? processExtNTC(extRaw) : []);
+      setZonesExtGJ(zExt||null); setExtNtc(extRaw ? processExtNTC(extRaw) : []); setOffgridGJ(offGJ||null);
     });
   }, [region]);
 
@@ -512,6 +515,15 @@ export default function ResultsRegionPage() {
   }, [mapLoadedCount, zonesGJ, linestringGJ, zonesExtGJ, extNtc, showExtZones, theme]); // eslint-disable-line
 
   useEffect(() => { showExtRef.current = showExtZones; setExtZonesVisible(mapRef.current, showExtZones); }, [showExtZones]);
+
+  // Off-grid areas (no toggle: the gap must explain itself). Independent of the ext
+  // layers above, which return early when a model has no external neighbours.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || mapLoadedCount===0 || !offgridGJ || map.getSource('offgrid-zones')) return;
+    addOffgridLayers(map, t, offgridGJ);
+    bindOffgridHandlers(map, new maplibregl.Popup({ closeButton:false, closeOnClick:false, offset:10, className:`popup-${theme}` }));
+  }, [mapLoadedCount, offgridGJ, theme]); // eslint-disable-line
 
   // ── Update NTC + price dots when data changes ────────────────────────────────
   useEffect(() => {

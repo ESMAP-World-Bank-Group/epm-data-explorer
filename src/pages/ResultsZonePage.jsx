@@ -5,12 +5,13 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchZonesExtGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
+  fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTransmissionResults, processPlants, processExtNTC,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
 } from '../utils/epmFetch';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
+import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 const TECHFUEL_COLORS = { Nuclear:'#C8A8F0',Coal:'#808890',Gas:'#9A7040',CCGT:'#B8921A',OCGT:'#C4A820',Diesel:'#6A7888',HFO:'#7A7068',Oil:'#7A7068',Biomass:'#52C860',Waste:'#8A9098',Geothermal:'#D4A820',Reservoir:'#1E9AF5',ROR:'#5DADE2',ReservoirHydro:'#1E9AF5',PSH:'#0D7680',Solar:'#FFD700',PV:'#FFD700',CSP:'#E8C547',RPV:'#FFD700','Onshore Wind':'#44DAEC',OnshoreWind:'#44DAEC','Offshore Wind':'#7CC8FA',OffshoreWind:'#7CC8FA',Battery:'#A3D5FF',Storage:'#AED6F1',ICE:'#6A7888',ST:'#C8A8F0' };
@@ -42,6 +43,7 @@ export default function ResultsZonePage() {
   const [zonesGJ,      setZonesGJ]      = useState(null);
   const [linestringGJ, setLinestringGJ] = useState(null);
   const [zonesExtGJ,   setZonesExtGJ]   = useState(null);
+  const [offgridGJ,    setOffgridGJ]    = useState(null);
   const [extNtc,       setExtNtc]       = useState([]);
   const [showExtZones, setShowExtZones] = useState(false);
   const showExtRef     = useRef(false);
@@ -70,7 +72,7 @@ export default function ResultsZonePage() {
   useEffect(()=>{hoursDataRef.current=hoursData;},[hoursData]);
 
   useEffect(()=>{track('results_view',{type:'zone',region:regionId,zone:zoneIdDecoded});fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,zoneIdDecoded]);
-  useEffect(()=>{if(!region?.epm)return;const{branch,dataFolder}=region.epm;Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchZonesGeoJSON(branch,dataFolder),fetchLinestringGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'pHours.csv'),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'trade/pExtTransferLimit.csv')]).then(([zc,zGJ,lGJ,hr,zExt,extRaw])=>{setZcmapRows(zc||[]);setZonesGJ(zGJ);setLinestringGJ(lGJ);if(hr)setHoursData(processHours(hr));setZonesExtGJ(zExt||null);setExtNtc(extRaw?processExtNTC(extRaw):[]);});},[region]);
+  useEffect(()=>{if(!region?.epm)return;const{branch,dataFolder}=region.epm;Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchZonesGeoJSON(branch,dataFolder),fetchLinestringGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'pHours.csv'),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'trade/pExtTransferLimit.csv'),fetchZonesOffgridGeoJSON(branch,dataFolder)]).then(([zc,zGJ,lGJ,hr,zExt,extRaw,offGJ])=>{setZcmapRows(zc||[]);setZonesGJ(zGJ);setLinestringGJ(lGJ);if(hr)setHoursData(processHours(hr));setZonesExtGJ(zExt||null);setExtNtc(extRaw?processExtNTC(extRaw):[]);setOffgridGJ(offGJ||null);});},[region]);
   useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);const{branch,outputDir:fixedDir,simRuns:fixedRuns}=region.epm;if(fixedDir){setOutputDir(fixedDir);const runs=(fixedRuns||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);setLoadingRuns(false);}else{resolveOutputDir(branch).then(dir=>{setOutputDir(dir);return fetchRunList(branch,dir);}).then(names=>{const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>setLoadingRuns(false));}},[region]);
   useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length)setScenario(s[0]);});},[region,simRun,outputDir]);
   useEffect(()=>{
@@ -165,6 +167,15 @@ export default function ResultsZonePage() {
     setExtZonesVisible(map,showExtRef.current);
   },[mapLoadedCount,zonesGJ,linestringGJ,zonesExtGJ,extNtc,showExtZones,theme]); // eslint-disable-line
   useEffect(()=>{showExtRef.current=showExtZones;setExtZonesVisible(mapRef.current,showExtZones);},[showExtZones]);
+
+  // Off-grid areas (no toggle: the gap must explain itself). Independent of the ext
+  // layers above, which return early when a model has no external neighbours.
+  useEffect(()=>{
+    const map=mapRef.current;
+    if(!map||mapLoadedCount===0||!offgridGJ||map.getSource('offgrid-zones'))return;
+    addOffgridLayers(map,t,offgridGJ);
+    bindOffgridHandlers(map,new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`}));
+  },[mapLoadedCount,offgridGJ,theme]); // eslint-disable-line
 
   // Update NTC
   useEffect(()=>{

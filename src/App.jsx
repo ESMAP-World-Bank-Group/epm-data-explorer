@@ -15,7 +15,7 @@ import AboutPage from './pages/AboutPage';
 import ContactPage from './pages/ContactPage';
 import { getT } from './constants';
 
-export const ThemeCtx = createContext({ theme: 'fog', setTheme: () => {} });
+export const ThemeCtx = createContext({ theme: 'paper', setTheme: () => {} });
 export const useTheme = () => useContext(ThemeCtx);
 
 class ErrorBoundary extends Component {
@@ -40,7 +40,7 @@ class ErrorBoundary extends Component {
 export default function App() {
   const [theme, setTheme] = useState(() => {
     const p = new URLSearchParams(window.location.search).get('theme');
-    return (p && THEME_LIST.includes(p)) ? p : 'slate';
+    return (p && THEME_LIST.includes(p)) ? p : 'paper';
   });
   const t = getT(theme);
 

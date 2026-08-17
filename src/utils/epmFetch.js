@@ -298,6 +298,17 @@ export async function fetchZonesExtGeoJSON(branch, dataFolder) {
   } catch { return null; }
 }
 
+/** Areas inside the modelled countries that belong to no zone (see utils/offgridZones).
+ *  Optional: models without the file get null, and no layer is drawn. */
+export async function fetchZonesOffgridGeoJSON(branch, dataFolder) {
+  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/zones_offgrid.geojson`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
 export async function fetchEpmCSV(branch, dataFolder, relPath) {
   const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/${relPath}`;
   try {

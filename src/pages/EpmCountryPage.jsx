@@ -5,13 +5,14 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZcmapList, fetchDataFolderList,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processGenData, processDemand, processDemandData, processNTC, processExtNTC, processTransmissionResults,
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours,
   availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
 } from '../utils/epmFetch';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
+import { addOffgridLayers, bindOffgridHandlers } from '../utils/offgridZones';
 import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 
@@ -297,7 +298,8 @@ export default function EpmCountryPage() {
       fetchZonesExtGeoJSON(branch, activeFolder),
       fetchEpmCSV(branch, activeFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),
       fetchEpmCSV(branch, activeFolder, rf('pDemandData', 'load/pDemandData.csv')),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw, demandDataRaw]) => {
+      fetchZonesOffgridGeoJSON(branch, activeFolder),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw, demandDataRaw, offgridGJ]) => {
       setEpmData(prev => ({
         gen:              genRaw     ? processGenData(genRaw)              : [],
         // Folders with a full load table instead of a forecast (v7.9 style) fall back to pDemandData
@@ -315,6 +317,7 @@ export default function EpmCountryPage() {
         linestringGJ: (regionOrFolderChanged || zcmapChanged || !prev) ? linestringGJ : prev.linestringGJ,
         zonesGJ:      (regionOrFolderChanged || zcmapChanged || !prev) ? zonesGJ      : prev.zonesGJ,
         zonesExtGJ:   (regionOrFolderChanged || zcmapChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
+        offgridGJ:    (regionOrFolderChanged || zcmapChanged || !prev) ? offgridGJ    : prev.offgridGJ,
         branch,
       }));
     }).finally(() => setLoading(false));
@@ -508,6 +511,10 @@ export default function EpmCountryPage() {
         addExtZoneLayers(map, tv, extData);
         bindExtZoneHandlers(map, popup, extNtc, extData.extNtcYr);
       }
+
+      // ── Areas of the modelled countries that belong to no zone ─────────────
+      addOffgridLayers(map, tv, epmData.offgridGJ);
+      bindOffgridHandlers(map, popup);
 
       // Donuts + NTC data are drawn / updated in place by the effects below.
       setMapLoadedCount(c => c + 1);
