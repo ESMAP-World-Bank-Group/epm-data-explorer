@@ -23,7 +23,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, raiseBoundaries } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
 
 // chart.js via CDN — no npm dep
 function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey, onClickYear }) {
@@ -2124,6 +2124,8 @@ export default function RegionPage() {
         map.addLayer({ id: 'region-border', type: 'line', source: 'countries',
           filter: ['in', ['get', 'ISO_A3'], ['literal', isos]],
           paint: { 'line-color': hl.border, 'line-width': hl.borderW, 'line-opacity': 0.9 } });
+        addRegionCoast(map, { areas: region.non_determined, color: hl.border,
+          width: hl.borderW, opacity: 0.9 });
 
         const fuels = new Set();
         for (const f of plantsGJ.features) {

@@ -141,6 +141,37 @@ export function regionFilter(isos, areas = []) {
 }
 
 /**
+ * Draw the coastline of a region's unattributed areas at the region's own
+ * border weight.
+ *
+ * A region highlight outlines its member countries by ISO_A3, and an
+ * unattributed area carries no ISO_A3 -- by construction, that is what makes it
+ * unattributed. Its shore is therefore left with only the thin world coastline
+ * under it and reads about half as thick as the shore of the country next
+ * door. This lays the region's own border weight back over it. The filter takes
+ * STYLE '' only, so the broken land boundaries are untouched: an area gains the
+ * coastline of a member country and keeps the outline the Bank prescribes.
+ *
+ * Call it straight after the region-border layer, with that layer's paint.
+ *
+ * @param {import('maplibre-gl').Map} map
+ * @param {object} opts
+ * @param {string[]} opts.areas  WB_NAME of each unattributed area in the region
+ * @param {string|unknown[]} opts.color  line-color, keyed on NAME if data-driven
+ * @param {number} opts.width
+ * @param {number} opts.opacity
+ */
+export function addRegionCoast(map, { areas, color, width, opacity }) {
+  if (!areas?.length) return;
+  map.addLayer({
+    id: 'region-coast', type: 'line', source: 'boundaries',
+    filter: ['all', ['==', ['get', 'STYLE'], ''],
+      ['in', ['get', 'NAME'], ['literal', areas]]],
+    paint: { 'line-color': color, 'line-width': width, 'line-opacity': opacity },
+  });
+}
+
+/**
  * Lift the broken borders back to the top of the stack. A page that fills
  * regions or countries after loadBasemap() paints over them otherwise, and the
  * dashes are the whole point of drawing those borders differently.

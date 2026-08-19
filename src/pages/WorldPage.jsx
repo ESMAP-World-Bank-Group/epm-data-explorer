@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, raiseBoundaries } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
 
 export default function WorldPage() {
   const { theme } = useTheme();
@@ -100,6 +100,15 @@ export default function WorldPage() {
           source: 'countries',
           filter: ['in', ['get', 'ISO_A3'], ['literal', clickableIsos]],
           paint: { 'line-color': colorExpr, 'line-width': 0.9, 'line-opacity': 0.7 },
+        });
+
+        // The areas take the same outline, keyed on the only name they carry.
+        addRegionCoast(map, {
+          areas: clickableAreas,
+          color: ['match', ['get', 'NAME'],
+            ...clickableAreas.flatMap(a => [a, areaToRegions[a][0].color]),
+            'transparent'],
+          width: 0.9, opacity: 0.7,
         });
       }
 
