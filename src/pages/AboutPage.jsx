@@ -185,6 +185,17 @@ const SOURCES = [
         quality: 'World Bank approved Admin 0 boundaries, consistent with WB cartographic policy on disputed areas.',
         url:     'https://datacatalog.worldbank.org/search/dataset/0038272',
       },
+      {
+        layer:   'Non-determined status areas',
+        source:  'World Bank Global Administrative Divisions',
+        abbr:    'WB-GAD disputes',
+        version: 'Medium res.',
+        updated: '2025',
+        freq:    'Ad hoc',
+        coverage:'Global',
+        quality: 'Areas the Bank attributes to no country. Drawn as land with a dashed outline and no country fill.',
+        url:     'https://datacatalog.worldbank.org/search/dataset/0038272',
+      },
     ],
   },
 ];
@@ -389,10 +400,13 @@ export default function AboutPage() {
         {/* Boundary disclaimer */}
         <p style={{ fontSize: '0.62rem', color: t.muted, marginTop: 32, lineHeight: 1.7 }}>
           Country boundaries are sourced from the World Bank Official Boundaries dataset
-          (Admin 0) and are shown for reference purposes only. Boundaries, colours,
-          denominations and any other information shown do not imply any judgement on the
-          legal status of any territory, or any endorsement or acceptance of any boundary
-          or territorial delimitation.
+          (Admin 0) and are shown for reference purposes only. Areas the Bank attributes
+          to no country — Western Sahara, Abyei, Arunachal Pradesh, the Kashmir area
+          north of the line of control, the Kuril Islands and the UN buffer zone in
+          Cyprus — are drawn without a country fill and with a dashed outline.
+          Boundaries, colours, denominations and any other information shown do not imply
+          any judgement on the legal status of any territory, or any endorsement or
+          acceptance of any boundary or territorial delimitation.
         </p>
 
         {/* Footer */}

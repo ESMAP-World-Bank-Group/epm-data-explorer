@@ -49,6 +49,10 @@ def load_countries_gdf():
     rows = []
     for feat in gj["features"]:
         p = feat["properties"]
+        # Skip the areas the Bank does not attribute to a country; they carry no
+        # code and belong to no region. See tools/prepare_boundaries.py.
+        if p.get("STATUS") == "non-determined":
+            continue
         iso = p.get("ISO_A3") or ""
         try:
             geom = shape(feat["geometry"])

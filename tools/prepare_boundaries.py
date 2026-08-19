@@ -9,15 +9,21 @@ file is Natural Earth derived but carries the Bank's own treatment of disputed a
 (Kashmir line of control, Western Sahara, Cyprus, Taiwan, Somaliland, ...), so the
 maps are consistent with WB cartographic policy.
 
+The Admin 0 layer deliberately leaves the areas the Bank does not attribute to any
+country as holes (Western Sahara, Abyei, Arunachal Pradesh, ...). They live in a
+separate WB layer, WB_GAD_Disputes, which is appended here so the maps show land
+rather than sea there -- see build_undetermined().
+
 Outputs (public/data/):
     countries_10m.geojson   -- one feature per country code, detail layer
     countries_110m.geojson  -- same features, generalised for world/meta-region views
 
 Feature properties:
-    ISO_A3     ISO 3166-1 alpha-3, the key every page joins on
+    ISO_A3     ISO 3166-1 alpha-3, the key every page joins on ("" when unattributed)
     WB_A3      World Bank country code (differs from ISO for e.g. ZAR, ROM, TMP, KSV)
     WB_NAME    official World Bank country name
     WB_REGION  World Bank region (AFR, EAP, ECA, LCR, MENA, SOA, Other)
+    STATUS     absent on countries, "non-determined" on unattributed areas
 
 Requires: geopandas, shapely, topojson
 
@@ -30,12 +36,15 @@ import argparse
 import json
 import shutil
 import warnings
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import pandas as pd
 import geopandas as gpd
 import topojson as tp
 from shapely.geometry import MultiPolygon, Polygon, box, mapping
+from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 SOURCE_URL = (
@@ -45,6 +54,20 @@ SOURCE_URL = (
 SOURCE_NAME = "World Bank Official Boundaries (Data Catalog dataset 0038272)"
 SOURCE_LICENSE = "CC BY 4.0"
 SHP_IN_ZIP = "WB_countries_Admin0_10m/WB_countries_Admin0_10m.shp"
+
+# Disputed / non-determined status areas, from the WB Global Administrative
+# Divisions service. Same cartographic authority as the Admin 0 file above.
+DISPUTES_URL = (
+    "https://geowb.worldbank.org/hosting/rest/services/Hosted/"
+    "WB_GAD_Medium_Resolution/FeatureServer/6/query"
+)
+DISPUTES_QUERY = {
+    "where": "1=1",
+    "outFields": "nam_0,nam_0_alt",
+    "returnGeometry": "true",
+    "outSR": "4326",
+    "f": "geojson",
+}
 
 _ROOT = Path(__file__).resolve().parents[1]
 CACHE_DIR = _ROOT.parent / "maps"          # sibling of the repo, not committed
@@ -62,6 +85,15 @@ WB_A3_TO_ISO = {
 # Metropolitan France + Corsica. The WB France polygon includes the overseas
 # departments; the explorer shows metropolitan France only.
 METRO_FRANCE_BBOX = (-5.5, 41.0, 10.0, 51.5)
+
+# Antarctica is a non-determined area too, but it is outside the scope of the
+# explorer and on its own is larger than every other one put together.
+UNDETERMINED_SKIP = {"Antarctica"}
+# A disputed polygon that the Admin 0 layer already paints as part of a country
+# only leaves a coastal or border sliver behind; keep the ones that are a real
+# hole, by uncovered fraction and by absolute size (square degrees).
+MIN_UNDETERMINED_FRACTION = 0.5
+MIN_UNDETERMINED_AREA = 1e-3
 
 # Simplification tolerances in degrees. 0.001 deg is ~110 m, well below the
 # positional accuracy of a 1:10m source, so the detail layer keeps the WB
@@ -87,6 +119,19 @@ def fetch_source(explicit=None):
             shutil.copyfileobj(r, f)
         tmp.replace(local)
     print(f"  source: {local}")
+    return local
+
+
+def fetch_disputes():
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    local = CACHE_DIR / "wb_gad_disputes.geojson"
+    if not local.exists():
+        url = f"{DISPUTES_URL}?{urllib.parse.urlencode(DISPUTES_QUERY)}"
+        print(f"  downloading {DISPUTES_URL}")
+        tmp = local.with_suffix(".geojson.part")
+        with urllib.request.urlopen(url, timeout=300) as r, open(tmp, "wb") as f:
+            shutil.copyfileobj(r, f)
+        tmp.replace(local)
     return local
 
 
@@ -158,9 +203,47 @@ def build_countries(src):
     out = gdf.dissolve(by="ISO_A3", as_index=False)
     for col in ("WB_A3", "WB_NAME", "WB_REGION"):
         out[col] = out.ISO_A3.map(main[col])
-    out = out[["ISO_A3", "WB_A3", "WB_NAME", "WB_REGION", "geometry"]]
+    out["STATUS"] = ""
+    out = out[["ISO_A3", "WB_A3", "WB_NAME", "WB_REGION", "STATUS", "geometry"]]
     out["geometry"] = out.geometry.apply(polygons_only)
     return out.sort_values("ISO_A3").reset_index(drop=True)
+
+
+def build_undetermined(countries):
+    """The WB disputed areas, reduced to the holes the Admin 0 layer leaves.
+
+    Most disputed polygons sit on top of a country the Bank does attribute
+    (Arunachal Pradesh is drawn inside India in some products, the Kurils inside
+    Russia, ...). Subtracting the country union keeps only what is genuinely
+    unpainted, so these features never overpaint a country, they just fill in.
+    """
+    gdf = gpd.read_file(fetch_disputes())
+    gdf["WB_NAME"] = gdf.nam_0_alt.fillna(gdf.nam_0).str.strip()
+    gdf = gdf[~gdf.WB_NAME.isin(UNDETERMINED_SKIP)]
+
+    covered = unary_union([g.buffer(0) for g in countries.geometry if g is not None])
+    geoms, kept = [], []
+    with warnings.catch_warnings():
+        # degree-based area, only ever compared against another degree-based area
+        warnings.simplefilter("ignore")
+        for g in gdf.geometry:
+            g = polygons_only(g)
+            hole = None if g is None else polygons_only(g.difference(covered))
+            geoms.append(hole)
+            kept.append(hole is not None
+                        and hole.area >= MIN_UNDETERMINED_AREA
+                        and hole.area >= MIN_UNDETERMINED_FRACTION * g.area)
+    gdf["geometry"] = geoms
+    gdf = gdf[kept]
+
+    out = gdf.dissolve(by="WB_NAME", as_index=False)[["WB_NAME", "geometry"]]
+    out["ISO_A3"] = ""
+    out["WB_A3"] = ""
+    out["WB_REGION"] = ""
+    out["STATUS"] = "non-determined"
+    out = out.sort_values("WB_NAME").reset_index(drop=True)
+    print(f"  {len(out)} non-determined areas: {', '.join(out.WB_NAME)}")
+    return out[["ISO_A3", "WB_A3", "WB_NAME", "WB_REGION", "STATUS", "geometry"]]
 
 
 def simplify(gdf, tolerance):
@@ -171,7 +254,7 @@ def simplify(gdf, tolerance):
     # Very small states can be simplified out of existence; keep the source shape.
     lost = simplified.geometry.isna()
     if lost.any():
-        names = list(simplified.loc[lost, "ISO_A3"])
+        names = list(simplified.loc[lost, "WB_NAME"])
         simplified.loc[lost, "geometry"] = gdf.loc[lost, "geometry"].values
         print(f"    kept unsimplified (too small): {', '.join(names)}")
     return simplified
@@ -191,14 +274,17 @@ def write_geojson(gdf, path, precision, name):
         if row.geometry is None:
             continue
         geom = mapping(row.geometry)
+        props = {
+            "ISO_A3": row.ISO_A3,
+            "WB_A3": row.WB_A3,
+            "WB_NAME": row.WB_NAME,
+            "WB_REGION": row.WB_REGION,
+        }
+        if row.STATUS:
+            props["STATUS"] = row.STATUS
         features.append({
             "type": "Feature",
-            "properties": {
-                "ISO_A3": row.ISO_A3,
-                "WB_A3": row.WB_A3,
-                "WB_NAME": row.WB_NAME,
-                "WB_REGION": row.WB_REGION,
-            },
+            "properties": props,
             "geometry": {
                 "type": geom["type"],
                 "coordinates": round_coords(geom["coordinates"], precision),
@@ -232,12 +318,16 @@ def main():
         countries = clip_france(countries)
     print(f"  {len(countries)} country features")
 
+    # Simplified together with the countries so the shared edges stay shared.
+    layer = pd.concat([countries, build_undetermined(countries)], ignore_index=True)
+    layer = gpd.GeoDataFrame(layer, geometry="geometry", crs=countries.crs)
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     print("  simplifying detail layer")
-    write_geojson(simplify(countries, TOL_10M), OUT_DIR / "countries_10m.geojson",
+    write_geojson(simplify(layer, TOL_10M), OUT_DIR / "countries_10m.geojson",
                   PREC_10M, "countries_10m")
     print("  simplifying world layer")
-    write_geojson(simplify(countries, TOL_110M), OUT_DIR / "countries_110m.geojson",
+    write_geojson(simplify(layer, TOL_110M), OUT_DIR / "countries_110m.geojson",
                   PREC_110M, "countries_110m")
     print("Done.")
 

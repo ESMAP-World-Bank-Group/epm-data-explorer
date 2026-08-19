@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
+import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 export default function WorldPage() {
   const { theme } = useTheme();
@@ -50,16 +51,10 @@ export default function WorldPage() {
     map.on('movestart', () => setDisambig(null));
 
     map.on('load', async () => {
-      const countries = await fetch('/data/countries_110m.geojson').then(r => r.json());
+      const countries = await fetchCountries('110m');
 
-      countries.features.forEach((f, i) => { f.id = i; });
-
-      map.addSource('countries', { type: 'geojson', data: countries, generateId: false });
-
-      map.addLayer({ id: 'land',    type: 'fill', source: 'countries',
-        paint: { 'fill-color': t.land, 'fill-opacity': 1 } });
-      map.addLayer({ id: 'borders', type: 'line', source: 'countries',
-        paint: { 'line-color': t.worldBdr, 'line-width': t.worldBdrW } });
+      addCountriesSource(map, countries);
+      addBaseLayers(map, t);
 
       // Non-EPM regions: no highlight, blend into background
 

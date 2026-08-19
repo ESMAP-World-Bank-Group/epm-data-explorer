@@ -13,6 +13,7 @@ import {
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
+import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -409,11 +410,9 @@ export default function ResultsRegionPage() {
       }
       if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData }, { sdf:true });
 
-      const countries = await fetch('/data/countries_10m.geojson').then(r=>r.json());
-      countries.features.forEach((f,i)=>{ f.id=i; });
-      map.addSource('countries', { type:'geojson', data:countries, generateId:false });
-      map.addLayer({ id:'land',    type:'fill', source:'countries', paint:{'fill-color':tv.land,'fill-opacity':1} });
-      map.addLayer({ id:'borders', type:'line', source:'countries', paint:{'line-color':tv.worldBdr,'line-width':tv.worldBdrW} });
+      const countries = await fetchCountries('10m');
+      addCountriesSource(map, countries);
+      addBaseLayers(map, tv);
 
       const isoToCountry = {};
       for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3]=f.properties.c;

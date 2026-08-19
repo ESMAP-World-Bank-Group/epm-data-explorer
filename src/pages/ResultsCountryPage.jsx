@@ -13,6 +13,7 @@ import {
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
+import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -223,11 +224,9 @@ export default function ResultsCountryPage() {
     map.on('load',async()=>{
       const tv=getT(theme);
       if(bounds)map.fitBounds(bounds,{padding:60,duration:0,maxZoom:7});
-      const countries=await fetch('/data/countries_10m.geojson').then(r=>r.json());
-      countries.features.forEach((f,i)=>{f.id=i;});
-      map.addSource('countries',{type:'geojson',data:countries,generateId:false});
-      map.addLayer({id:'land',type:'fill',source:'countries',paint:{'fill-color':tv.land,'fill-opacity':1}});
-      map.addLayer({id:'borders',type:'line',source:'countries',paint:{'line-color':tv.worldBdr,'line-width':tv.worldBdrW}});
+      const countries=await fetchCountries('10m');
+      addCountriesSource(map,countries);
+      addBaseLayers(map,tv);
       const isoToC={};for(const f of zonesGJ.features)isoToC[f.properties.ISO_A3]=f.properties.c;
       const uIsos=[...new Set(zonesGJ.features.map(f=>f.properties.ISO_A3))];
       const fillExpr=['match',['get','ISO_A3'],...uIsos.flatMap(iso=>[iso,colorMap[isoToC[iso]]||'#888']),'transparent'];

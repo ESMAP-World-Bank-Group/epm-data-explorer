@@ -16,6 +16,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
+import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -353,11 +354,9 @@ export default function EpmZonePage() {
     map.on('load', async () => {
       const tv = getT(theme);
 
-      const countries = await fetch('/data/countries_10m.geojson').then(r => r.json());
-      countries.features.forEach((f, i) => { f.id = i; });
-      map.addSource('countries', { type: 'geojson', data: countries, generateId: false });
-      map.addLayer({ id: 'land',    type: 'fill', source: 'countries', paint: { 'fill-color': tv.land, 'fill-opacity': 1 } });
-      map.addLayer({ id: 'borders', type: 'line', source: 'countries', paint: { 'line-color': tv.worldBdr, 'line-width': tv.worldBdrW } });
+      const countries = await fetchCountries('10m');
+      addCountriesSource(map, countries);
+      addBaseLayers(map, tv);
 
       if (zonesGJ) {
         const regionCountries = [...new Set(zcmapRows.map(r => r.c))].sort();

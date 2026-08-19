@@ -8,6 +8,7 @@ import CountryOverview from '../components/CountryOverview';
 import REResourcesTab from '../components/tabs/REResourcesTab';
 import LoadTab from '../components/tabs/LoadTab';
 import ZoningTab from '../components/tabs/ZoningTab';
+import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 function downloadBlob(content, filename, type = 'application/octet-stream') {
   const blob = new Blob([content], { type });
@@ -145,7 +146,7 @@ export default function CountryPage() {
 
     map.on('load', async () => {
       const [countries, plantsGJ, linesGJ, subsGJ, lcGJ, admin1GJ] = await Promise.all([
-        fetch('/data/countries_10m.geojson').then(r => r.json()),
+        fetchCountries('10m'),
         fetch(`/data/cache/region_plants_${region.id}.geojson`).then(r => r.json()),
         fetch(`/data/cache/region_lines_${region.id}.geojson`).then(r => r.json()),
         fetch(`/data/cache/region_substations_${region.id}.geojson`).then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
@@ -153,7 +154,6 @@ export default function CountryPage() {
         fetch(`/data/cache/region_admin1_${region.id}.geojson`).then(r => r.ok ? r.json() : { type: 'FeatureCollection', features: [] }).catch(() => ({ type: 'FeatureCollection', features: [] })),
       ]);
 
-      countries.features.forEach((f, i) => { f.id = i; });
 
       const bounds = fitBoundsCountry(iso, countries);
       if (bounds) {
@@ -200,7 +200,7 @@ export default function CountryPage() {
         features: lcGJ.features.filter(f => f.properties.iso === iso),
       };
 
-      map.addSource('countries',    { type: 'geojson', data: countries,    generateId: false });
+      addCountriesSource(map, countries);
       map.addSource('plants',       { type: 'geojson', data: filteredPlants });
       map.addSource('lines',        { type: 'geojson', data: filteredLines  });
       map.addSource('substations',  { type: 'geojson', data: filteredSubs   });
@@ -215,10 +215,7 @@ export default function CountryPage() {
 
       const tv = getT(theme);
 
-      map.addLayer({ id: 'land',    type: 'fill', source: 'countries',
-        paint: { 'fill-color': tv.land, 'fill-opacity': 1 } });
-      map.addLayer({ id: 'borders', type: 'line', source: 'countries',
-        paint: { 'line-color': tv.worldBdr, 'line-width': tv.worldBdrW } });
+      addBaseLayers(map, tv);
 
       // Transmission lines
       const kvFilters = {
