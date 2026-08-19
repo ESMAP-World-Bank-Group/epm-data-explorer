@@ -52,14 +52,7 @@ export default function WorldPage() {
     map.on('load', async () => {
       const countries = await fetch('/data/countries_110m.geojson').then(r => r.json());
 
-      countries.features.forEach((f, i) => {
-        const p = f.properties;
-        let iso = p.ISO_A3 || '-99';
-        if (iso === '-99') iso = p.ISO_A3_EH || '-99';
-        if (iso === '-99') iso = p.ADM0_A3 || '-99';
-        p.ISO_A3 = iso;
-        f.id = i;
-      });
+      countries.features.forEach((f, i) => { f.id = i; });
 
       map.addSource('countries', { type: 'geojson', data: countries, generateId: false });
 

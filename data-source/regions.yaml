@@ -65,7 +65,6 @@ regions:
       - {iso: RWA, name: Rwanda}
       - {iso: BDI, name: Burundi}
       - {iso: COD, name: DR Congo}
-      - {iso: SOL, name: Somaliland}
 
   - id: sapp
     name: Southern Africa Power Pool

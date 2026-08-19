@@ -176,14 +176,14 @@ const SOURCES = [
     rows: [
       {
         layer:   'Country boundaries',
-        source:  'Natural Earth',
-        abbr:    'Natural Earth',
-        version: '110m',
-        updated: '2024',
+        source:  'World Bank Official Boundaries',
+        abbr:    'WB Admin 0',
+        version: '10m',
+        updated: '2025',
         freq:    'Ad hoc',
         coverage:'Global',
-        quality: 'Standard for web mapping. 110 m resolution. Includes disputed territories.',
-        url:     'https://www.naturalearthdata.com',
+        quality: 'World Bank approved Admin 0 boundaries, consistent with WB cartographic policy on disputed areas.',
+        url:     'https://datacatalog.worldbank.org/search/dataset/0038272',
       },
     ],
   },
@@ -386,15 +386,24 @@ export default function AboutPage() {
           ))}
         </div>
 
+        {/* Boundary disclaimer */}
+        <p style={{ fontSize: '0.62rem', color: t.muted, marginTop: 32, lineHeight: 1.7 }}>
+          Country boundaries are sourced from the World Bank Official Boundaries dataset
+          (Admin 0) and are shown for reference purposes only. Boundaries, colours,
+          denominations and any other information shown do not imply any judgement on the
+          legal status of any territory, or any endorsement or acceptance of any boundary
+          or territorial delimitation.
+        </p>
+
         {/* Footer */}
-        <p style={{ fontSize: '0.55rem', color: t.lblMuted, marginTop: 32, lineHeight: 1.7 }}>
+        <p style={{ fontSize: '0.55rem', color: t.lblMuted, marginTop: 16, lineHeight: 1.7 }}>
           EPM Data Explorer · World Bank ESMAP ·{' '}
           <a href="https://github.com/ESMAP-World-Bank-Group/epm-explorer"
             target="_blank" rel="noopener noreferrer"
             style={{ color: 'rgba(74,143,204,0.7)', textDecoration: 'none' }}>
             GitHub
           </a>
-          {' '}· Data licences: OSM (ODbL), GPPD (CC BY 4.0), GEM (CC BY 4.0), Natural Earth (Public Domain)
+          {' '}· Data licences: OSM (ODbL), GPPD (CC BY 4.0), GEM (CC BY 4.0), World Bank Official Boundaries (CC BY 4.0)
         </p>
       </div>
     </div>

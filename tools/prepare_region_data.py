@@ -49,11 +49,7 @@ def load_countries_gdf():
     rows = []
     for feat in gj["features"]:
         p = feat["properties"]
-        iso = p.get("ISO_A3") or "-99"
-        if iso == "-99":
-            iso = p.get("ISO_A3_EH") or "-99"
-        if iso == "-99":
-            iso = p.get("ADM0_A3") or "-99"
+        iso = p.get("ISO_A3") or ""
         try:
             geom = shape(feat["geometry"])
         except Exception:

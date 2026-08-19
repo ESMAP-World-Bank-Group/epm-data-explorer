@@ -1885,8 +1885,6 @@ export default function RegionPage() {
     }
 
     const isos = region.countries.map(c => c.iso);
-    const TERRITORY_ALIASES = { SOM: ['SOL'], SDN: ['SDS'] };
-    const expandedIsos = isos.flatMap(iso => [iso, ...(TERRITORY_ALIASES[iso] || [])]);
     const isEpm = !!(region.epm && epmData && (epmData.linestringGJ || epmData.zonesGJ));
 
     const map = new maplibregl.Map({
@@ -1904,15 +1902,9 @@ export default function RegionPage() {
 
     map.on('load', async () => {
       const countries = await fetch('/data/countries_10m.geojson').then(r => r.json());
-      countries.features.forEach((f, i) => {
-        const p = f.properties;
-        let iso = p.ISO_A3 || '-99';
-        if (iso === '-99') iso = p.ISO_A3_EH || '-99';
-        if (iso === '-99') iso = p.ADM0_A3 || '-99';
-        p.ISO_A3 = iso; f.id = i;
-      });
+      countries.features.forEach((f, i) => { f.id = i; });
 
-      const bounds = fitBounds(expandedIsos, countries);
+      const bounds = fitBounds(isos, countries);
       if (bounds) map.fitBounds(bounds, { padding: 40, duration: 0 });
 
       map.addSource('countries', { type: 'geojson', data: countries, generateId: false });
@@ -2128,11 +2120,11 @@ export default function RegionPage() {
 
         const hl = tv.highlight;
         map.addLayer({ id: 'region-fill', type: 'fill', source: 'countries',
-          filter: ['in', ['get', 'ISO_A3'], ['literal', expandedIsos]],
+          filter: ['in', ['get', 'ISO_A3'], ['literal', isos]],
           paint: { 'fill-color': hl.fill,
             'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.18, 0.08] } });
         map.addLayer({ id: 'region-border', type: 'line', source: 'countries',
-          filter: ['in', ['get', 'ISO_A3'], ['literal', expandedIsos]],
+          filter: ['in', ['get', 'ISO_A3'], ['literal', isos]],
           paint: { 'line-color': hl.border, 'line-width': hl.borderW, 'line-opacity': 0.9 } });
 
         const fuels = new Set();
@@ -2219,11 +2211,9 @@ export default function RegionPage() {
             map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: false });
           hoveredId = null;
         });
-        const ALIAS_TO_CANON = { SOL: 'SOM', SDS: 'SDN' };
         map.on('click', 'region-fill', e => {
           const iso = e.features[0].properties.ISO_A3;
-          const canonIso = (!isos.includes(iso) && ALIAS_TO_CANON[iso]) || iso;
-          if (isos.includes(canonIso)) navigate(`/country/${canonIso}`);
+          if (isos.includes(iso)) navigate(`/country/${iso}`);
         });
       }
     });

@@ -153,14 +153,7 @@ export default function CountryPage() {
         fetch(`/data/cache/region_admin1_${region.id}.geojson`).then(r => r.ok ? r.json() : { type: 'FeatureCollection', features: [] }).catch(() => ({ type: 'FeatureCollection', features: [] })),
       ]);
 
-      countries.features.forEach((f, i) => {
-        const p = f.properties;
-        let code = p.ISO_A3 || '-99';
-        if (code === '-99') code = p.ISO_A3_EH || '-99';
-        if (code === '-99') code = p.ADM0_A3 || '-99';
-        p.ISO_A3 = code;
-        f.id = i;
-      });
+      countries.features.forEach((f, i) => { f.id = i; });
 
       const bounds = fitBoundsCountry(iso, countries);
       if (bounds) {
