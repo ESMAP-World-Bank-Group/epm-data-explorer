@@ -52,13 +52,25 @@ export function addBaseLayers(map, t) {
     id: 'borders', type: 'line', source: 'countries', filter: COUNTRY_ONLY,
     paint: { 'line-color': t.worldBdr, 'line-width': t.worldBdrW },
   });
+  // An unattributed area shares its land boundary with the countries around it,
+  // so the solid layer above has already drawn that edge and a dashed line laid
+  // straight on top would read as solid. Mask the edge back out in the land
+  // colour first. The mask is invisible on land, where it matches the fill on
+  // both sides; on a coast it leaves a sub-pixel fringe over the water.
+  map.addLayer({
+    id: 'borders-non-determined-mask', type: 'line', source: 'countries',
+    filter: NON_DETERMINED_ONLY,
+    paint: { 'line-color': t.land, 'line-width': t.worldBdrW * 2.2 },
+  });
   map.addLayer({
     id: 'borders-non-determined', type: 'line', source: 'countries',
     filter: NON_DETERMINED_ONLY,
     paint: {
       'line-color': t.worldBdr,
       'line-width': t.worldBdrW,
-      'line-dasharray': [4, 3],
+      // dasharray units are multiples of line width, and that width is well
+      // under a pixel; these keep the dashes legible at any zoom.
+      'line-dasharray': [8, 6],
     },
   });
 }
