@@ -8,7 +8,7 @@ import CountryOverview from '../components/CountryOverview';
 import REResourcesTab from '../components/tabs/REResourcesTab';
 import LoadTab from '../components/tabs/LoadTab';
 import ZoningTab from '../components/tabs/ZoningTab';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 
 function downloadBlob(content, filename, type = 'application/octet-stream') {
   const blob = new Blob([content], { type });
@@ -440,6 +440,7 @@ export default function CountryPage() {
 
       mapReadyRef.current = true;
 
+      raiseBoundaries(map);
     });
 
     return () => { mapReadyRef.current = false; popup.remove(); mapRef.current?.remove(); };

@@ -16,7 +16,7 @@ import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVis
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -520,6 +520,7 @@ export default function EpmCountryPage() {
 
       // Donuts + NTC data are drawn / updated in place by the effects below.
       setMapLoadedCount(c => c + 1);
+      raiseBoundaries(map);
     });
 
     return () => {

@@ -13,7 +13,7 @@ import {
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -260,6 +260,7 @@ export default function ResultsCountryPage() {
       map.on('mouseleave','zone-fill',()=>{map.getCanvas().style.cursor='';hovZ=null;map.setFilter('zone-hover',['==',['get','z'],'']),popup.remove();});
       map.on('click','zone-fill',e=>{const z=e.features[0].properties.z||'';if(countryZoneIds.includes(z)){setSelZone(prev=>prev===z?'all':z);}else{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(z)}`);} });
       setMapLoadedCount(c=>c+1);
+      raiseBoundaries(map);
     });
     return()=>{popup.remove();dotMarkersRef.current.forEach(m=>m.remove());dotMarkersRef.current=[];pieMarkersRef.current.forEach(m=>m.remove());pieMarkersRef.current=[];mapRef.current?.remove();};
   },[region,theme,zonesGJ,zcmapRows,countryZoneIds,countryIsos]); // eslint-disable-line

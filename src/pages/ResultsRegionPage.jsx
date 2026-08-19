@@ -13,7 +13,7 @@ import {
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -496,6 +496,7 @@ export default function ResultsRegionPage() {
       map.on('click','zone-fill',e=>{ if(map.queryRenderedFeatures(e.point,{layers:['ntc-hit']}).length) return; const c=isoToCountry[e.features[0].properties.ISO_A3]||''; navigate(`/region/${regionId}/results/country/${encodeURIComponent(c)}`); });
       // Fire AFTER all sources/layers are added so NTC update effect can find the source
       setMapLoadedCount(c => c + 1);
+      raiseBoundaries(map);
     });
 
     return () => { popup.remove(); dotMarkersRef.current.forEach(m=>m.remove()); dotMarkersRef.current=[]; pieMarkersRef.current.forEach(m=>m.remove()); pieMarkersRef.current=[]; mapRef.current?.remove(); };

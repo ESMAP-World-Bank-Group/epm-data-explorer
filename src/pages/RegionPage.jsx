@@ -23,7 +23,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, raiseBoundaries } from '../utils/basemap';
 
 // chart.js via CDN — no npm dep
 function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey, onClickYear }) {
@@ -2118,7 +2118,7 @@ export default function RegionPage() {
 
         const hl = tv.highlight;
         map.addLayer({ id: 'region-fill', type: 'fill', source: 'countries',
-          filter: ['in', ['get', 'ISO_A3'], ['literal', isos]],
+          filter: regionFilter(isos, region.non_determined),
           paint: { 'fill-color': hl.fill,
             'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.18, 0.08] } });
         map.addLayer({ id: 'region-border', type: 'line', source: 'countries',
@@ -2214,6 +2214,8 @@ export default function RegionPage() {
           if (isos.includes(iso)) navigate(`/country/${iso}`);
         });
       }
+
+      raiseBoundaries(map);
     });
 
     return () => {

@@ -16,7 +16,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -428,6 +428,7 @@ export default function EpmZonePage() {
         markerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -4] })
           .setLngLat(zoneCentroids[zoneIdDecoded]).addTo(map);
       }
+      raiseBoundaries(map);
     });
 
     return () => {
