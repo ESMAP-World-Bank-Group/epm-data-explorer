@@ -110,12 +110,17 @@ export default function ContactPage() {
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: t.text, marginBottom: 6 }}>
           About
         </h1>
-        <p style={{ fontSize: '0.75rem', color: t.muted, lineHeight: 1.65, marginBottom: 32 }}>
+        <p style={{ fontSize: '0.75rem', color: t.muted, lineHeight: 1.65, marginBottom: 10 }}>
           A{' '}<ExternalLink href="https://www.worldbank.org">World Bank</ExternalLink>{' '}
           tool for exploring open-access power sector data at the country level.
           It brings together data on power plants, transmission infrastructure, renewable energy
           resources, and demand indicators — providing an overview and understanding of national
           power systems, and supporting data access for energy planning studies.
+        </p>
+        {/* The World Bank is already named above; only ESMAP needs adding, and
+            quietly — this is a credit line, not a badge. */}
+        <p style={{ fontSize: '0.65rem', color: t.muted, opacity: 0.75, lineHeight: 1.6, marginBottom: 32 }}>
+          Developed with support from ESMAP.
         </p>
 
         {/* GitHub — main repo */}
