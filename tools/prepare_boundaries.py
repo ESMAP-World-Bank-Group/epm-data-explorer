@@ -38,13 +38,15 @@ import shutil
 import warnings
 import urllib.parse
 import urllib.request
+from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
 import geopandas as gpd
 import topojson as tp
-from shapely.geometry import MultiPolygon, Polygon, box, mapping
+from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 from shapely.validation import make_valid
 
 SOURCE_URL = (
@@ -64,6 +66,23 @@ DISPUTES_URL = (
 DISPUTES_QUERY = {
     "where": "1=1",
     "outFields": "nam_0,nam_0_alt",
+    "returnGeometry": "true",
+    "outSR": "4326",
+    "f": "geojson",
+}
+
+# The Bank's own drawing instructions for national boundaries. Every segment
+# carries a `style`: null where the line is solid, otherwise one of Dashed,
+# Tightly Dashed or Dotted. Only the styles are used -- this layer is medium
+# resolution and sits up to ~2 km off our Admin 0 edges, so drawing its
+# geometry would double every border. See build_boundaries().
+STYLES_URL = (
+    "https://geowb.worldbank.org/hosting/rest/services/Hosted/"
+    "WB_GAD_Medium_Resolution/FeatureServer/0/query"
+)
+STYLES_QUERY = {
+    "where": "1=1",
+    "outFields": "style",
     "returnGeometry": "true",
     "outSR": "4326",
     "f": "geojson",
@@ -94,6 +113,28 @@ UNDETERMINED_SKIP = {"Antarctica"}
 # hole, by uncovered fraction and by absolute size (square degrees).
 MIN_UNDETERMINED_FRACTION = 0.5
 MIN_UNDETERMINED_AREA = 1e-3
+
+# Every land boundary of a non-determined area is drawn dashed; its coastline
+# is drawn solid like any other. This is the style to fall back on for the
+# stretches the WB line layer does not reach.
+WB_LINE_STYLES = ("Dashed", "Tightly Dashed", "Dotted")
+UNDETERMINED_STYLE = "Tightly Dashed"
+# Lateral tolerance, in degrees, for recognising one of our own border edges in
+# a styled WB segment. Ends are squared off so a segment cannot bleed past its
+# own tips onto the next border along.
+STYLE_MATCH_TOL = 0.05
+# How close an area's outline has to run to a country for that stretch to count
+# as a land boundary rather than a shore. Testing against the country areas
+# instead of their edges survives the vertex mismatch left by simplification.
+# The two source layers are drawn at different resolutions, so a land boundary
+# can leave a void up to ~0.08 deg wide between the area and its neighbour; a
+# real shore is degrees away from the nearest other country, so 0.1 separates
+# the two cleanly.
+LAND_EDGE_TOL = 0.1
+# Near a tripoint a styled segment still passes within the tolerance of the
+# neighbouring border and tags a stub of it. A real dashed border contributes
+# degrees of line; those strays contribute hundredths, so drop the small ones.
+MIN_STYLED_BORDER = 0.25
 
 # Simplification tolerances in degrees. 0.001 deg is ~110 m, well below the
 # positional accuracy of a 1:10m source, so the detail layer keeps the WB
@@ -135,6 +176,19 @@ def fetch_disputes():
     return local
 
 
+def fetch_boundary_styles():
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    local = CACHE_DIR / "wb_gad_adm0_bdys.geojson"
+    if not local.exists():
+        url = f"{STYLES_URL}?{urllib.parse.urlencode(STYLES_QUERY)}"
+        print(f"  downloading {STYLES_URL}")
+        tmp = local.with_suffix(".geojson.part")
+        with urllib.request.urlopen(url, timeout=300) as r, open(tmp, "wb") as f:
+            shutil.copyfileobj(r, f)
+        tmp.replace(local)
+    return local
+
+
 def read_admin0(path):
     if path.suffix.lower() == ".zip":
         return gpd.read_file(f"zip://{path.as_posix()}!{SHP_IN_ZIP}")
@@ -168,6 +222,21 @@ def polygons_only(geom):
     if not parts:
         return None
     return parts[0] if len(parts) == 1 else MultiPolygon(parts)
+
+
+def lines_only(geom):
+    """Flatten a geometry to its non-empty LineString parts."""
+    out, stack = [], [geom]
+    while stack:
+        part = stack.pop()
+        if part is None or part.is_empty:
+            continue
+        if isinstance(part, LineString):
+            if part.length > 0:
+                out.append(part)
+        elif hasattr(part, "geoms"):
+            stack.extend(part.geoms)
+    return out
 
 
 def clip_france(gdf):
@@ -244,6 +313,99 @@ def build_undetermined(countries):
     out = out.sort_values("WB_NAME").reset_index(drop=True)
     print(f"  {len(out)} non-determined areas: {', '.join(out.WB_NAME)}")
     return out[["ISO_A3", "WB_A3", "WB_NAME", "WB_REGION", "STATUS", "geometry"]]
+
+
+def _style_lookup(styles):
+    """Split one of our edges into the styled stretches a WB segment covers."""
+    tree = STRtree(list(styles.geometry))
+
+    def lookup(edge):
+        matched, rest = [], edge
+        for k in tree.query(edge.buffer(STYLE_MATCH_TOL)):
+            band = styles.geometry[k].buffer(STYLE_MATCH_TOL, cap_style=2)
+            for piece in lines_only(rest.intersection(band)):
+                matched.append((styles["style"][k], piece))
+            rest = unary_union(lines_only(rest.difference(band)))
+            if rest.is_empty:
+                break
+        return matched, lines_only(rest)
+
+    return lookup
+
+
+def build_boundaries(layer):
+    """The Bank's broken borders, redrawn on our own edges.
+
+    Two things end up in this layer. The outline of every non-determined area,
+    split so that the land boundary is dashed and the coastline stays solid
+    like any other shore. And the national borders the Bank itself draws
+    broken -- the Line of Control, the line of actual control, the Korean
+    DMZ -- matched onto our geometry by position, so that the styled line and
+    the solid one underneath can never disagree by a pixel.
+    """
+    styles = gpd.read_file(fetch_boundary_styles())
+    styles = styles[styles["style"].isin(WB_LINE_STYLES)].reset_index(drop=True)
+    lookup = _style_lookup(styles)
+
+    nd = layer[layer.STATUS == "non-determined"]
+    countries = layer[layer.STATUS != "non-determined"].reset_index(drop=True)
+    cgeoms, cnames = list(countries.geometry), list(countries.WB_NAME)
+    tree = STRtree(cgeoms)
+    rows = []
+
+    for area in nd.itertuples():
+        outline = area.geometry.boundary
+        neighbours = [cgeoms[k].buffer(0)
+                      for k in tree.query(area.geometry.buffer(LAND_EDGE_TOL))]
+        band = unary_union(neighbours).buffer(LAND_EDGE_TOL)
+        for piece in lines_only(outline.difference(band)):
+            rows.append((area.WB_NAME, "", piece))
+        for edge in lines_only(outline.intersection(band)):
+            matched, plain = lookup(edge)
+            rows.extend((area.WB_NAME, st, piece) for st, piece in matched)
+            rows.extend((area.WB_NAME, UNDETERMINED_STYLE, piece) for piece in plain)
+
+    tagged = defaultdict(list)
+    for i, gi in enumerate(cgeoms):
+        boundary = gi.boundary
+        for j in tree.query(gi):
+            if j <= i:
+                continue
+            for edge in lines_only(boundary.intersection(cgeoms[j].boundary)):
+                for st, piece in lookup(edge)[0]:
+                    tagged[(" / ".join(sorted((cnames[i], cnames[j]))), st)].append(piece)
+    for (pair, st), pieces in sorted(tagged.items()):
+        if sum(p.length for p in pieces) >= MIN_STYLED_BORDER:
+            rows.extend((pair, st, p) for p in pieces)
+
+    out = gpd.GeoDataFrame(rows, columns=["NAME", "STYLE", "geometry"],
+                           geometry="geometry", crs=layer.crs)
+    kept = defaultdict(float)
+    for r in out.itertuples():
+        kept[r.STYLE or "solid (coastline)"] += r.geometry.length
+    print("    " + ", ".join(f"{k} {v:.1f} deg" for k, v in sorted(kept.items())))
+    return out
+
+
+def write_lines(gdf, path, precision, name):
+    features = [{
+        "type": "Feature",
+        "properties": {"NAME": row.NAME, "STYLE": row.STYLE},
+        "geometry": {"type": "LineString",
+                     "coordinates": round_coords(list(row.geometry.coords), precision)},
+    } for row in gdf.itertuples()]
+    doc = {
+        "type": "FeatureCollection",
+        "name": name,
+        "source": SOURCE_NAME,
+        "license": SOURCE_LICENSE,
+        "crs": {"type": "name",
+                "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
+        "features": features,
+    }
+    path.write_text(json.dumps(doc, separators=(",", ":"), ensure_ascii=False),
+                    encoding="utf-8")
+    print(f"  {path.name}: {len(features)} features, {path.stat().st_size / 1e6:.1f} MB")
 
 
 def simplify(gdf, tolerance):
@@ -323,12 +485,18 @@ def main():
     layer = gpd.GeoDataFrame(layer, geometry="geometry", crs=countries.crs)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print("  simplifying detail layer")
-    write_geojson(simplify(layer, TOL_10M), OUT_DIR / "countries_10m.geojson",
-                  PREC_10M, "countries_10m")
-    print("  simplifying world layer")
-    write_geojson(simplify(layer, TOL_110M), OUT_DIR / "countries_110m.geojson",
-                  PREC_110M, "countries_110m")
+    # The broken borders are traced on the simplified polygons of each
+    # resolution, so that every dash sits exactly on the edge it belongs to.
+    for label, tol, prec, suffix in (("detail", TOL_10M, PREC_10M, "10m"),
+                                     ("world", TOL_110M, PREC_110M, "110m")):
+        print(f"  simplifying {label} layer")
+        simplified = simplify(layer, tol)
+        write_geojson(simplified, OUT_DIR / f"countries_{suffix}.geojson",
+                      prec, f"countries_{suffix}")
+        print(f"  tracing {label} boundary styles")
+        write_lines(build_boundaries(simplified),
+                    OUT_DIR / f"boundaries_{suffix}.geojson", prec,
+                    f"boundaries_{suffix}")
     print("Done.")
 
 

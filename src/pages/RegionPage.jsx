@@ -23,7 +23,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
-import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 // chart.js via CDN — no npm dep
 function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey, onClickYear }) {
@@ -1903,13 +1903,14 @@ export default function RegionPage() {
 
     map.on('load', async () => {
       const countries = await fetchCountries('10m');
+      const boundaries = await fetchBoundaries('10m');
 
       const bounds = fitBounds(isos, countries);
       if (bounds) map.fitBounds(bounds, { padding: 40, duration: 0 });
 
       addCountriesSource(map, countries);
       const tv = getT(theme);
-      addBaseLayers(map, tv);
+      addBaseLayers(map, tv, boundaries);
 
       if (isEpm) {
         // ── EPM map: zone polygons + NTC lines + country donut markers ───────

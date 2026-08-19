@@ -13,7 +13,7 @@ import {
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -411,8 +411,9 @@ export default function ResultsRegionPage() {
       if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData }, { sdf:true });
 
       const countries = await fetchCountries('10m');
+      const boundaries = await fetchBoundaries('10m');
       addCountriesSource(map, countries);
-      addBaseLayers(map, tv);
+      addBaseLayers(map, tv, boundaries);
 
       const isoToCountry = {};
       for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3]=f.properties.c;

@@ -8,7 +8,7 @@ import CountryOverview from '../components/CountryOverview';
 import REResourcesTab from '../components/tabs/REResourcesTab';
 import LoadTab from '../components/tabs/LoadTab';
 import ZoningTab from '../components/tabs/ZoningTab';
-import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 function downloadBlob(content, filename, type = 'application/octet-stream') {
   const blob = new Blob([content], { type });
@@ -145,8 +145,9 @@ export default function CountryPage() {
     });
 
     map.on('load', async () => {
-      const [countries, plantsGJ, linesGJ, subsGJ, lcGJ, admin1GJ] = await Promise.all([
+      const [countries, boundaries, plantsGJ, linesGJ, subsGJ, lcGJ, admin1GJ] = await Promise.all([
         fetchCountries('10m'),
+        fetchBoundaries('10m'),
         fetch(`/data/cache/region_plants_${region.id}.geojson`).then(r => r.json()),
         fetch(`/data/cache/region_lines_${region.id}.geojson`).then(r => r.json()),
         fetch(`/data/cache/region_substations_${region.id}.geojson`).then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
@@ -215,7 +216,7 @@ export default function CountryPage() {
 
       const tv = getT(theme);
 
-      addBaseLayers(map, tv);
+      addBaseLayers(map, tv, boundaries);
 
       // Transmission lines
       const kvFilters = {

@@ -13,7 +13,7 @@ import {
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -225,8 +225,9 @@ export default function ResultsCountryPage() {
       const tv=getT(theme);
       if(bounds)map.fitBounds(bounds,{padding:60,duration:0,maxZoom:7});
       const countries=await fetchCountries('10m');
+      const boundaries=await fetchBoundaries('10m');
       addCountriesSource(map,countries);
-      addBaseLayers(map,tv);
+      addBaseLayers(map,tv,boundaries);
       const isoToC={};for(const f of zonesGJ.features)isoToC[f.properties.ISO_A3]=f.properties.c;
       const uIsos=[...new Set(zonesGJ.features.map(f=>f.properties.ISO_A3))];
       const fillExpr=['match',['get','ISO_A3'],...uIsos.flatMap(iso=>[iso,colorMap[isoToC[iso]]||'#888']),'transparent'];

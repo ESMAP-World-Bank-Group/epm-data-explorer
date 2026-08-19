@@ -16,7 +16,7 @@ import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVis
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
-import { fetchCountries, addCountriesSource, addBaseLayers } from '../utils/basemap';
+import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers } from '../utils/basemap';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -430,8 +430,9 @@ export default function EpmCountryPage() {
       if (bounds) map.fitBounds(bounds, { padding: 60, duration: 0, maxZoom: 8 });
 
       const countries = await fetchCountries('10m');
+      const boundaries = await fetchBoundaries('10m');
       addCountriesSource(map, countries);
-      addBaseLayers(map, tv);
+      addBaseLayers(map, tv, boundaries);
 
       if (zonesGJ) {
         const regionCountries = [...new Set(zcmapRows.map(r => r.c))].sort();
