@@ -207,6 +207,17 @@ const SOURCES = [
         quality: "The Bank's own dashed, tightly dashed and dotted styles, traced onto the Admin 0 edges above.",
         url:     'https://datacatalog.worldbank.org/search/dataset/0038272',
       },
+      {
+        layer:   'Admin-1 boundaries',
+        source:  'World Bank Global Administrative Divisions',
+        abbr:    'WB-GAD ADM1',
+        version: 'Medium res.',
+        updated: '2025',
+        freq:    'Ad hoc',
+        coverage:'Balkans, Black Sea, Central Asia',
+        quality: "The Bank's own level-1 divisions, consistent with the Admin 0 layer above.",
+        url:     'https://datacatalog.worldbank.org/search/dataset/0038272',
+      },
     ],
   },
 ];
