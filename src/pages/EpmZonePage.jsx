@@ -13,7 +13,7 @@ import {
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchScenarioConfig } from '../utils/epmScenarios';
+import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
@@ -143,7 +143,7 @@ export default function EpmZonePage() {
   const [epmYear,      setEpmYear]      = useState(null);
 
   // ── Scenario / variant state ──────────────────────────────────────────────────
-  const [scnMeta,      setScnMeta]      = useState(null);
+  const [scnMeta,      setScnMeta]      = useState(undefined);
   const [varOverrides, setVarOverrides] = useState({});
   const setVariant = (param, file) => setVarOverrides(o => {
     const next = { ...o };
@@ -209,13 +209,16 @@ export default function EpmZonePage() {
   }
 
   // ── Load scenario definitions (config.csv + scenarios.csv) ────────────────────
+  // scnMeta is tri-state: undefined while loading, null when no config is
+  // reachable, object once parsed. The data effect below waits for it, so no
+  // fetch fires against the fallback paths and then again against the real ones.
   useEffect(() => {
-    setScnMeta(null);
+    setScnMeta(undefined);
     setVarOverrides({});
     if (!region?.epm || !activeFolder) return;
     const { branch, scenariosFile, configFile } = region.epm;
     fetchScenarioConfig(branch, activeFolder, { scenariosFile, configFile })
-      .then(setScnMeta)
+      .then(m => setScnMeta(m || null))
       .catch(() => setScnMeta(null));
   }, [region, activeFolder]);
 
@@ -224,14 +227,19 @@ export default function EpmZonePage() {
   const prevFolderRef = useRef(null);
   const prevZcmapRef  = useRef(null);
   useEffect(() => {
-    if (!region?.epm || !activeFolder || !activeZcmap) { if (!region?.epm) setEpmData(null); return; }
+    if (!region?.epm || !activeFolder || !activeZcmap || scnMeta === undefined) {
+      if (!region?.epm) setEpmData(null);
+      return;
+    }
     const regionOrFolderChanged = prevRegionRef.current !== region || prevFolderRef.current !== activeFolder;
     const zcmapChanged = prevZcmapRef.current !== activeZcmap;
     prevRegionRef.current = region;
     prevFolderRef.current = activeFolder;
     prevZcmapRef.current  = activeZcmap;
     const { branch } = region.epm;
-    const rf = (param, fallback) => varOverrides[param] || fallback;
+    // config.csv is authoritative for where a parameter reads from; the literal
+    // below is only a last resort for a folder whose config we could not read.
+    const rf = (param, fallback) => resolveFile(scnMeta, varOverrides, param, fallback);
     // Blank + loading ONLY on region/folder change. Variant/zcmap changes swap in-place.
     if (regionOrFolderChanged) { setEpmData(null); setLoading(true); }
     Promise.all([
@@ -269,7 +277,7 @@ export default function EpmZonePage() {
         offgridGJ:    (regionOrFolderChanged || zcmapChanged || !prev) ? offgridGJ    : prev.offgridGJ,
       }));
     }).finally(() => setLoading(false));
-  }, [region, activeFolder, activeZcmap, varOverrides]);
+  }, [region, activeFolder, activeZcmap, varOverrides, scnMeta]);
 
   // Load output-only NTC corridors (lines present in scenario outputs but not in pTransferLimit input)
   useEffect(() => {

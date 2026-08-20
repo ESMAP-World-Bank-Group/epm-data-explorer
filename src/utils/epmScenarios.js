@@ -32,6 +32,10 @@ function parseCSV(text) {
 
 const UNIT_RE = /\(Unit:\s*([^)]*)\)/i;
 
+// Names an input folder may give the scenario matrix, tried in this order after
+// whatever regions.json declares.
+const SCENARIO_FILES = ['scenarios.csv', 'input_scenarios.csv'];
+
 /** A scenarios.csv section marker row is an all-caps label with no override cells. */
 function isSectionName(s) {
   return s && /^[A-Z][A-Z0-9 _&/-]*$/.test(s.trim());
@@ -45,18 +49,27 @@ export function baseName(path) {
 
 /**
  * Fetch + parse the scenario definitions for a branch/dataFolder.
- * Returns null if no scenarios file is reachable.
+ * Returns null only when neither the config nor a scenarios file is reachable;
+ * a folder with a config but no matrix still yields paramMeta and no scenarios.
  * Shape: { scenarios, paramMeta, overridesByParam, diffByScenario, variantsForParam }
  */
 export async function fetchScenarioConfig(branch, dataFolder, opts = {}) {
-  const configFile    = opts.configFile    || 'config.csv';
-  const scenariosFile = opts.scenariosFile || 'scenarios.csv';
+  const configFile = opts.configFile || 'config.csv';
+  // EPM does not fix one name for the scenario matrix, and regions.json is not
+  // always right about it, so try the declared name and then the usual ones.
+  const candidates = [...new Set([opts.scenariosFile, ...SCENARIO_FILES].filter(Boolean))];
 
-  const [configText, scnText] = await Promise.all([
+  const [configText, ...scnTexts] = await Promise.all([
     fetchEpmText(branch, dataFolder, configFile),
-    fetchEpmText(branch, dataFolder, scenariosFile),
+    ...candidates.map(f => fetchEpmText(branch, dataFolder, f)),
   ]);
-  if (!scnText) return null;
+  const hit = scnTexts.findIndex(Boolean);
+  const scnText       = hit === -1 ? null : scnTexts[hit];
+  const scenariosFile = hit === -1 ? null : candidates[hit];
+
+  // The base case lives in config.csv and does not depend on the matrix, so a
+  // folder with no scenarios file still has a config worth returning.
+  if (!configText && !scnText) return null;
 
   // --- config.csv: paramName → { section, label, unit, defaultFile } ---
   const paramMeta = {};
@@ -74,13 +87,11 @@ export async function fetchScenarioConfig(branch, dataFolder, opts = {}) {
     }
   }
 
-  // --- scenarios.csv: variant matrix ---
-  const rows = parseCSV(scnText);
-  if (!rows.length) return null;
-  const scenarios = rows[0].slice(1).map(s => (s || '').trim()).filter(Boolean);
-
+  // --- scenarios.csv: variant matrix (optional) ---
   const overridesByParam = {};                       // param → { scenario: file }
   const diffByScenario   = {};                       // scenario → [{ paramName, section, file, defaultFile, label, unit }]
+  const rows = scnText ? parseCSV(scnText) : [];
+  const scenarios = rows.length ? rows[0].slice(1).map(s => (s || '').trim()).filter(Boolean) : [];
   scenarios.forEach(s => { diffByScenario[s] = []; });
 
   let section = '';
@@ -113,4 +124,16 @@ export async function fetchScenarioConfig(branch, dataFolder, opts = {}) {
 
   return { scenarios, paramMeta, overridesByParam, diffByScenario, variantsForParam,
            configFile, scenariosFile };
+}
+
+/**
+ * File a parameter actually reads, most specific source first: the variant the
+ * user picked, then the base case config.csv declares, then the conventional name.
+ *
+ * The conventional name is only a guess and a bad one to rely on -- a folder can
+ * point pGenDataInput at pGenDataInput_SAPP_v3.csv while a stale pGenDataInput.csv
+ * still sits next to it, and guessing loads the stale one without a word.
+ */
+export function resolveFile(scnMeta, overrides, param, fallback) {
+  return overrides?.[param] || scnMeta?.paramMeta?.[param]?.defaultFile || fallback;
 }

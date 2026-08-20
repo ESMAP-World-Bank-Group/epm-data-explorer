@@ -14,7 +14,7 @@ import {
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchScenarioConfig, baseName } from '../utils/epmScenarios';
+import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 
@@ -186,7 +186,7 @@ export default function EpmCountryPage() {
   const [epmYear,      setEpmYear]      = useState(null);
 
   // ── Scenario / variant state ─────────────────────────────────────────────────
-  const [scnMeta,      setScnMeta]      = useState(null);   // parsed config.csv + scenarios.csv
+  const [scnMeta,      setScnMeta]      = useState(undefined);   // parsed config.csv + scenarios.csv
   const [varOverrides, setVarOverrides] = useState({});     // { paramName: variantFile }
   const [scnFilter,    setScnFilter]    = useState('');     // scenario-tab search box
   const setVariant = (param, file) => setVarOverrides(o => {
@@ -259,14 +259,17 @@ export default function EpmCountryPage() {
   }
 
   // ── Load scenario definitions (config.csv + scenarios.csv) ────────────────────
+  // scnMeta is tri-state: undefined while loading, null when no config is
+  // reachable, object once parsed. The data effect below waits for it, so no
+  // fetch fires against the fallback paths and then again against the real ones.
   useEffect(() => {
-    setScnMeta(null);
+    setScnMeta(undefined);
     setVarOverrides({});
     setScnFilter('');
     if (!region?.epm || !activeFolder) return;
     const { branch, scenariosFile, configFile } = region.epm;
     fetchScenarioConfig(branch, activeFolder, { scenariosFile, configFile })
-      .then(setScnMeta)
+      .then(m => setScnMeta(m || null))
       .catch(() => setScnMeta(null));
   }, [region, activeFolder]);
 
@@ -275,14 +278,19 @@ export default function EpmCountryPage() {
   const prevFolderRef = useRef(null);
   const prevZcmapRef  = useRef(null);
   useEffect(() => {
-    if (!region?.epm || !activeFolder || !activeZcmap) { if (!region?.epm) setEpmData(null); return; }
+    if (!region?.epm || !activeFolder || !activeZcmap || scnMeta === undefined) {
+      if (!region?.epm) setEpmData(null);
+      return;
+    }
     const regionOrFolderChanged = prevRegionRef.current !== region || prevFolderRef.current !== activeFolder;
     const zcmapChanged = prevZcmapRef.current !== activeZcmap;
     prevRegionRef.current = region;
     prevFolderRef.current = activeFolder;
     prevZcmapRef.current  = activeZcmap;
     const { branch } = region.epm;
-    const rf = (param, fallback) => varOverrides[param] || fallback;
+    // config.csv is authoritative for where a parameter reads from; the literal
+    // below is only a last resort for a folder whose config we could not read.
+    const rf = (param, fallback) => resolveFile(scnMeta, varOverrides, param, fallback);
     // Blank + loading ONLY on region/folder change. Variant/zcmap changes swap in-place.
     if (regionOrFolderChanged) { setEpmData(null); setLoading(true); }
     Promise.all([
@@ -325,7 +333,7 @@ export default function EpmCountryPage() {
         branch,
       }));
     }).finally(() => setLoading(false));
-  }, [region, activeFolder, activeZcmap, varOverrides]);
+  }, [region, activeFolder, activeZcmap, varOverrides, scnMeta]);
 
   // Load output-only NTC corridors (lines present in scenario outputs but not in pTransferLimit input)
   useEffect(() => {
@@ -1747,12 +1755,13 @@ export default function EpmCountryPage() {
         {/* ════════ SCENARIOS ═══════════════════════════════════════════════════ */}
         {activeTab === 'scenario' && (
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-            {!scnMeta ? (
+            {!scnMeta?.scenarios?.length ? (
               <div style={{ color:t.lblMuted, fontSize:'0.55rem', lineHeight:1.6 }}>
-                No scenario definitions (<code>scenarios.csv</code>) found for this study.
+                No scenario matrix (<code>scenarios.csv</code>) found for this study.
                 <div style={{ marginTop:6, fontSize:'0.5rem' }}>
                   EPM drives inputs from <b>config.csv</b> (base case) and <b>scenarios.csv</b>
-                  {' '}(per–data-type variant overrides). None were reachable for this branch.
+                  {' '}(per–data-type variant overrides). Only the base case was reachable
+                  {' '}for this branch, so every input below is the config.csv default.
                 </div>
               </div>
             ) : (() => {

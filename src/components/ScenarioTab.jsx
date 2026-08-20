@@ -13,13 +13,16 @@ function hexA(hex, a) {
 export default function ScenarioTab({ t, scnMeta }) {
   const [scnFilter, setScnFilter] = useState('');
 
-  if (!scnMeta) {
+  // No matrix is a normal state, not a failure: the folder may define only a base
+  // case, which the input tabs still read from config.csv.
+  if (!scnMeta?.scenarios?.length) {
     return (
       <div style={{ color: t.lblMuted, fontSize: '0.55rem', lineHeight: 1.6 }}>
-        No scenario definitions (<code>scenarios.csv</code>) found for this study.
+        No scenario matrix (<code>scenarios.csv</code>) found for this study.
         <div style={{ marginTop: 6, fontSize: '0.5rem' }}>
           EPM drives inputs from <b>config.csv</b> (base case) and <b>scenarios.csv</b>
-          {' '}(per–data-type variant overrides). None were reachable for this branch.
+          {' '}(per–data-type variant overrides). Only the base case was reachable for
+          {' '}this branch, so every input uses the config.csv default.
         </div>
       </div>
     );
