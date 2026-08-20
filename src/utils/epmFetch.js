@@ -256,24 +256,41 @@ function parseCSV(text) {
   });
 }
 
-export async function fetchLinestringGeoJSON(branch, dataFolder, stem = null) {
-  const name = stem ? `linestring_${stem}.geojson` : 'linestring_countries.geojson';
-  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/${name}`;
+async function fetchJSON(url) {
   try {
     const res = await fetch(url);
-    if (!res.ok) return stem ? fetchLinestringGeoJSON(branch, dataFolder, null) : null;
+    if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
 }
 
-export async function fetchZonesGeoJSON(branch, dataFolder, stem = null) {
+/** Fetch a map layer, run folder first.
+ *  A run writes the zones it actually solved next to its input_scenarios.csv, so
+ *  that pair describes the map the results belong to. Runs published before EPM
+ *  did that -- and models that can no longer be re-run -- have only the pair
+ *  committed in the input folder, which is why the fallback stays.
+ *  `run` is { outputDir, simRun }; omit it on the input pages, which have no run. */
+async function fetchMapLayer(branch, dataFolder, name, run) {
+  const base = `${rawBase(branch)}/${branch}`;
+  if (run?.outputDir && run?.simRun) {
+    const fromRun = await fetchJSON(`${base}/${run.outputDir}/${run.simRun}/${name}`);
+    if (fromRun) return fromRun;
+  }
+  return fetchJSON(`${base}/epm/input/${dataFolder}/${name}`);
+}
+
+export async function fetchLinestringGeoJSON(branch, dataFolder, stem = null, run = null) {
+  const name = stem ? `linestring_${stem}.geojson` : 'linestring_countries.geojson';
+  const gj = await fetchMapLayer(branch, dataFolder, name, run);
+  if (gj) return gj;
+  return stem ? fetchLinestringGeoJSON(branch, dataFolder, null, run) : null;
+}
+
+export async function fetchZonesGeoJSON(branch, dataFolder, stem = null, run = null) {
   const name = stem ? `zones_${stem}.geojson` : 'zones.geojson';
-  const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/${name}`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return stem ? fetchZonesGeoJSON(branch, dataFolder, null) : null;
-    return await res.json();
-  } catch { return null; }
+  const gj = await fetchMapLayer(branch, dataFolder, name, run);
+  if (gj) return gj;
+  return stem ? fetchZonesGeoJSON(branch, dataFolder, null, run) : null;
 }
 
 /** Fetch scenario names from {outputDir}/{simRun}/input_scenarios.csv (first row, cols after paramNames). */

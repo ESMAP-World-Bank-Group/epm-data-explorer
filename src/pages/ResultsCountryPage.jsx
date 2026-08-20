@@ -90,6 +90,8 @@ export default function ResultsCountryPage() {
   const [scenarioList, setScenarioList] = useState([]);
   const [resultsData,  setResultsData]  = useState({});
   const [loadingRuns,  setLoadingRuns]  = useState(false);
+  // Set once the run list has settled, so the map knows which run to draw.
+  const [runsResolved, setRunsResolved] = useState(false);
   const [loadingData,  setLoadingData]  = useState(false);
   const [loadingDisp,  setLoadingDisp]  = useState(false);
   const dispLoadedRef  = useRef(new Set());
@@ -136,13 +138,24 @@ export default function ResultsCountryPage() {
   useEffect(()=>{
     if(!region?.epm)return;
     const{branch,dataFolder}=region.epm;
-    Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchZonesGeoJSON(branch,dataFolder),fetchLinestringGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'pHours.csv'),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'trade/pExtTransferLimit.csv'),fetchZonesOffgridGeoJSON(branch,dataFolder)]).then(([zc,zGJ,lGJ,hr,zExt,extRaw,offGJ])=>{
-      setZcmapRows(zc||[]);setZonesGJ(zGJ);setLinestringGJ(lGJ);if(hr){setHoursData(processHours(hr));setSlices(processTimeSlices(hr));}
+    Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchEpmCSV(branch,dataFolder,'pHours.csv'),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'trade/pExtTransferLimit.csv'),fetchZonesOffgridGeoJSON(branch,dataFolder)]).then(([zc,hr,zExt,extRaw,offGJ])=>{
+      setZcmapRows(zc||[]);if(hr){setHoursData(processHours(hr));setSlices(processTimeSlices(hr));}
       setZonesExtGJ(zExt||null);setExtNtc(extRaw?processExtNTC(extRaw):[]);setOffgridGJ(offGJ||null);
     });
   },[region]);
 
-  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);const b=region.epm.branch;resolveOutputDir(b).then(dir=>{setOutputDir(dir);return fetchRunList(b,dir);}).then(names=>{const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>setLoadingRuns(false));},[region]);
+  // The zone layers belong to the run, not to the branch: a run publishes the
+  // zoning it solved. Wait for the run list to settle so the right one is asked
+  // for; with no run resolved this reads the input folder, as it always did.
+  useEffect(()=>{
+    if(!region?.epm||!runsResolved)return;
+    const{branch,dataFolder}=region.epm;
+    const run=simRun?{outputDir,simRun}:null;
+    Promise.all([fetchZonesGeoJSON(branch,dataFolder,null,run),fetchLinestringGeoJSON(branch,dataFolder,null,run)])
+      .then(([zGJ,lGJ])=>{setZonesGJ(zGJ);setLinestringGJ(lGJ);});
+  },[region,outputDir,simRun,runsResolved]);
+
+  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const b=region.epm.branch;resolveOutputDir(b).then(dir=>{setOutputDir(dir);return fetchRunList(b,dir);}).then(names=>{const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});},[region]);
   useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(new Set(s));setCmpRef(base);setCmpScenarios(new Set(s));setTrScenarios(new Set(s));setSnapScenarios(new Set(s));}});},[region,simRun,outputDir]);
 
   useEffect(()=>{
