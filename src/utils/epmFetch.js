@@ -1,10 +1,10 @@
-// --- Source des données PAR BRANCHE ---
-// Par défaut, les données viennent du repo public EPM (GitHub).
-// Pour les branches "privées", elles sont servies depuis le bucket R2 (store privé) :
-// il suffit d'ajouter le nom de la branche dans R2_BRANCHES.
+// --- Data source PER BRANCH ---
+// By default, the data comes from the public EPM repo (GitHub).
+// For "private" branches, it is served from the R2 bucket (private store):
+// just add the branch name to R2_BRANCHES.
 const GITHUB_RAW  = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
 const R2_BASE     = 'https://pub-fbe9fb64480745d48ed524b3803b349d.r2.dev';
-const R2_BRANCHES = new Set(['blacksea_2026']);   // branches dont les données vivent dans R2
+const R2_BRANCHES = new Set(['blacksea_2026']);   // branches whose data lives in R2
 function rawBase(branch) { return R2_BRANCHES.has(branch) ? R2_BASE : GITHUB_RAW; }
 
 const API_BASE = 'https://api.github.com/repos/ESMAP-World-Bank-Group/EPM';
