@@ -77,13 +77,18 @@ function makeDonutSVG(fuelMix, tv, size = 48) {
   let cumDeg = -90;
   const arcs = entries.map(([fuel, mw]) => {
     const angle = (mw / total) * 360;
+    const color = EPM_FUEL_COLORS[fuel] || '#AAAAAA';
+    // A 100% slice ends exactly where it starts, and SVG draws nothing for an arc
+    // whose endpoint equals its origin: a single-fuel zone would come out blank.
+    if (angle >= 359.999) {
+      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}"/>`;
+    }
     const start = (cumDeg * Math.PI) / 180;
     const end   = ((cumDeg + angle) * Math.PI) / 180;
     cumDeg += angle;
     const x1 = cx + r * Math.cos(start), y1 = cy + r * Math.sin(start);
     const x2 = cx + r * Math.cos(end),   y2 = cy + r * Math.sin(end);
     const large = angle > 180 ? 1 : 0;
-    const color = EPM_FUEL_COLORS[fuel] || '#AAAAAA';
     return `<path d="M${x1} ${y1} A${r} ${r} 0 ${large} 1 ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="butt"/>`;
   });
   const totalGW = total / 1000;
