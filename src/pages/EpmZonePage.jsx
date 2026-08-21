@@ -51,8 +51,8 @@ function cjDefaults(t) {
         titleColor: t.lbl, bodyColor: t.muted, titleFont: { size: 9 }, bodyFont: { size: 9 }, padding: 6 },
     },
     scales: {
-      x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
-      y: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
+      x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 9 } } },
+      y: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 9 } } },
     },
   };
 }
@@ -740,8 +740,8 @@ export default function EpmZonePage() {
                         borderWidth:0, barThickness:12 }] }}
                       options={{ ...cjDefaults(t), indexAxis:'y',
                         scales:{
-                          x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                          y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                          x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                          y:{grid:{display:false},ticks:{color:t.muted,font:{size:9}}},
                         }}}
                     />
                   </div>
@@ -789,11 +789,11 @@ export default function EpmZonePage() {
                         ]}}
                         options={{ ...cjDefaults(t),
                           scales:{
-                            x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:7}},
-                            yL:{type:'linear',position:'left',title:{display:true,text:'GWh',color:t.muted,font:{size:7}},
-                              grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},
-                            yR:{type:'linear',position:'right',title:{display:true,text:'GW',color:t.muted,font:{size:7}},
-                              grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}}},
+                            x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:7}},
+                            yL:{type:'linear',position:'left',title:{display:true,text:'GWh',color:t.muted,font:{size:8}},
+                              grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}}},
+                            yR:{type:'linear',position:'right',title:{display:true,text:'GW',color:t.muted,font:{size:8}},
+                              grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}}},
                           }}}
                         onClickYear={setEpmYear}
                       />
@@ -884,8 +884,8 @@ export default function EpmZonePage() {
                       options={{ ...cjDefaults(t),
                         layout:{padding:{top:demandProfileMode==='full'?18:4,bottom:demandProfileMode==='full'?62:4}},
                         scales:{
-                          x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12,...(pd.xTicks||{})}},
-                          y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},min:0,title:{display:true,text:'Load factor',color:t.muted,font:{size:7}}},
+                          x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:8},maxTicksLimit:12,...(pd.xTicks||{})}},
+                          y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},min:0,title:{display:true,text:'Load factor',color:t.muted,font:{size:8}}},
                         }}}
                     />
                   ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No profile data.</div>}
@@ -920,8 +920,8 @@ export default function EpmZonePage() {
                         ]}}
                         options={{ ...cjDefaults(t), indexAxis:'y',
                           scales:{
-                            x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                            y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                            x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                            y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}},
                           }}}
                       />
                     </div>
@@ -1126,8 +1126,8 @@ export default function EpmZonePage() {
                           options={{ ...cjDefaults(t),
                             layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?80:4}},
                             scales:{
-                              x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12,...(vd.xTicks||{})}},
-                              y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}}},
+                              x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:8},maxTicksLimit:12,...(vd.xTicks||{})}},
+                              y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:8}}},
                             }}}
                         />
                       ) : <div style={{ color:t.lblMuted, fontSize:'0.55rem' }}>No {VRE_DISPLAY[activeTech]||activeTech} data available.</div>}
@@ -1159,9 +1159,9 @@ export default function EpmZonePage() {
                               }))}}
                             options={{ ...cjDefaults(t),
                               scales:{
-                                x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},
-                                y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},
-                                  title:{display:true,text:'Availability factor',color:t.muted,font:{size:7}}},
+                                x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}}},
+                                y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},
+                                  title:{display:true,text:'Availability factor',color:t.muted,font:{size:8}}},
                               }}}
                           />
                         </div>
@@ -1207,9 +1207,9 @@ export default function EpmZonePage() {
                           <CJChart type="line" height={160} data={fd}
                             options={{ ...cjDefaults(t),
                               scales:{
-                                x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxTicksLimit:8}},
-                                y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},
-                                  title:{display:true,text:'USD/MBtu',color:t.muted,font:{size:7}}},
+                                x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:8}},
+                                y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},
+                                  title:{display:true,text:'USD/MBtu',color:t.muted,font:{size:8}}},
                               }}}
                           />
                         </div>
@@ -1267,8 +1267,8 @@ export default function EpmZonePage() {
                       backgroundColor:hexA('#f0b030',0.75), borderWidth:0, barThickness:12 }] }}
                   options={{ ...cjDefaults(t), indexAxis:'y',
                     scales:{
-                      x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                      y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}},
+                      x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                      y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
                     }}}
                 />
               </>

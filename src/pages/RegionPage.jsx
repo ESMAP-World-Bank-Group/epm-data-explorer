@@ -188,8 +188,8 @@ function cjDefaults(t) {
       },
     },
     scales: {
-      x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
-      y: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 } } },
+      x: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 9 } } },
+      y: { grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 9 } } },
     },
   };
 }
@@ -329,8 +329,8 @@ function EpmOverviewTab({ t, epmData, region, epmYear, setEpmYear }) {
                 }}
                 options={{ ...cjDefaults(t), indexAxis: 'y',
                   scales: {
-                    x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 }, callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
-                    y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 8 } } },
+                    x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 9 }, callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
+                    y: { stacked: true, grid: { display: false }, ticks: { color: t.muted, font: { size: 9 } } },
                   },
                   plugins: { ...cjDefaults(t).plugins, legend: { display: false },
                     tooltip: { ...cjDefaults(t).plugins.tooltip, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW` } } },
@@ -508,8 +508,8 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
                 { label:'Candidate', data:fuelChartData.map(d=>d.ca), backgroundColor:fuelChartData.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||EPM_FUEL_COLORS.other,0.22)), borderWidth:0, barThickness:12, stack:'a' },
               ]}}
               options={{ ...cjDefaults(t), indexAxis:'y', scales: {
-                x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}},
               }}}
             />
           </div>
@@ -574,12 +574,12 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
                 }
               },
               scales: {
-                x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 8 },
+                x: { stacked: true, grid: { color: t.panelBorder }, ticks: { color: t.muted, font: { size: 9 },
                   callback: v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v } },
                 y: { stacked: true, grid: { display: false },
                   ticks: {
                     color: ctryData.map(d => selectedCountries.size === 0 || selectedCountries.has(d.c) ? t.muted : 'rgba(128,128,128,0.15)'),
-                    font: { size: 8 }
+                    font: { size: 9 }
                   }
                 },
               },
@@ -917,11 +917,11 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
               cacheKey={`forecast|${segMode}|${[...hidden].sort().join(',')}`}
               options={{ ...cjDefaults(t),
                 scales: {
-                  x: { stacked:true, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8},maxTicksLimit:7} },
-                  yL:{ type:'linear', position:'left', stacked:true, title:{display:true,text:'GWh',color:t.muted,font:{size:7}},
-                    grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}} },
-                  yR:{ type:'linear', position:'right', title:{display:true,text:'GW',color:t.muted,font:{size:7}},
-                    grid:{drawOnChartArea:false}, ticks:{color:t.muted,font:{size:8}} },
+                  x: { stacked:true, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:9},maxTicksLimit:7} },
+                  yL:{ type:'linear', position:'left', stacked:true, title:{display:true,text:'GWh',color:t.muted,font:{size:8}},
+                    grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:9}} },
+                  yR:{ type:'linear', position:'right', title:{display:true,text:'GW',color:t.muted,font:{size:8}},
+                    grid:{drawOnChartArea:false}, ticks:{color:t.muted,font:{size:9}} },
                 },
               }}
               onClickYear={setEpmYear}
@@ -994,9 +994,9 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
                   layout:{ padding:{ top: profileMode==='full'?18:4, bottom: profileMode==='full'?62:4 } },
                   scales:{
                     x:{ grid:{ color:t.panelBorder, drawTicks:false },
-                      ticks:{ display: profileMode!=='full', color:t.muted, font:{size:7}, maxTicksLimit:12, ...(profileResult.xTicks||{}) } },
-                    y:{ grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}}, min:0,
-                      title:{display:true,text:'Load factor',color:t.muted,font:{size:7}} },
+                      ticks:{ display: profileMode!=='full', color:t.muted, font:{size:8}, maxTicksLimit:12, ...(profileResult.xTicks||{}) } },
+                    y:{ grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:9}}, min:0,
+                      title:{display:true,text:'Load factor',color:t.muted,font:{size:8}} },
                   },
                 }}
               />
@@ -1300,10 +1300,10 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
                           layout:{ padding:{ top:vreProfileMode==='full'?18:4, bottom:vreProfileMode==='full'?80:4 } },
                           scales:{
                             x:{ grid:{color:t.panelBorder,drawTicks:false},
-                              ticks:{ display:vreProfileMode!=='full', color:t.muted,font:{size:7},maxTicksLimit:12, ...(vd.xTicks||{}) },
-                              title:{ display:vreProfileMode==='season'&&!!vd.seasonLabel, text:vd.seasonLabel||'', color:t.muted, font:{size:8} } },
-                            y:{ min:0, max:1, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8}},
-                              title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:7}} },
+                              ticks:{ display:vreProfileMode!=='full', color:t.muted,font:{size:8},maxTicksLimit:12, ...(vd.xTicks||{}) },
+                              title:{ display:vreProfileMode==='season'&&!!vd.seasonLabel, text:vd.seasonLabel||'', color:t.muted, font:{size:9} } },
+                            y:{ min:0, max:1, grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:9}},
+                              title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:8}} },
                           },
                         }}
                       />
@@ -1357,8 +1357,8 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
             <>
               <CJChart type="bar" height={160} data={ad}
                 options={{ ...cjDefaults(t), scales:{
-                  x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},
-                  y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Availability factor',color:t.muted,font:{size:7}}},
+                  x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}}},
+                  y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Availability factor',color:t.muted,font:{size:8}}},
                 }}}
               />
               <div style={{ display:'flex',flexWrap:'wrap',gap:'3px 8px',marginTop:2 }}>
@@ -1390,8 +1390,8 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
             <>
               <CJChart type="line" height={170} data={fd}
                 options={{ ...cjDefaults(t), scales:{
-                  x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxTicksLimit:8}},
-                  y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MBtu',color:t.muted,font:{size:7}}},
+                  x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:8}},
+                  y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'USD/MBtu',color:t.muted,font:{size:8}}},
                 }}}
               />
               <div style={{ display:'flex',flexWrap:'wrap',gap:'3px 10px',marginTop:2 }}>
@@ -1490,8 +1490,8 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVa
               }}
               options={{ ...cjDefaults(t),
                 scales:{
-                  x:{stacked:chartType==='bar',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:7}},
-                  y:{stacked:chartType==='bar',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                  x:{stacked:chartType==='bar',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:7}},
+                  y:{stacked:chartType==='bar',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
                 },
                 plugins:{...cjDefaults(t).plugins,legend:{display:false},
                   tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw.toLocaleString()} MW`}}},
@@ -1538,8 +1538,8 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVa
                 borderWidth:0, barThickness:12}] }}
             options={{ ...cjDefaults(t), indexAxis:'y',
               scales:{
-                x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
-                y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}},
+                x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},
+                y:{grid:{display:false},ticks:{color:t.muted,font:{size:9}}},
               },
               plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,
                 callbacks:{label:ctx=>`${ctx.raw.toLocaleString()} MW`}}},

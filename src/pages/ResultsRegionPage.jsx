@@ -69,7 +69,7 @@ const INDICATORS = [
 function fmt(n, d = 0) { if (n == null || isNaN(n)) return '—'; return n.toLocaleString('en-US', { maximumFractionDigits: d }); }
 function fmtBig(n) { if (!n) return '—'; const a=Math.abs(n); if(a>=1e9)return`${(n/1e9).toFixed(1)}B`; if(a>=1e6)return`${(n/1e6).toFixed(1)}M`; if(a>=1e3)return`${(n/1e3).toFixed(1)}k`; return n.toFixed(1); }
 function hexA(hex, a) { if (!hex||hex.length<7) return `rgba(128,128,128,${a})`; const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
-function cjDefaults(t) { return { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:11},bodyFont:{size:11},padding:6}}, scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:10}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:10}}}}}; }
+function cjDefaults(t) { return { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:11},bodyFont:{size:11},padding:6}}, scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:11}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:11}}}}}; }
 
 function priceColor(t_) {
   // t_ = 0-1: white → #1B6CA8 (medium blue)
@@ -1367,7 +1367,7 @@ export default function ResultsRegionPage() {
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}|${theme}|${[...hiddenMap['ov-mix']||[]].join(',')}`} data={{...overviewMix,datasets:overviewMix.datasets.filter(d=>!isHidden('ov-mix',d.label))}}
-                    options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}
+                    options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}
                   />
                 </div>
                 {makeLegend('ov-mix',allTechfuels.filter(tf=>overviewMix.datasets.some(d=>d.label===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
@@ -1384,7 +1384,7 @@ export default function ResultsRegionPage() {
                     {label:'Range',data:zones.map(z=>{const r=zonePriceRange[z];return r?[+r.min.toFixed(1),+r.max.toFixed(1)]:[+zoneAvgPrices[z].toFixed(1),+zoneAvgPrices[z].toFixed(1)];}),backgroundColor:zones.map(z=>priceBarColor((zoneAvgPrices[z]-minPrice)/rng).replace('rgb(','rgba(').replace(')',',0.18)')),borderWidth:0,barThickness:10},
                     {type:'scatter',label:'Avg',data:zones.map(z=>({x:+zoneAvgPrices[z].toFixed(1),y:z})),pointStyle:'line',rotation:90,radius:6,borderWidth:2.5,borderColor:zones.map(z=>priceBarColor((zoneAvgPrices[z]-minPrice)/rng))},
                   ]}}
-                  options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const z=zones[ctx.dataIndex];if(ctx.datasetIndex===0){const r=zonePriceRange[z];return r&&r.min!==r.max?`${r.min.toFixed(1)}–${r.max.toFixed(1)} $/MWh`:'';} return`Avg: ${zoneAvgPrices[z]?.toFixed(1)} $/MWh`;},title:ctx=>ctx[0]?.label||''}}}}}
+                  options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const z=zones[ctx.dataIndex];if(ctx.datasetIndex===0){const r=zonePriceRange[z];return r&&r.min!==r.max?`${r.min.toFixed(1)}–${r.max.toFixed(1)} $/MWh`:'';} return`Avg: ${zoneAvgPrices[z]?.toFixed(1)} $/MWh`;},title:ctx=>ctx[0]?.label||''}}}}}
                 />
                 <div style={{display:'flex',gap:12,marginTop:4,fontSize:'0.44rem',color:t.muted}}>
                   <span>Avg: <b style={{color:t.lbl}}>{(priceVals.reduce((a,b)=>a+b,0)/priceVals.length).toFixed(1)} $/MWh</b></span>
@@ -1420,8 +1420,8 @@ export default function ResultsRegionPage() {
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[snapData.netPlugin,sp].filter(Boolean);})()}
                     data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>{if(snapData.ind?.source==='trade')return!isHidden('snap-trade-p',d._partner||'');return!isHidden('snap-tf',tfLabel(d));})}}
                     options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{
-                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20,padding:16}},
-                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
+                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxRotation:45,autoSkip:true,maxTicksLimit:20,padding:16}},
+                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapData.ind||{}).unit||'',color:t.muted,font:{size:8}}},
                     },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw?.toLocaleString?.()??ctx.raw}`}}}}}
                   />
                   {[...snapScenarios].filter(s=>resultsData[s]).length>1&&(snapData.ind?.source==='yearlyZone'?
@@ -1455,8 +1455,8 @@ export default function ResultsRegionPage() {
                         plugins={snapDeltaData.netPlugin?[snapDeltaData.netPlugin]:[]}
                         data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>{if(snapDeltaData.ind?.source==='trade')return!isHidden('snap-trade-p',d._partner||'');return!isHidden('snap-tf',tfLabel(d));})}}
                         options={{...cjDefaults(t),scales:{
-                          x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:7},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
-                          y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapDeltaData.ind||{}).unit||'',color:t.muted,font:{size:7}}},
+                          x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
+                          y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:(snapDeltaData.ind||{}).unit||'',color:t.muted,font:{size:8}}},
                         },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()}`:undefined;}}}}}}
                       />
                       {[...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef).length>0&&(
@@ -1493,7 +1493,7 @@ export default function ResultsRegionPage() {
                       return true;
                     })}}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return sp?[sp]:[];})()}
-                    options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10,padding:16}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
+                    options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10,padding:16}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
                   />
                 </div>
                 {activeInd.source==='techFuel'&&makeLegend('ev-tf',allTechfuels.filter(tf=>evolutionData.datasets.some(d=>tfLabel(d)===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
@@ -1526,9 +1526,9 @@ export default function ResultsRegionPage() {
                           return true;
                         })}}
                         options={{...cjDefaults(t),scales:{
-                          x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
-                          y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:7}}},
-                        },plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'?{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
+                          x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},
+                          y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}},
+                        },plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
                       />
                       {activeInd.source!=='yearlyZone'&&[...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef).length>0&&(
                         <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:3}}>Δ vs <b style={{color:t.muted}}>{cmpRef}</b>: {baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef)).join(' · ')}</div>
@@ -1568,7 +1568,7 @@ export default function ResultsRegionPage() {
                     data={{...dispResult.chartData,datasets:dispResult.chartData.datasets.filter(d=>!isHidden('disp-tf',d.label))}}
                     plugins={dispResult.plugin?[dispResult.plugin]:[]}
                     cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
-                    options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?70:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12,...(dispResult.xTicks||{})}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'MW',color:t.muted,font:{size:7}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:7}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
+                    options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?70:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:8},maxTicksLimit:12,...(dispResult.xTicks||{})}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'MW',color:t.muted,font:{size:8}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
                   />
                 </div>
                 {makeLegend('disp-tf',[
@@ -1597,9 +1597,9 @@ export default function ResultsRegionPage() {
                         cacheKey={`disp-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
                         options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?70:4}},
                           scales:{
-                            x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:7},maxTicksLimit:12,...(dispDeltaResult.xTicks||{})}},
-                            y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'ΔMW',color:t.muted,font:{size:7}}},
-                            yR:{type:'linear',position:'right',display:dispDeltaResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Δ$/MWh',color:t.muted,font:{size:7}}},
+                            x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:8},maxTicksLimit:12,...(dispDeltaResult.xTicks||{})}},
+                            y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'ΔMW',color:t.muted,font:{size:8}}},
+                            yR:{type:'linear',position:'right',display:dispDeltaResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Δ$/MWh',color:t.muted,font:{size:8}}},
                           },
                           plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
                       />
@@ -1641,8 +1641,8 @@ export default function ResultsRegionPage() {
                       cacheKey={`trev|${[...trScenarios].sort().join(',')}|${trEvMetric}|${theme}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
                       data={{ labels:tradeEvData.labels, datasets:tradeEvData.datasets.filter(d=>!isHidden('trade-ev',tfLabel(d))) }}
                       options={{...cjDefaults(t),scales:{
-                        x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
-                        y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:unit,color:t.muted,font:{size:7}}},
+                        x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},
+                        y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:unit,color:t.muted,font:{size:8}}},
                       },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)} ${unit}`}}}}}
                     />
                   </div>
@@ -1680,8 +1680,8 @@ export default function ResultsRegionPage() {
                     cacheKey={`trev-d|${[...trScenarios].sort().join(',')}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}|${theme}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
                     data={{labels:tradeCmpDeltaData.labels,datasets:tradeCmpDeltaData.datasets}}
                     options={{...cjDefaults(t),scales:{
-                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
-                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:`Δ${tradeCmpDeltaData.unit||'GWh'}`,color:t.muted,font:{size:7}}},
+                      x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},
+                      y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:`Δ${tradeCmpDeltaData.unit||'GWh'}`,color:t.muted,font:{size:8}}},
                     },plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
                   />
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No corridor differences found.':'Select at least one scenario to compare.'}</div>}
@@ -1701,9 +1701,9 @@ export default function ResultsRegionPage() {
                     {label:'Trade shared benefits: $m',data:extTradeData.shb,type:'line',borderColor:'#C8A8F0',borderWidth:1.4,borderDash:[4,3],pointRadius:0,tension:0.3,fill:false,order:2},
                   ]}}
                   options={{...cjDefaults(t),scales:{
-                    x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:10}},
-                    y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000||v<=-1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:'$m',color:t.muted,font:{size:7}}},
-                  },plugins:{...cjDefaults(t).plugins,legend:{display:true,labels:{color:t.muted,font:{size:8},boxWidth:8,boxHeight:6}},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
+                    x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},
+                    y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000||v<=-1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:'$m',color:t.muted,font:{size:8}}},
+                  },plugins:{...cjDefaults(t).plugins,legend:{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
                 />
               </div>
             )}
@@ -1731,7 +1731,7 @@ export default function ResultsRegionPage() {
                   {(()=>{const pd=plantsData.filter(p=>!isHidden('plants-tf',p.techfuel));return(
                     <CJChart type="bar" height={Math.min(pd.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}|${[...hiddenMap['plants-tf']||[]].join(',')}`}
                       data={{labels:pd.map(p=>p.g),datasets:[{label:plScenario,data:pd.map(p=>+p.value.toFixed(2)),backgroundColor:pd.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
-                      options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:7}}}}}}
+                      options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}
                     />
                   );})()}
                 </div>
@@ -1747,7 +1747,7 @@ export default function ResultsRegionPage() {
                     data={{...lcoeData,datasets:lcoeData.datasets.filter(ds=>!isHidden('lcoe-tf',ds.label))}}
                     options={{...cjDefaults(t),plugins:{...cjDefaults(t).plugins,
                       tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return[`${d._plant||ctx.dataset.label}`,`LCOE: ${d.y} $/MWh  ·  Util: ${d.x.toFixed(0)}%`,d._cap?`Cap: ${fmt(d._cap)} MW`:''].filter(Boolean);}}}},
-                      scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:8}},min:0,max:105},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:8}},min:0}}}}
+                      scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:9}},min:0,max:105},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:9}},min:0}}}}
                   />
                 </div>
                 {makeLegend('lcoe-tf',lcoeData.datasets.map(ds=>({label:ds.label,color:ds.backgroundColor,shape:'circle'})))}
