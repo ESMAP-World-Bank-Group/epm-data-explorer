@@ -10,7 +10,7 @@ import {
   processHours, processTimeSlices, processTransmissionResults, processPlants, processCosts, processExtNTC,
   computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
 } from '../utils/epmFetch';
-import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
+import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
@@ -104,7 +104,7 @@ export default function ResultsCountryPage() {
   const [dispZone,     setDispZone]     = useState(null);
   const [dispMode,     setDispMode]     = useState('full');
   const [dispSeason,   setDispSeason]   = useState('Q1');
-  const [dispDay,      setDispDay]      = useState('avg');
+  const [dispDay,      setDispDay]      = useState('all');
   const [trScenario,   setTrScenario]   = useState(null);
   const [trEvMetric,   setTrEvMetric]   = useState('volume');
   const [plScenario,   setPlScenario]   = useState(null);
@@ -203,8 +203,7 @@ export default function ResultsCountryPage() {
   const dispAvailD=useMemo(()=>{const ds=new Set();for(const z of allZones)for(const yr of Object.values(firstDisp[z]||{}))for(const q of Object.values(yr))for(const d of Object.keys(q))ds.add(d);return[...ds].sort();},[firstDisp,allZones]);
   const totalDays=useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
   const activeDispZone=dispZone||'__all__';
-  const getDispDemand=(sd,zone,zones,year,s,d,h)=>{const key=`t${h+1}`;if(zone==='__all__')return zones.reduce((sum,z)=>sum+(sd.dispatch[z]?.[year]?.[s]?.[d]?.[key]?.Demand||0),0);return sd.dispatch[zone]?.[year]?.[s]?.[d]?.[key]?.Demand??null;};
-  const getZoneDisp=(sd,zone,year)=>{if(zone!=='__all__')return sd.dispatch[zone]?.[year]||{};const agg={};for(const z of allZones)for(const[q,days]of Object.entries(sd.dispatch[z]?.[year]||{}))for(const[d,hours]of Object.entries(days))for(const[tt,tfs]of Object.entries(hours))for(const[tf,val]of Object.entries(tfs)){if(!agg[q])agg[q]={};if(!agg[q][d])agg[q][d]={};if(!agg[q][d][tt])agg[q][d][tt]={};agg[q][d][tt][tf]=(agg[q][d][tt][tf]||0)+val;}return agg;};
+    const getZoneDisp=(sd,zone,year)=>{if(zone!=='__all__')return sd.dispatch[zone]?.[year]||{};const agg={};for(const z of allZones)for(const[q,days]of Object.entries(sd.dispatch[z]?.[year]||{}))for(const[d,hours]of Object.entries(days))for(const[tt,tfs]of Object.entries(hours))for(const[tf,val]of Object.entries(tfs)){if(!agg[q])agg[q]={};if(!agg[q][d])agg[q][d]={};if(!agg[q][d][tt])agg[q][d][tt]={};agg[q][d][tt][tf]=(agg[q][d][tt][tf]||0)+val;}return agg;};
 
   const zoneAvgPrices=useMemo(()=>{
     const sd=resultsData[ovScenario]||Object.values(resultsData)[0];if(!sd||!refYear)return{};
@@ -439,20 +438,14 @@ export default function ResultsCountryPage() {
   const buildDispatchDelta=()=>{
     if(!cmpRef||cmpRef===dispScenario||!refYear||!activeDispZone||!resultsData[cmpRef])return{chartData:{labels:[],datasets:[]},plugin:null};
     const sdA=resultsData[dispScenario],sdB=resultsData[cmpRef];if(!sdA||!sdB)return{chartData:{labels:[],datasets:[]},plugin:null};
-    const zA=getZoneDisp(sdA,activeDispZone,refYear),zB=getZoneDisp(sdB,activeDispZone,refYear);
-    const seasons=dispAvailS,days=dispAvailD;const mcColor=t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A';
-    const addMC=(ds,labels,prA,prB)=>{const d=labels.map((_,i)=>{const a=prA[i],b=prB[i];return(a!=null&&b!=null)?+(a-b).toFixed(2):null;});if(d.some(v=>v!=null))ds.push({label:'Marginal cost',type:'line',data:d,yAxisID:'yR',borderColor:mcColor,borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});return ds;};
-    const mkDs=(tfs,getA,getB,nPts,labels,prA,prB,xTicks)=>{const ds=tfs.map(tf=>({label:tf,fill:true,data:Array.from({length:nPts},(_,i)=>+(getA(i,tf)-getB(i,tf)).toFixed(1)),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'})).filter(d=>d.data.some(v=>v!==0));return{chartData:{labels,datasets:addMC(ds,labels,prA||[],prB||[])},plugin:null,xTicks};};
     const zk=activeDispZone==='__all__'?allZones[0]:activeDispZone;
-    if(dispMode==='full'&&seasons.length&&days.length){const pts=buildTimeAxis(slices,seasons,days).slots;const nPts=pts.length;const tfs=[...new Set([zA,zB].flatMap(z=>seasons.flatMap(s=>days.flatMap(d=>Object.values(z[s]?.[d]||{}).flatMap(Object.keys)))))].filter(t=>t!=='Demand').sort();const prA=pts.map(p=>sdA.price[zk]?.[refYear]?.[p.q]?.[p.d]?.[p.t]??null);const prB=pts.map(p=>sdB.price[zk]?.[refYear]?.[p.q]?.[p.d]?.[p.t]??null);return mkDs(tfs,(i,tf)=>zA[pts[i].q]?.[pts[i].d]?.[pts[i].t]?.[tf]||0,(i,tf)=>zB[pts[i].q]?.[pts[i].d]?.[pts[i].t]?.[tf]||0,nPts,new Array(nPts).fill(''),prA,prB);}
-    const spA=zA[dispSeason],spB=zB[dispSeason];if(!spA&&!spB)return{chartData:{labels:[],datasets:[]},plugin:null};
-    const tfs=[...new Set([spA,spB].flatMap(sp=>Object.values(sp||{}).flatMap(d=>Object.values(d).flatMap(Object.keys))))].filter(t=>t!=='Demand').sort();
-    const refDay=dispDay==='avg'?dispAvailD[0]:dispDay;const ax=buildSeasonAxis(slices,dispSeason,[refDay]);
-    const gv=(sp,tk,tf)=>dispDay==='avg'?Object.keys(sp||{}).reduce((s,d)=>s+(sp[d]?.[tk]?.[tf]||0),0)/Math.max(Object.keys(sp||{}).length,1):(sp?.[dispDay]?.[tk]?.[tf]||0);
-    const prA_=sdA.price[zk]?.[refYear]?.[dispSeason]||{};const prB_=sdB.price[zk]?.[refYear]?.[dispSeason]||{};
-    const pAvg=(pr,tk)=>dispDay==='avg'?Object.keys(pr).reduce((s,d)=>s+(pr[d]?.[tk]??0),0)/Math.max(Object.keys(pr).length,1):(pr[dispDay]?.[tk]??null);
-    const pA=ax.slots.map(s=>pAvg(prA_,s.t));const pB=ax.slots.map(s=>pAvg(prB_,s.t));
-    return mkDs(tfs,(i,tf)=>gv(spA,ax.slots[i].t,tf),(i,tf)=>gv(spB,ax.slots[i].t,tf),ax.slots.length,blockLabels(ax,slices,dispSeason,refDay),pA,pB,axisTicks(ax));
+    return buildDispatchDeltaSeries({
+      slices, zA:getZoneDisp(sdA,activeDispZone,refYear), zB:getZoneDisp(sdB,activeDispZone,refYear),
+      priceA:sdA.price[zk]?.[refYear], priceB:sdB.price[zk]?.[refYear],
+      seasons:dispMode==='full'?dispAvailS:[dispSeason], days:dispAvailD,
+      daySel:dispMode==='full'?'all':dispDay,
+      techColor, isDark:t.isDark, mcColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A', hoursData, totalDays,
+    });
   };
   const buildTradeCmpDelta=()=>{
     if(!cmpRef||!allYears.length)return null;
@@ -481,8 +474,17 @@ export default function ResultsCountryPage() {
     const tfs=allTechfuels.filter(tf=>!isHidden('ev-c',tf));const datasets=[];for(const scen of activeSc)for(const tf of tfs){datasets.push({label:`${scen} — ${tf}`,data:allYears.map(y=>Math.round(visZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0))),backgroundColor:hexA(techColor(tf),activeSc.length>1?0.5:0.85),borderColor:techColor(tf),borderWidth:activeSc.length>1?1:0,stack:scen});}return{labels:allYears,datasets};
   };
 
-  const buildDispatch=()=>{const sd=resultsData[dispScenario];if(!sd||!activeDispZone||!refYear)return{chartData:{labels:[],datasets:[]},plugin:null};const zDisp=getZoneDisp(sd,activeDispZone,refYear);const isDark=t.isDark;const mcColor=isDark?'rgba(255,255,255,0.88)':'#1E3A8A';const seasons=dispAvailS,days=dispAvailD;if(dispMode==='full'&&seasons.length&&days.length){/* x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one */const ax=buildTimeAxis(slices,seasons,days);const nS=seasons.length,nDT=days.length,nPts=ax.slots.length;const at=(f)=>ax.slots.map(s=>f(s.q,s.d,s.t,s.i));const tfs=[...new Set(seasons.flatMap(q=>days.flatMap(d=>Object.values(zDisp[q]?.[d]||{}).flatMap(Object.keys))))].filter(t=>t!=='Demand').sort();const datasets=tfs.map(tf=>({label:tf,fill:true,data:at((q,d,tk)=>zDisp[q]?.[d]?.[tk]?.[tf]||0),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));const zP=sd.price[activeDispZone]?.[refYear]||{};const pd=at((q,d,tk)=>zP[q]?.[d]?.[tk]||null);if(pd.some(v=>v!=null))datasets.push({label:'Marginal cost',type:'line',data:pd,yAxisID:'yR',borderColor:mcColor,borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});const dem=at((q,d,tk,h)=>{const v=getDispDemand(sd,activeDispZone,allZones,refYear,q,d,h);return v!=null&&v>0?v:null;});if(dem.some(v=>v!=null))datasets.push({label:'Demand',type:'line',data:dem,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});const sepPlugin={id:'cSep',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca)return;const dL=(data,yK,col,lw=1.5)=>{if(!data.some(v=>v!=null)||!sc[yK])return;ctx.save();ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.setLineDash([]);let mv=false;data.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc[yK].getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();};dL(dem,'y','#CC0000');dL(pd,'yR',mcColor,1);},afterDraw:(chart)=>{const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;const{top,bottom}=chartArea;const xS=scales.x;const dC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const sC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';const tC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';const off=(si,di)=>ax.offsets[`${seasons[si]}|${days[di]}`]||0;const spn=(si,di)=>ax.spans[`${seasons[si]}|${days[di]}`]||0;for(let si=0;si<nS;si++){const ss=off(si,0);const sw=days.reduce((a,_,di)=>a+spn(si,di),0);ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(seasons[si],xS.getPixelForValue(ss+sw/2),top-2);ctx.restore();for(let di=0;di<nDT;di++){const dts=off(si,di);if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?sC:dC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}const midX=xS.getPixelForValue(dts+spn(si,di)/2);const w=hoursData?.[seasons[si]]?.[days[di]]||0;const pct=w>0?` (${((w/totalDays)*100).toFixed(0)}%)`:'';ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=tC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${days[di]}${pct}`,0,0);ctx.restore();}}}};return{chartData:{labels:new Array(nPts).fill(''),datasets},plugin:sepPlugin};}
-  const sp=zDisp[dispSeason];if(!sp)return{chartData:{labels:[],datasets:[]},plugin:null};const refDay=dispDay==='avg'?Object.keys(sp)[0]:dispDay;const ax=buildSeasonAxis(slices,dispSeason,[refDay]);const tfs2=[...new Set(Object.values(sp).flatMap(d=>Object.values(d).flatMap(Object.keys)))].filter(t=>t!=='Demand').sort();const getData=(tf)=>{if(dispDay==='avg'){const ds=Object.keys(sp);return ax.slots.map(s=>ds.reduce((a,d)=>a+(sp[d]?.[s.t]?.[tf]||0),0)/Math.max(ds.length,1));}return ax.slots.map(s=>sp[dispDay]?.[s.t]?.[tf]||0);};const datasets2=tfs2.map(tf=>({label:tf,fill:true,data:getData(tf),backgroundColor:hexA(techColor(tf),0.7),borderColor:techColor(tf),borderWidth:0,pointRadius:0,tension:0,stack:'gen'}));const demL=dispAvailD.length>0?ax.slots.map(sl=>{const ds=dispDay==='avg'?dispAvailD:[dispDay];const vals=ds.map(d=>getDispDemand(sd,activeDispZone,allZones,refYear,dispSeason,d,sl.i)).filter(v=>v!=null&&v>0);if(!vals.length)return null;return dispDay==='avg'?vals.reduce((a,b)=>a+b,0)/vals.length:vals[0];}):[];if(demL.some(v=>v))datasets2.push({label:'Demand',type:'line',data:demL,borderColor:'#8B0000',borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,stack:'demand',order:1});const prL=ax.slots.map(s=>sd.price[activeDispZone]?.[refYear]?.[dispSeason]?.[refDay]?.[s.t]||null);if(prL.some(v=>v!=null))datasets2.push({label:'Marginal cost',type:'line',data:prL,yAxisID:'yR',borderColor:mcColor,borderWidth:1,pointRadius:0,tension:0,fill:false,spanGaps:true,order:1});const linePlugin=(demL.some(v=>v)||prL.some(v=>v!=null))?{id:'lineS',afterDatasetsDraw:(chart)=>{const{ctx,chartArea:ca,scales:sc}=chart;if(!ca)return;const dL=(data,yK,col,lw=1.5)=>{if(!data.some(v=>v!=null)||!sc[yK])return;ctx.save();ctx.beginPath();ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.setLineDash([]);let mv=false;data.forEach((v,i)=>{if(v==null){mv=false;return;}const x=sc.x.getPixelForValue(i);const y=sc[yK].getPixelForValue(v);mv?ctx.lineTo(x,y):ctx.moveTo(x,y);mv=true;});ctx.stroke();ctx.restore();};dL(demL,'y','#CC0000');dL(prL,'yR',mcColor,1);}}:null;return{chartData:{labels:blockLabels(ax,slices,dispSeason,refDay),datasets:datasets2},plugin:linePlugin,xTicks:axisTicks(ax)};};
+  const buildDispatch=()=>{
+    const sd=resultsData[dispScenario];if(!sd||!activeDispZone||!refYear)return{chartData:{labels:[],datasets:[]},plugin:null};
+    // An aggregate has no single marginal price: show the first zone's as a stand-in.
+    const zk=activeDispZone==='__all__'?allZones[0]:activeDispZone;
+    return buildDispatchSeries({
+      slices, zDisp:getZoneDisp(sd,activeDispZone,refYear), price:sd.price[zk]?.[refYear],
+      seasons:dispMode==='full'?dispAvailS:[dispSeason], days:dispAvailD,
+      daySel:dispMode==='full'?'all':dispDay,
+      techColor, isDark:t.isDark, mcColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A', hoursData, totalDays,
+    });
+  };
 
   const buildTrade=()=>{const tx=resultsData[trScenario]?.transmission||{};if(!refYear)return null;const imp={},exp={};for(const z of visZones){imp[z]=0;exp[z]=0;for(const[z2,attrs]of Object.entries(tx[z]||{}))exp[z]+=(attrs.Interchange?.[refYear]||0);for(const[z2,zm]of Object.entries(tx))if(z2!==z)imp[z]+=(zm[z]?.Interchange?.[refYear]||0);}const zones=allZones.filter(z=>imp[z]+exp[z]>0.5).sort((a,b)=>(imp[b]-exp[b])-(imp[a]-exp[a]));if(!zones.length)return null;const net=Object.fromEntries(zones.map(z=>[z,+(imp[z]-exp[z]).toFixed(1)]));return{labels:zones,datasets:[!isHidden('trade-c','Imports')&&{label:'Imports',data:zones.map(z=>+imp[z].toFixed(1)),backgroundColor:hexA('#2E9EC8',0.78),borderWidth:0,barThickness:12,stack:'t'},!isHidden('trade-c','Exports')&&{label:'Exports',data:zones.map(z=>+(-exp[z]).toFixed(1)),backgroundColor:hexA('#E8C547',0.78),borderWidth:0,barThickness:12,stack:'t'},{label:'Net',data:zones.map(z=>net[z]),backgroundColor:t.isDark?'rgba(255,255,255,0.92)':'#1E3A8A',borderWidth:0,barThickness:3,order:0}].filter(Boolean),_imp:imp,_exp:exp,_net:net};};
 
@@ -779,16 +781,16 @@ export default function ResultsCountryPage() {
             <div style={{display:'flex',flexWrap:'wrap',gap:3,alignItems:'center'}}>
               <Pill active={dispMode==='full'} onClick={()=>setDispMode('full')}>Full Year</Pill>
               {dispAvailS.map(s=><Pill key={s} active={dispMode==='season'&&dispSeason===s} onClick={()=>{setDispMode('season');setDispSeason(s);}}>{s}</Pill>)}
-              {dispMode==='season'&&dispAvailD.length>0&&<><div style={{width:1,height:14,backgroundColor:t.panelBorder}}/><select value={dispDay} onChange={e=>setDispDay(e.target.value)} style={selectStyle}><option value="avg">Avg</option>{dispAvailD.map(d=><option key={d} value={d}>{d}</option>)}</select></>}
+              {dispMode==='season'&&dispAvailD.length>0&&<><div style={{width:1,height:14,backgroundColor:t.panelBorder}}/><select value={dispDay} onChange={e=>setDispDay(e.target.value)} style={selectStyle}><option value="all">All days</option><option value="avg">Avg</option>{dispAvailD.map(d=><option key={d} value={d}>{d}</option>)}</select></>}
             </div>
             {dispResult.chartData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="line" height={dispMode==='full'?210:165}
+                  <CJChart type="line" height={dispResult.grouped?210:165}
                     data={{...dispResult.chartData,datasets:dispResult.chartData.datasets.filter(d=>!isHidden('disp-c-tf',d.label))}}
                     plugins={dispResult.plugin?[dispResult.plugin]:[]}
                     cacheKey={`disp-c|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-c-tf']||[]].join(',')}`}
-                    options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:8},maxTicksLimit:12,...(dispResult.xTicks||{})}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'MW',color:t.muted,font:{size:8}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-c-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'$/MWh',color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}/>
+                    options={{...cjDefaults(t),layout:{padding:{top:dispResult.grouped?18:4,bottom:dispResult.grouped?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:!dispResult.grouped,color:t.muted,font:{size:8},maxTicksLimit:12,...(dispResult.xTicks||{})}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'MW',color:t.muted,font:{size:8}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-c-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'$/MWh',color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}/>
                 </div>
                 {makeLegend('disp-c-tf',[...dispTechs.map(tf=>({label:tf,color:techColor(tf)})),{label:'Demand',color:'#8B0000',shape:'line'},{label:'Marginal cost',color:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',shape:'line'}])}
               </div>
@@ -802,11 +804,11 @@ export default function ResultsCountryPage() {
                 {cmpRef&&cmpRef!==dispScenario&&dispDeltaResult.chartData.datasets.length>0?<>
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="line" height={dispMode==='full'?180:130}
+                      <CJChart type="bar" height={dispDeltaResult.grouped?180:130}
                         data={{...dispDeltaResult.chartData,datasets:dispDeltaResult.chartData.datasets.filter(d=>!isHidden('disp-c-tf',d.label))}}
                         plugins={dispDeltaResult.plugin?[dispDeltaResult.plugin]:[]}
                         cacheKey={`disp-c-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-c-tf']||[]].join(',')}`}
-                        options={{...cjDefaults(t),layout:{padding:{top:dispMode==='full'?18:4,bottom:dispMode==='full'?62:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:dispMode!=='full',color:t.muted,font:{size:8},maxTicksLimit:12,...(dispDeltaResult.xTicks||{})}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'ΔMW',color:t.muted,font:{size:8}}},yR:{type:'linear',position:'right',display:dispDeltaResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-c-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Δ$/MWh',color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
+                        options={{...cjDefaults(t),layout:{padding:{top:dispDeltaResult.grouped?18:4,bottom:dispDeltaResult.grouped?62:4}},scales:{x:{stacked:true,grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:!dispDeltaResult.grouped,color:t.muted,font:{size:8},maxTicksLimit:12,...(dispDeltaResult.xTicks||{})}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'ΔMW',color:t.muted,font:{size:8}}},yR:{type:'linear',position:'right',display:dispDeltaResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-c-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Δ$/MWh',color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,...deltaTooltip}}}}
                       />
                     </div>
                     {makeLegend('disp-c-tf',[...dispTechs.map(tf=>({label:tf,color:techColor(tf)})),{label:'Demand',color:'#8B0000',shape:'line'},{label:'Marginal cost',color:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',shape:'line'}])}
