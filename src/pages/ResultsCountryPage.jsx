@@ -16,6 +16,8 @@ import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
+import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -155,7 +157,7 @@ export default function ResultsCountryPage() {
   },[region,outputDir,simRun,runsResolved]);
 
   useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const b=region.epm.branch;resolveOutputDir(b).then(dir=>{setOutputDir(dir);return fetchRunList(b,dir);}).then(names=>{const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});},[region]);
-  useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(new Set(s));setCmpRef(base);setCmpScenarios(new Set(s));setTrScenarios(new Set(s));setSnapScenarios(new Set(s));}});},[region,simRun,outputDir]);
+  useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(defaultScenarios(s));setCmpRef(base);setCmpScenarios(defaultScenarios(s.filter(x=>x!==base)));setTrScenarios(defaultScenarios(s));setSnapScenarios(defaultScenarios(s));}});},[region,simRun,outputDir]);
 
   useEffect(()=>{
     if(!region?.epm||!simRun||!scenarioList.length)return;
@@ -391,12 +393,12 @@ export default function ResultsCountryPage() {
   },[resultsData,trScenario,allYears,allZones]);
 
   if(!region)return<div style={{padding:40,color:t.text}}>Loading…</div>;
+  const pickCmpRef=v=>{setCmpRef(v);setCmpScenarios(defaultScenarios(scenarioList.filter(s=>s!==v)));};
   const selectStyle={fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer'};
   const TABS=['overview','snapshot','evolution','dispatch','trade','plants','summary'];
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
   const findBase=scens=>scens.find(s=>/^base/i.test(s))||scens[0];
-  const baseFirst=arr=>[...arr].sort((a,b)=>(/^base/i.test(a)?-1:/^base/i.test(b)?1:0));
 
   // ── Builders ──────────────────────────────────────────────────────────────────
   /** Trade, unmet demand and line capacity for one scenario — see utils/annualExtras.
@@ -677,10 +679,11 @@ export default function ResultsCountryPage() {
               <select value={snapIndicator} onChange={e=>setSnapIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              <ScenarioPicker t={t} all={scenarioList} selected={snapScenarios} onChange={setSnapScenarios}/>
             </div>
             {snapData&&snapData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]))}/>
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart type="bar" height={220}
                     cacheKey={`snap-c|${snapIndicator}|${refYear}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-c-tf']||[]].join(',')}`}
@@ -697,8 +700,8 @@ export default function ResultsCountryPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
-                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
-                  {scenarioList.filter(s=>s!==cmpRef).map(s=><Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
+                  <select value={cmpRef||''} onChange={e=>pickCmpRef(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                  <ScenarioPicker t={t} label="Compare" all={scenarioList} exclude={[cmpRef]} selected={cmpScenarios} onChange={setCmpScenarios}/>
                 </div>
                 {snapDeltaData&&snapDeltaData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
@@ -728,10 +731,11 @@ export default function ResultsCountryPage() {
             <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
               <select value={evIndicator} onChange={e=>setEvIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={evScenarios.has(s)} onClick={()=>setEvScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              <ScenarioPicker t={t} all={scenarioList} selected={evScenarios} onChange={setEvScenarios}/>
             </div>
             {evData?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]))}/>
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={200} cacheKey={`ev-c|${evIndicator}|${theme}|${[...evScenarios].sort().join(',')}|${[...hiddenMap['ev-c']||[]].join(',')}`}
                     data={{...evData,datasets:evData.datasets.filter(d=>{if(activeInd.source==='techFuel')return!isHidden('ev-c',tfLabel(d));if(activeInd.source==='costs')return!isHidden('ev-cost',tfLabel(d));if(activeInd.source==='trade')return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');return true;})}}
@@ -747,8 +751,8 @@ export default function ResultsCountryPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
-                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
-                  {scenarioList.filter(s=>s!==cmpRef).map(s=><Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
+                  <select value={cmpRef||''} onChange={e=>pickCmpRef(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                  <ScenarioPicker t={t} label="Compare" all={scenarioList} exclude={[cmpRef]} selected={cmpScenarios} onChange={setCmpScenarios}/>
                 </div>
                 {cmpEvData&&cmpEvData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
@@ -804,7 +808,7 @@ export default function ResultsCountryPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
-                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                  <select value={cmpRef||''} onChange={e=>pickCmpRef(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
                 </div>
                 {cmpRef&&cmpRef!==dispScenario&&dispDeltaResult.chartData.datasets.length>0?<>
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
@@ -831,7 +835,7 @@ export default function ResultsCountryPage() {
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
               <select value={trScenario||''} onChange={e=>setTrScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              <ScenarioPicker t={t} all={scenarioList} selected={trScenarios} onChange={setTrScenarios}/>
             </div>
             {tradeEvData&&(()=>{const allCorridors=tradeEvData.corridors||[];const unit=tradeEvData.unit||'GWh';return<>
               <div style={{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap',marginTop:4}}>
@@ -860,8 +864,8 @@ export default function ResultsCountryPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
-                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
-                  {scenarioList.filter(s=>s!==cmpRef).map(s=><Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>)}
+                  <select value={cmpRef||''} onChange={e=>pickCmpRef(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                  <ScenarioPicker t={t} label="Compare" all={scenarioList} exclude={[cmpRef]} selected={cmpScenarios} onChange={setCmpScenarios}/>
                 </div>
                 {tradeCmpDeltaData&&tradeCmpDeltaData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>

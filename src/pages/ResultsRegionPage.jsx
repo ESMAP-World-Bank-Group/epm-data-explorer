@@ -16,6 +16,8 @@ import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
+import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -304,15 +306,15 @@ export default function ResultsRegionPage() {
         const fromCsv = await fetchInputScenarios(branch, outputDir, simRun);
         scens = (fromCsv || []).sort();
       }
-      setScenarioList(scens); setEvScenarios(new Set(scens));
+      setScenarioList(scens); setEvScenarios(defaultScenarios(scens));
       if (scens.length) {
         const base = scens.find(s=>/^base(line)?$/i.test(s))||scens[0];
         setOvScenario(base); setDispScenario(base); setTrScenario(base); setPlScenario(base); setCmpRef(base);
       }
-      setCmpScenarios(new Set(scens.filter(s=>!/^base(line)?$/i.test(s)&&s!==(scens.find(s2=>/^base(line)?$/i.test(s2))||scens[0]))));
+      setCmpScenarios(defaultScenarios(scens.filter(s=>s!==(scens.find(s2=>/^base(line)?$/i.test(s2))||scens[0]))));
       setCmpMode('values');
-      setTrScenarios(new Set(scens));
-      setSnapScenarios(new Set(scens));
+      setTrScenarios(defaultScenarios(scens));
+      setSnapScenarios(defaultScenarios(scens));
     });
   }, [region, simRun, outputDir]);
 
@@ -725,6 +727,7 @@ export default function ResultsRegionPage() {
 
   if (!region) return <div style={{ padding:40, color:t.text }}>Loading…</div>;
 
+  const pickCmpRef = v => { setCmpRef(v); setCmpScenarios(defaultScenarios(scenarioList.filter(s=>s!==v))); };
   const selectStyle = { fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer' };
   const csvUrl = (scen, file) => `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm?.branch}/${outputDir}/${simRun}/${scen}/output_csv/${file}`;
   const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} t={t}/>)}</div>:null;
@@ -893,7 +896,6 @@ export default function ResultsRegionPage() {
 
   // ── Scenario comparison (shared across tabs) ──────────────────────────────
   const findBase = scens => scens.find(s=>/^base/i.test(s))||scens[0];
-  const baseFirst = arr => [...arr].sort((a,b)=>(/^base/i.test(a)?-1:/^base/i.test(b)?1:0));
   const SCEN_COLORS = ['#1B6CA8','#36B5B5','#4169E1','#D4A820','#B83838','#7048A8','#4A9E6A','#2E9EC8'];
   const getEvVal = (scen, y, ind) => {
     if(ind.source==='techFuel') return evZones.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]||{}).reduce((a,b)=>a+b,0),0);
@@ -1352,11 +1354,12 @@ export default function ResultsRegionPage() {
               <Pill active={snapView==='zone'} onClick={()=>setSnapView('zone')}>Zone</Pill>
               <Pill active={snapView==='country'} onClick={()=>setSnapView('country')}>Country</Pill>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={snapScenarios.has(s)} onClick={()=>setSnapScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              <ScenarioPicker t={t} all={scenarioList} selected={snapScenarios} onChange={setSnapScenarios}/>
             </div>
             {/* Absolute chart */}
             {snapData&&snapData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]))}/>
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart type="bar" height={220}
                     cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
@@ -1383,12 +1386,10 @@ export default function ResultsRegionPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
-                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>
+                  <select value={cmpRef||''} onChange={e=>pickCmpRef(e.target.value)} style={selectStyle}>
                     {scenarioList.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
-                  {scenarioList.filter(s=>s!==cmpRef).map(s=>(
-                    <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
-                  ))}
+                  <ScenarioPicker t={t} label="Compare" all={scenarioList} exclude={[cmpRef]} selected={cmpScenarios} onChange={setCmpScenarios}/>
                 </div>
                 {snapDeltaData&&snapDeltaData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
@@ -1422,10 +1423,11 @@ export default function ResultsRegionPage() {
               <select value={evIndicator} onChange={e=>setEvIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
               <select value={evCountry} onChange={e=>setEvCountry(e.target.value)} style={selectStyle}><option value="all">All countries</option>{allCountries.map(c=><option key={c} value={c}>{c}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={evScenarios.has(s)} onClick={()=>setEvScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              <ScenarioPicker t={t} all={scenarioList} selected={evScenarios} onChange={setEvScenarios}/>
             </div>
             {evolutionData?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]))}/>
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={220}
                     cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}|${theme}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
@@ -1449,12 +1451,10 @@ export default function ResultsRegionPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
-                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>
+                  <select value={cmpRef||''} onChange={e=>pickCmpRef(e.target.value)} style={selectStyle}>
                     {scenarioList.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
-                  {scenarioList.filter(s=>s!==cmpRef).map(s=>(
-                    <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
-                  ))}
+                  <ScenarioPicker t={t} label="Compare" all={scenarioList} exclude={[cmpRef]} selected={cmpScenarios} onChange={setCmpScenarios}/>
                 </div>
                 {(()=>{const hasSc=[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0;
                 return cmpEvData&&cmpEvData.datasets.length>0?
@@ -1526,7 +1526,7 @@ export default function ResultsRegionPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:6,display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
-                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>
+                  <select value={cmpRef||''} onChange={e=>pickCmpRef(e.target.value)} style={selectStyle}>
                     {scenarioList.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
@@ -1562,7 +1562,7 @@ export default function ResultsRegionPage() {
         {hasData&&activeTab==='trade'&&(
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-              {baseFirst(scenarioList).map(s=><Pill key={s} active={trScenarios.has(s)} onClick={()=>setTrScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{scenarioList.length>1?`S${baseFirst(scenarioList).indexOf(s)+1} — ${s}`:s}</Pill>)}
+              <ScenarioPicker t={t} all={scenarioList} selected={trScenarios} onChange={setTrScenarios}/>
             </div>
 
             {/* Evolution stacked by corridor — right legend */}
@@ -1611,12 +1611,10 @@ export default function ResultsRegionPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:8}}>
                 <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Δ vs ref:</span>
-                  <select value={cmpRef||''} onChange={e=>{setCmpRef(e.target.value);setCmpScenarios(new Set(scenarioList.filter(s=>s!==e.target.value)));}} style={selectStyle}>
+                  <select value={cmpRef||''} onChange={e=>pickCmpRef(e.target.value)} style={selectStyle}>
                     {scenarioList.map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
-                  {scenarioList.filter(s=>s!==cmpRef).map(s=>(
-                    <Pill key={s} active={cmpScenarios.has(s)} onClick={()=>setCmpScenarios(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}>{s}</Pill>
-                  ))}
+                  <ScenarioPicker t={t} label="Compare" all={scenarioList} exclude={[cmpRef]} selected={cmpScenarios} onChange={setCmpScenarios}/>
                 </div>
                 {tradeCmpDeltaData&&tradeCmpDeltaData.datasets.length>0?
                   <CJChart type="bar" height={200}
