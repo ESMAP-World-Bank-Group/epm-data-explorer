@@ -12,14 +12,15 @@
 // and the flows that leave the zones on screen dotted instead of striped -- so the
 // eye separates "traded" and "not served" from "produced" before it reads a colour.
 //
-// Their two hues are ones no fuel uses: a rose and a deep teal. Trade used to borrow
-// indianred and seagreen, which put imports next to the unmet-demand red and exports
-// next to the biomass greens, so either pair read as one block inside a stack.
+// Their two hues are a blue and a turquoise, picked from a reference chart. Both sit
+// in the same part of the wheel as the hydro blues and the onshore wind cyan, so here
+// the texture is not decoration: it is what separates traded energy from generated
+// energy. Nothing in the stack is both textured and a fuel.
 
 import { normalizeFuel, EPM_FUEL_COLORS } from './epmFetch';
 
-export const IMPORT_COLOR = '#C25E7A'; // rose - a hue no fuel uses, and it leaves red to unmet demand
-export const EXPORT_COLOR = '#0F766E'; // deep teal - far darker than the winds, clear of the biomass greens
+export const IMPORT_COLOR = '#4A90D9'; // blue
+export const EXPORT_COLOR = '#3FC1AD'; // turquoise
 export const UNMET_COLOR  = '#FF1744'; // unserved energy: the one alarm colour on the chart
 
 export const TECHFUEL_COLORS = {
@@ -45,8 +46,8 @@ export const TECHFUEL_COLORS = {
   // The annual charts split trade by whether it crosses out of the zones on screen.
   // The texture is what tells the two apart; the lightness is only a backup, for a
   // bar too thin to hold a pattern and for printing in black and white.
-  'Imports (ext.)':IMPORT_COLOR, 'Imports (int.)':'#D68DA1',
-  'Exports (ext.)':EXPORT_COLOR, 'Exports (int.)':'#4FA39C',
+  'Imports (ext.)':IMPORT_COLOR, 'Imports (int.)':'#8FBEEA',
+  'Exports (ext.)':EXPORT_COLOR, 'Exports (int.)':'#83D9CC',
 };
 
 /** How each traded series is textured. Imports and exports hatch opposite ways, so a
@@ -71,6 +72,7 @@ export const TEXTURE = {
 export function seriesRank(label) {
   const l = label.includes(' — ') ? label.split(' — ')[1] : label;
   if (/^unmet\s*demand$/i.test(l)) return 2;
+  if (/line cap/i.test(l)) return 1;   // the MW charts' cross-border capacity segments
   return TEXTURE[l] ? 1 : 0;
 }
 
@@ -92,8 +94,9 @@ export function hexA(hex, a) {
 
 const TILE = 6;         // tile side in px; stripe period is TILE/√2 ≈ 4.2px across
 const STRIPE = 2;       // stripe width in px
-const DOT_R = 1.25;     // dot radius in px
-const DOT_AT = [[1.5, 1.5], [4.5, 4.5]]; // two per tile, staggered, so the dots read as a lattice
+const DOT_TILE = 5;     // dot tiles are their own size, finer than the stripe tile
+const DOT_R = 0.85;     // dot radius in px — small enough to read as a texture, not as pixels
+const DOT_AT = [[1.25, 1.25], [3.75, 3.75]]; // two per tile, staggered, so the dots read as a lattice
 const patternCache = new Map();
 let patternCtx = null;
 
@@ -119,17 +122,21 @@ function hatchTile(color, alpha, dir) {
 
 function dotTile(color, alpha) {
   const c = document.createElement('canvas');
-  c.width = c.height = TILE;
+  c.width = c.height = DOT_TILE;
   const g = c.getContext('2d');
   g.fillStyle = hexA(color, alpha * 0.35);
-  g.fillRect(0, 0, TILE, TILE);
+  g.fillRect(0, 0, DOT_TILE, DOT_TILE);
   g.fillStyle = hexA(color, Math.min(1, alpha + 0.2));
   for (const [x, y] of DOT_AT) { g.beginPath(); g.arc(x, y, DOT_R, 0, Math.PI * 2); g.fill(); }
   return c;
 }
 
 /** A textured fill, as a CanvasPattern. Falls back to the flat colour where there is
- *  no document to build a tile in. */
+ *  no document to build a tile in. Exported as texturedFill for the series that carry
+ *  their own colour rather than a techfuel's — line capacity, which is not a fuel. */
+export function texturedFill(color, alpha, tex) { return patternFill(color, alpha, tex); }
+export function texturedCss(color, alpha, tex) { return patternCss(color, alpha, tex); }
+
 function patternFill(color, alpha, { kind, dir = 1 }) {
   const flat = hexA(color, alpha);
   if (typeof document === 'undefined') return flat;
@@ -150,7 +157,7 @@ function patternCss(color, alpha, { kind, dir = 1 }) {
   const base = hexA(color, alpha * 0.35), line = hexA(color, Math.min(1, alpha + 0.2));
   if (kind === 'dot') {
     const dots = DOT_AT.map(([x, y]) =>
-      `radial-gradient(circle at ${x}px ${y}px, ${line} ${DOT_R}px, transparent ${DOT_R + 0.4}px) 0 0 / ${TILE}px ${TILE}px`);
+      `radial-gradient(circle at ${x}px ${y}px, ${line} ${DOT_R}px, transparent ${DOT_R + 0.35}px) 0 0 / ${DOT_TILE}px ${DOT_TILE}px`);
     return `${dots.join(', ')}, linear-gradient(${base}, ${base})`;
   }
   const period = (TILE / Math.SQRT2).toFixed(1);

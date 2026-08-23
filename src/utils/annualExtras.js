@@ -6,9 +6,10 @@
 // in the same unit and belong in the same stack, so the top of the bar finally
 // matches demand instead of falling short of it by the net import.
 //
-// In MW the counterpart is not another block: plant capacity and line capacity are
-// both megawatts but they do not add up to anything. Those are drawn as lines over
-// the stack, as a reference for how much of it can actually move.
+// In MW the counterpart is the cross-border capacity, stacked on top of the plant
+// capacity as its own segment. The two are megawatts of different things — the top of
+// that bar is not "installed capacity" — which is why the segment is textured like the
+// traded energy it carries, and coloured out of the fuel palette entirely.
 //
 // Everything is split into flows that stay inside the zones on screen and flows
 // that leave them, because looking at a region you want to see both, and looking at
@@ -17,7 +18,7 @@
 // both to an energy stack leaves the net, and therefore the balance against demand,
 // where it was.
 
-import { fillFor, techColor, cssFillFor, seriesRank } from './chartColors';
+import { fillFor, techColor, cssFillFor, seriesRank, texturedFill, texturedCss } from './chartColors';
 
 /** Which indicators get extras, and of which kind. */
 const EXTRA_KIND = {
@@ -34,9 +35,10 @@ const CAP_LABEL = {
   NewCapacityTechFuelCumulated: 'Cum. new line cap.',
 };
 
-/** Transmission is not a fuel, so it gets its own pair of hues rather than
- *  borrowing the import red or the export green. */
+/** Transmission is not a fuel, so it gets its own pair of hues rather than borrowing
+ *  the trade blues. Textured the same way trade is: hatched inside, dotted across. */
 export const GRID_COLOR = { ext: '#E67E22', int: '#F0B27A' };
+const GRID_TEXTURE = { int: { kind: 'hatch', dir: 1 }, ext: { kind: 'dot' } };
 
 const CAP_SIDE = Object.fromEntries(Object.values(CAP_LABEL).flatMap(
   n => [[`${n} (int.)`, 'int'], [`${n} (ext.)`, 'ext']]));
@@ -134,32 +136,33 @@ export function extraDelta(a, b) {
   return a.map((e, i) => ({ ...e, data: e.data.map((v, k) => r0(v - (b[i]?.data[k] || 0))) }));
 }
 
-/** A Chart.js dataset for one extra series. Energy joins the techfuel stack; line
- *  capacity is drawn dashed and outside it, since MW of line does not add to MW of plant. */
+/** A Chart.js dataset for one extra series. Both kinds are segments of the scenario's
+ *  own stack, sitting above the fuels — see seriesRank. */
 export function extraDataset(e, scen, multi) {
   const label = multi ? `${scen} — ${e.label}` : e.label;
   if (e.kind === 'capacity') {
     const col = GRID_COLOR[e.side];
-    return { label, data: e.data, type: 'line', borderColor: col, backgroundColor: col,
-      borderWidth: 1.5, borderDash: [4, 3], pointRadius: 0, tension: 0, fill: false,
-      order: 0, stack: `__cap_${scen}_${e.side}__` };
+    return { label, data: e.data, type: 'bar',
+      backgroundColor: texturedFill(col, multi ? 0.55 : 0.85, GRID_TEXTURE[e.side]),
+      borderColor: col, borderWidth: multi ? 1 : 0, stack: scen };
   }
   return { label, data: e.data, type: 'bar', backgroundColor: fillFor(e.label, multi ? 0.55 : 0.85),
     borderColor: techColor(e.label), borderWidth: multi ? 1 : 0, stack: scen };
 }
 
-/** Sorts a stack in place, and returns it: generation first, then the traded energy,
- *  then the unserved demand on top — and the legends, which read the dataset order,
- *  follow. Stable, so scenarios and fuels keep the order the builder made them in.
- *  Capacity is drawn as a line outside the stack and stays where it was pushed. */
+/** Sorts a stack in place, and returns it: generation first, then what was traded or
+ *  what carries it, then the unserved demand on top — and the legends, which read the
+ *  dataset order, follow. Stable, so scenarios and fuels keep the order the builder
+ *  made them in. Lines belong to no stack and are ranked as generation, which leaves
+ *  them where they were pushed. */
 export function orderStack(datasets) {
-  return datasets.sort((a, b) => (a.type === 'line' ? 0 : seriesRank(a.label))
-                               - (b.type === 'line' ? 0 : seriesRank(b.label)));
+  const rank = d => (d.type === 'line' ? 0 : seriesRank(d.label));
+  return datasets.sort((a, b) => rank(a) - rank(b));
 }
 
 /** Legend entry for any series a techfuel chart can hold, extras included. */
 export function seriesLegendItem(label) {
   const side = CAP_SIDE[label];
-  if (side) return { label, color: GRID_COLOR[side], shape: 'line' };
+  if (side) return { label, color: GRID_COLOR[side], fill: texturedCss(GRID_COLOR[side], 0.85, GRID_TEXTURE[side]) };
   return { label, color: techColor(label), fill: cssFillFor(label) };
 }
