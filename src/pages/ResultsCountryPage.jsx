@@ -11,7 +11,7 @@ import {
   computeCentroid, resultYears,
 } from '../utils/epmFetch';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
-import { extraSeries, extraDelta, extraDataset, extraKind, seriesLegendItem } from '../utils/annualExtras';
+import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLegendItem } from '../utils/annualExtras';
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
@@ -405,7 +405,7 @@ export default function ResultsCountryPage() {
    *  at: x => { zones, year }, the rest of the context being the scenario's own data. */
   const extrasOf=(scen,indKey,xs,at)=>extraSeries({indKey,xs,allYears,
     at:x=>{const c=at(x);return{tx:resultsData[scen]?.transmission||{},eb:resultsData[scen]?.energyBalance||{},zones:c.zones,year:c.year};}});
-  const pushExtras=(datasets,series,scen,multi)=>{for(const e of series)if(e.data.some(v=>v!==0))datasets.push(extraDataset(e,scen,multi));};
+  const pushExtras=(datasets,series,scen,multi)=>{for(const e of series)if(e.data.some(v=>v!==0))datasets.push(extraDataset(e,scen,multi));orderStack(datasets);};
 
   const buildSnapshot=()=>{
     const activeSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));

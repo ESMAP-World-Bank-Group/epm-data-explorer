@@ -8,14 +8,18 @@
 // Imports, Exports and Unmet demand are not generation, but they sit in the same
 // stack as it: on the dispatch chart because EPM writes them as dispatch rows, and
 // on the annual energy chart because generation alone does not balance demand.
-// They are drawn hatched (imports leaning one way, exports the other) so the eye
-// separates "traded" and "not served" from "produced" without another hue having
-// to be found that no fuel already uses.
+// They are textured rather than flat -- imports hatched one way, exports the other,
+// and the flows that leave the zones on screen dotted instead of striped -- so the
+// eye separates "traded" and "not served" from "produced" before it reads a colour.
+//
+// Their two hues are ones no fuel uses: a rose and a deep teal. Trade used to borrow
+// indianred and seagreen, which put imports next to the unmet-demand red and exports
+// next to the biomass greens, so either pair read as one block inside a stack.
 
 import { normalizeFuel, EPM_FUEL_COLORS } from './epmFetch';
 
-export const IMPORT_COLOR = '#CD5C5C'; // indianred
-export const EXPORT_COLOR = '#2E8B57'; // seagreen — clear of Biomass #52C860 and Biogas #72DC8A
+export const IMPORT_COLOR = '#C25E7A'; // rose - a hue no fuel uses, and it leaves red to unmet demand
+export const EXPORT_COLOR = '#0F766E'; // deep teal - far darker than the winds, clear of the biomass greens
 export const UNMET_COLOR  = '#FF1744'; // unserved energy: the one alarm colour on the chart
 
 export const TECHFUEL_COLORS = {
@@ -39,17 +43,36 @@ export const TECHFUEL_COLORS = {
   Imports:IMPORT_COLOR, Exports:EXPORT_COLOR,
   'Unmet demand':UNMET_COLOR, 'Unmet Demand':UNMET_COLOR, UnmetDemand:UNMET_COLOR,
   // The annual charts split trade by whether it crosses out of the zones on screen.
-  // Same hue either way, lighter for the flows that stay inside.
-  'Imports (ext.)':IMPORT_COLOR, 'Imports (int.)':'#E39C9C',
-  'Exports (ext.)':EXPORT_COLOR, 'Exports (int.)':'#7FC4A0',
+  // The texture is what tells the two apart; the lightness is only a backup, for a
+  // bar too thin to hold a pattern and for printing in black and white.
+  'Imports (ext.)':IMPORT_COLOR, 'Imports (int.)':'#D68DA1',
+  'Exports (ext.)':EXPORT_COLOR, 'Exports (int.)':'#4FA39C',
 };
 
-/** Which series are hatched, and which way the stripes lean. Imports and exports
- *  lean opposite ways so a stack holding both is readable in one glance. */
-export const HATCH_DIR = {
-  Imports: 1, 'Imports (int.)': 1, 'Imports (ext.)': 1,
-  Exports: -1, 'Exports (int.)': -1, 'Exports (ext.)': -1,
+/** How each traded series is textured. Imports and exports hatch opposite ways, so a
+ *  stack holding both is readable in one glance; the flows that cross out of the zones
+ *  on screen are dotted, which stays visible on a bar too thin to show two stripes.
+ *  Dispatch has no int/ext split to make -- EPM aggregates both into one Imports row
+ *  per timeslice -- so its Imports and Exports keep the plain hatch. */
+export const TEXTURE = {
+  Imports:          { kind: 'hatch', dir:  1 },
+  Exports:          { kind: 'hatch', dir: -1 },
+  'Imports (int.)': { kind: 'hatch', dir:  1 },
+  'Exports (int.)': { kind: 'hatch', dir: -1 },
+  'Imports (ext.)': { kind: 'dot' },
+  'Exports (ext.)': { kind: 'dot' },
 };
+
+/** Where a series belongs in a stack, and so in the legend: generation at the bottom,
+ *  then what was traded, then the demand that was never served at all. This used to
+ *  fall out of whatever order the builders happened to push their datasets in, which
+ *  is how Exports ended up between Diesel and Gas on the dispatch chart.
+ *  Multi-scenario labels are prefixed 'scenario — series', hence the split. */
+export function seriesRank(label) {
+  const l = label.includes(' — ') ? label.split(' — ')[1] : label;
+  if (/^unmet\s*demand$/i.test(l)) return 2;
+  return TEXTURE[l] ? 1 : 0;
+}
 
 export function techColor(tf) {
   return TECHFUEL_COLORS[tf] || EPM_FUEL_COLORS[normalizeFuel(tf)] || '#AAAAAA';
@@ -61,14 +84,16 @@ export function hexA(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// ── Hatching ─────────────────────────────────────────────────────────────────
+// ── Textures ─────────────────────────────────────────────────────────────────
 // Chart.js has no pattern fill of its own, but it takes anything the canvas takes,
 // so a CanvasPattern built from a small repeating tile does the job. The tile is
-// built once per (colour, alpha, direction) — the pages rebuild their datasets on
+// built once per (colour, alpha, texture) — the pages rebuild their datasets on
 // every render and a fresh canvas each time would be a canvas per frame.
 
 const TILE = 6;         // tile side in px; stripe period is TILE/√2 ≈ 4.2px across
 const STRIPE = 2;       // stripe width in px
+const DOT_R = 1.25;     // dot radius in px
+const DOT_AT = [[1.5, 1.5], [4.5, 4.5]]; // two per tile, staggered, so the dots read as a lattice
 const patternCache = new Map();
 let patternCtx = null;
 
@@ -92,39 +117,56 @@ function hatchTile(color, alpha, dir) {
   return c;
 }
 
-/** A diagonally hatched fill, as a CanvasPattern. Falls back to the flat colour
- *  where there is no document to build a tile in. */
-export function hatchFill(color, { alpha = 0.75, dir = 1 } = {}) {
+function dotTile(color, alpha) {
+  const c = document.createElement('canvas');
+  c.width = c.height = TILE;
+  const g = c.getContext('2d');
+  g.fillStyle = hexA(color, alpha * 0.35);
+  g.fillRect(0, 0, TILE, TILE);
+  g.fillStyle = hexA(color, Math.min(1, alpha + 0.2));
+  for (const [x, y] of DOT_AT) { g.beginPath(); g.arc(x, y, DOT_R, 0, Math.PI * 2); g.fill(); }
+  return c;
+}
+
+/** A textured fill, as a CanvasPattern. Falls back to the flat colour where there is
+ *  no document to build a tile in. */
+function patternFill(color, alpha, { kind, dir = 1 }) {
   const flat = hexA(color, alpha);
   if (typeof document === 'undefined') return flat;
-  const key = `${color}|${alpha}|${dir}`;
+  const key = `${color}|${alpha}|${kind}|${dir}`;
   if (patternCache.has(key)) return patternCache.get(key);
   try {
     if (!patternCtx) patternCtx = document.createElement('canvas').getContext('2d');
-    const p = patternCtx.createPattern(hatchTile(color, alpha, dir), 'repeat') || flat;
+    const tile = kind === 'dot' ? dotTile(color, alpha) : hatchTile(color, alpha, dir);
+    const p = patternCtx.createPattern(tile, 'repeat') || flat;
     patternCache.set(key, p);
     return p;
   } catch { return flat; }
 }
 
-/** The same hatch as a CSS background, for the legend swatches — those are divs,
+/** The same texture as a CSS background, for the legend swatches — those are divs,
  *  not canvas, so the chip has to be reproduced rather than reused. */
-export function hatchCss(color, { alpha = 0.75, dir = 1 } = {}) {
+function patternCss(color, alpha, { kind, dir = 1 }) {
   const base = hexA(color, alpha * 0.35), line = hexA(color, Math.min(1, alpha + 0.2));
+  if (kind === 'dot') {
+    const dots = DOT_AT.map(([x, y]) =>
+      `radial-gradient(circle at ${x}px ${y}px, ${line} ${DOT_R}px, transparent ${DOT_R + 0.4}px) 0 0 / ${TILE}px ${TILE}px`);
+    return `${dots.join(', ')}, linear-gradient(${base}, ${base})`;
+  }
   const period = (TILE / Math.SQRT2).toFixed(1);
   return `repeating-linear-gradient(${dir >= 0 ? -45 : 45}deg, ${line} 0 ${STRIPE}px, ${base} ${STRIPE}px ${period}px)`;
 }
 
-/** Chart fill for a series: hatched if it is one of the traded ones, flat otherwise. */
+/** Chart fill for a series: textured if it is one of the traded ones, flat otherwise. */
 export function fillFor(tf, alpha = 0.75) {
-  const dir = HATCH_DIR[tf];
-  return dir ? hatchFill(techColor(tf), { alpha, dir }) : hexA(techColor(tf), alpha);
+  const tex = TEXTURE[tf];
+  return tex ? patternFill(techColor(tf), alpha, tex) : hexA(techColor(tf), alpha);
 }
 
 /** The legend chip matching fillFor. */
 export function cssFillFor(tf, alpha = 0.75) {
-  const dir = HATCH_DIR[tf];
-  return dir ? hatchCss(techColor(tf), { alpha, dir }) : techColor(tf);
+  const tex = TEXTURE[tf];
+  return tex ? patternCss(techColor(tf), alpha, tex) : techColor(tf);
 }
 
 /** A legend item for a series, ready for makeLegend. */

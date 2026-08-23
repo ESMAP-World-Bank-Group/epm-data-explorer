@@ -17,7 +17,7 @@
 // both to an energy stack leaves the net, and therefore the balance against demand,
 // where it was.
 
-import { fillFor, techColor, cssFillFor } from './chartColors';
+import { fillFor, techColor, cssFillFor, seriesRank } from './chartColors';
 
 /** Which indicators get extras, and of which kind. */
 const EXTRA_KIND = {
@@ -146,6 +146,15 @@ export function extraDataset(e, scen, multi) {
   }
   return { label, data: e.data, type: 'bar', backgroundColor: fillFor(e.label, multi ? 0.55 : 0.85),
     borderColor: techColor(e.label), borderWidth: multi ? 1 : 0, stack: scen };
+}
+
+/** Sorts a stack in place, and returns it: generation first, then the traded energy,
+ *  then the unserved demand on top — and the legends, which read the dataset order,
+ *  follow. Stable, so scenarios and fuels keep the order the builder made them in.
+ *  Capacity is drawn as a line outside the stack and stays where it was pushed. */
+export function orderStack(datasets) {
+  return datasets.sort((a, b) => (a.type === 'line' ? 0 : seriesRank(a.label))
+                               - (b.type === 'line' ? 0 : seriesRank(b.label)));
 }
 
 /** Legend entry for any series a techfuel chart can hold, extras included. */

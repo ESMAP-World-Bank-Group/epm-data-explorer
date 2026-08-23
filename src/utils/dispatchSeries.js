@@ -15,7 +15,7 @@
 // — whereas bars split cleanly around it, gains piling up above and losses below.
 
 import { buildTimeAxis, blockLabels, axisTicks, TARGET_FULL, TARGET_SEASON } from './timeAxis';
-import { fillFor } from './chartColors';
+import { fillFor, seriesRank } from './chartColors';
 
 const DEMAND_COLOR = '#8B0000';
 const DEMAND_OVERLAY = '#CC0000';
@@ -59,7 +59,11 @@ function viewWindow({ slices, sources, seasons, days, daySel }) {
 
   const techfuels = [...new Set(seasons.flatMap(q => (folded || shown).flatMap(d =>
     sources.flatMap(src => Object.values(src?.[q]?.[d] || {}).flatMap(cell => Object.keys(cell || {}))))))]
-    .filter(k => k !== 'Demand').sort();
+    .filter(k => k !== 'Demand')
+    // Fuels alphabetically, then what was traded, then what went unserved — so the
+    // stack reads as generation with the rest piled on top of it, instead of putting
+    // Exports between Diesel and Gas because that is where the alphabet left it.
+    .sort((a, b) => seriesRank(a) - seriesRank(b) || a.localeCompare(b));
 
   return {
     ax, shown, grouped, gen, line, techfuels,
