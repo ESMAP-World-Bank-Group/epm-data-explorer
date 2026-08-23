@@ -7,9 +7,11 @@ import { getT, mapStyle } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
-  processHours, processTimeSlices, processTransmissionResults, processPlants, processCosts, processExtNTC,
-  computeCentroid, normalizeFuel, EPM_FUEL_COLORS, resultYears,
+  processHours, processTimeSlices, processTransmissionResults, processPlants, processCosts, processExtNTC, processEnergyBalance,
+  computeCentroid, resultYears,
 } from '../utils/epmFetch';
+import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
+import { extraSeries, extraDelta, extraDataset, extraKind, seriesLegendItem } from '../utils/annualExtras';
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
@@ -19,19 +21,6 @@ import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, rai
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 
-const TECHFUEL_COLORS = {
-  Nuclear:'#C8A8F0', Coal:'#808890', Peat:'#A0856C', 'Domestic Coal':'#6A5C4C',
-  Gas:'#9A7040', CCGT:'#B8921A', OCGT:'#C4A820', Methane:'#D4B030',
-  Diesel:'#6A7888', HFO:'#7A7068', Oil:'#7A7068',
-  Biomass:'#52C860', Waste:'#8A9098', Biogas:'#72DC8A', Geothermal:'#D4A820',
-  Reservoir:'#1E9AF5', ROR:'#5DADE2', PSH:'#0D7680', 'Run-of-River':'#5DADE2', ReservoirHydro:'#1E9AF5',
-  Solar:'#FFD700', PV:'#FFD700', CSP:'#E8C547', RPV:'#FFD700',
-  'Onshore Wind':'#44DAEC', OnshoreWind:'#44DAEC', ST:'#C8A8F0',
-  'Offshore Wind':'#7CC8FA', OffshoreWind:'#7CC8FA',
-  Battery:'#A3D5FF', Storage:'#AED6F1', 'PV+Storage':'#C8E860',
-  Imports:'#E8C547', Demand:'#9B59B6', ICE:'#6A7888',
-};
-function techColor(tf) { return TECHFUEL_COLORS[tf] || EPM_FUEL_COLORS[normalizeFuel(tf)] || '#AAAAAA'; }
 
 const COST_COLORS = {
   'Fuel costs: $m':'#9A7040', 'Fixed O&M: $m':'#1E9AF5', 'Variable O&M: $m':'#44DAEC',
@@ -68,7 +57,6 @@ const INDICATORS = [
 
 function fmt(n, d = 0) { if (n == null || isNaN(n)) return '—'; return n.toLocaleString('en-US', { maximumFractionDigits: d }); }
 function fmtBig(n) { if (!n) return '—'; const a=Math.abs(n); if(a>=1e9)return`${(n/1e9).toFixed(1)}B`; if(a>=1e6)return`${(n/1e6).toFixed(1)}M`; if(a>=1e3)return`${(n/1e3).toFixed(1)}k`; return n.toFixed(1); }
-function hexA(hex, a) { if (!hex||hex.length<7) return `rgba(128,128,128,${a})`; const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
 function cjDefaults(t) { return { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:11},bodyFont:{size:11},padding:6}}, scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:11}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:11}}}}}; }
 
 function priceColor(t_) {
@@ -143,7 +131,7 @@ function OverviewPie({ tfs, data, total, unitDiv, unitLbl, t }) {
       const sw = (data[i]/tot)*2*Math.PI;
       ctx.beginPath(); ctx.moveTo(cx+iR*Math.cos(ang), cy+iR*Math.sin(ang));
       ctx.arc(cx, cy, oR, ang, ang+sw); ctx.arc(cx, cy, iR, ang+sw, ang, true);
-      ctx.closePath(); ctx.fillStyle = TECHFUEL_COLORS[tf]||EPM_FUEL_COLORS[normalizeFuel(tf)]||'#AAA'; ctx.fill();
+      ctx.closePath(); ctx.fillStyle = techColor(tf); ctx.fill();
       ang += sw;
     });
     ctx.beginPath(); ctx.arc(cx, cy, iR-0.5, 0, 2*Math.PI);
@@ -334,13 +322,14 @@ export default function ResultsRegionPage() {
     const { branch } = region.epm;
     Promise.all(scenarioList.map(async scen => {
       // Dispatch (pDispatchComplete) is huge -> loaded lazily per year (see effect below)
-      const [tfR, yzR, prR, txR, plR, coR] = await Promise.all([
+      const [tfR, yzR, prR, txR, plR, coR, ebR] = await Promise.all([
         fetchResultCSV(branch, simRun, scen, 'pTechFuelMerged.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pYearlyZoneMerged.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pHourlyPrice.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pTransmissionMerged.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pPlantMerged.csv', outputDir),
         fetchResultCSV(branch, simRun, scen, 'pCostsMerged.csv', outputDir),
+        fetchResultCSV(branch, simRun, scen, 'pEnergyBalance.csv', outputDir),
       ]);
       return { scen,
         techFuel:     tfR  ? processTechFuel(tfR)              : {},
@@ -350,6 +339,7 @@ export default function ResultsRegionPage() {
         transmission: txR  ? processTransmissionResults(txR)   : {},
         plants:       plR  ? processPlants(plR)                : [],
         costs:        coR  ? processCosts(coR)                 : {},
+        energyBalance: ebR ? processEnergyBalance(ebR)         : {},
       };
     })).then(results => {
       const rd = Object.fromEntries(results.map(r=>[r.scen, r]));
@@ -753,6 +743,15 @@ export default function ResultsRegionPage() {
   };
 
   // ── Evolution ───────────────────────────────────────────────────────────────
+  /** Trade, unmet demand and line capacity for one scenario — see utils/annualExtras.
+   *  at: x => { zones, year }, the rest of the context being the scenario's own data. */
+  const extrasOf = (scen, indKey, xs, at) => extraSeries({ indKey, xs, allYears,
+    at: x => { const c = at(x); return { tx: resultsData[scen]?.transmission || {},
+      eb: resultsData[scen]?.energyBalance || {}, zones: c.zones, year: c.year }; } });
+  const pushExtras = (datasets, series, scen, multi) => {
+    for (const e of series) if (e.data.some(v => v !== 0)) datasets.push(extraDataset(e, scen, multi));
+  };
+
   const buildEvolution = () => {
     const activeSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s))); if(!activeSc.length||!allYears.length)return null;
     const ind=activeInd;
@@ -778,6 +777,10 @@ export default function ResultsRegionPage() {
     }
     const tfs=allTechfuels.filter(tf=>activeSc.some(s=>evZones.some(z=>(resultsData[s]?.techFuel[z]?.[ind.key]?.[allYears[0]]?.[tf]||0)>0)));
     const datasets=[]; for(const scen of activeSc) for(const tf of tfs) { datasets.push({ label:`${scen} — ${tf}`, data:allYears.map(y=>Math.round(evZones.reduce((s,z)=>s+(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]?.[tf]||0),0))), backgroundColor:hexA(techColor(tf),activeSc.length>1?0.5:0.85), borderColor:techColor(tf), borderWidth:activeSc.length>1?1:0, stack:scen }); }
+    // Generation is only part of the balance: add the traded energy and the demand
+    // that went unserved, or in MW the line capacity behind the stack.
+    if(extraKind(ind.key)) for(const scen of activeSc)
+      pushExtras(datasets, extrasOf(scen,ind.key,allYears,y=>({zones:evZones,year:y})), scen, activeSc.length>1);
     return { labels:allYears, datasets };
   };
 
@@ -790,7 +793,7 @@ export default function ResultsRegionPage() {
       slices, zDisp:getZoneDisp(sd,activeDispZone,refYear), price:sd.price[priceZone]?.[refYear],
       seasons:dispMode==='full'?dispAvailS:[dispSeason], days:dispAvailD,
       daySel:dispMode==='full'?'all':dispDay,
-      techColor, isDark:t.isDark, mcColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A', hoursData, totalDays,
+      isDark:t.isDark, mcColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A', hoursData, totalDays,
     });
   };
 
@@ -946,6 +949,10 @@ export default function ResultsRegionPage() {
             stack:scen,
           });
         }
+        if(extraKind(ind.key)){
+          const at=y=>({zones:evZones,year:y});
+          pushExtras(datasets, extraDelta(extrasOf(scen,ind.key,allYears,at), extrasOf(cmpRef,ind.key,allYears,at)), scen, multi);
+        }
       }
       return{labels:allYears,datasets};
     }
@@ -995,6 +1002,8 @@ export default function ResultsRegionPage() {
         const data=groups.map(g=>Math.round(getTf(scen,g,tf)));
         if(data.some(v=>v>0)) datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});
       }
+      if(extraKind(ind.key)) for(const scen of activeSc)
+        pushExtras(datasets, extrasOf(scen,ind.key,groups,g=>({zones:getZones(g),year:refYear})), scen, multi);
       return{labels:groups,datasets,ind};
     }
     if(ind.source==='trade'){
@@ -1034,6 +1043,10 @@ export default function ResultsRegionPage() {
         const data=groups.map(g=>+(getTf(scen,g,tf)-getTf(cmpRef,g,tf)).toFixed(0));
         if(data.some(v=>v!==0)) datasets.push({label:multi?`${scen} — ${tf}`:tf,data,backgroundColor:hexA(techColor(tf),multi?0.5:0.82),borderColor:techColor(tf),borderWidth:multi?1:0,stack:scen});
       }
+      if(extraKind(ind.key)) for(const scen of compareScs){
+        const at=g=>({zones:getZones(g),year:refYear});
+        pushExtras(datasets, extraDelta(extrasOf(scen,ind.key,groups,at), extrasOf(cmpRef,ind.key,groups,at)), scen, multi);
+      }
       return{labels:groups,datasets,ind};
     }
     if(ind.source==='trade'){
@@ -1066,7 +1079,7 @@ export default function ResultsRegionPage() {
       priceA:sdA.price[priceZone]?.[refYear], priceB:sdB.price[priceZone]?.[refYear],
       seasons:dispMode==='full'?dispAvailS:[dispSeason], days:dispAvailD,
       daySel:dispMode==='full'?'all':dispDay,
-      techColor, isDark:t.isDark, mcColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A', hoursData, totalDays,
+      isDark:t.isDark, mcColor:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A', hoursData, totalDays,
     });
   };
 
@@ -1151,8 +1164,8 @@ export default function ResultsRegionPage() {
   const makeLegend=(id,items,clickable=true)=>{
     const hidden=hiddenMap[id]||new Set();
     return <div style={{width:90,flexShrink:0,display:'flex',flexDirection:'column',gap:2,paddingTop:4,maxHeight:220,overflowY:'auto'}}>
-      {items.map(({label,color,shape})=><div key={label} onClick={clickable?()=>toggleHidden(id,label):undefined} style={{display:'flex',alignItems:'center',gap:3,cursor:clickable?'pointer':'default',opacity:hidden.has(label)?0.25:1}}>
-        {shape==='line'?<div style={{width:12,height:2,backgroundColor:color,borderRadius:1,flexShrink:0}}/>:<div style={{width:8,height:8,borderRadius:shape==='circle'?'50%':2,backgroundColor:color,flexShrink:0}}/>}
+      {items.map(({label,color,shape,fill})=><div key={label} onClick={clickable?()=>toggleHidden(id,label):undefined} style={{display:'flex',alignItems:'center',gap:3,cursor:clickable?'pointer':'default',opacity:hidden.has(label)?0.25:1}}>
+        {shape==='line'?<div style={{width:12,height:2,backgroundColor:color,borderRadius:1,flexShrink:0}}/>:<div style={{width:8,height:8,borderRadius:shape==='circle'?'50%':2,background:fill||color,flexShrink:0}}/>}
         <span style={{fontSize:'0.4rem',color:t.muted,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</span>
       </div>)}
       {clickable&&<div style={{fontSize:'0.38rem',color:t.lblMuted,marginTop:4,display:'flex',gap:6}}>
@@ -1361,7 +1374,7 @@ export default function ResultsRegionPage() {
                     <div style={{display:'none'}}></div>
                   )}
                 </div>
-                {snapData.ind?.source!=='trade'&&makeLegend('snap-tf',[...new Set(snapData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
+                {snapData.ind?.source!=='trade'&&makeLegend('snap-tf',[...new Set(snapData.datasets.map(tfLabel))].map(seriesLegendItem))}
                 {snapData.ind?.source==='trade'&&(()=>{const ps=[...new Set(snapData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();return makeLegend('snap-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})));})()}
               </div>
             :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select at least one scenario.</div>}
@@ -1393,7 +1406,7 @@ export default function ResultsRegionPage() {
                         <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:3}}>Δ vs <b style={{color:t.muted}}>{cmpRef}</b>: {baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef)).join(' · ')}</div>
                       )}
                     </div>
-                    {snapDeltaData.ind?.source!=='trade'&&makeLegend('snap-tf',[...new Set(snapDeltaData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
+                    {snapDeltaData.ind?.source!=='trade'&&makeLegend('snap-tf',[...new Set(snapDeltaData.datasets.map(tfLabel))].map(seriesLegendItem))}
                     {snapDeltaData.ind?.source==='trade'&&(()=>{const ps=[...new Set(snapDeltaData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();return makeLegend('snap-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})));})()}
                   </div>
                 :<div style={{fontSize:'0.55rem',color:t.lblMuted}}>{[...cmpScenarios].filter(s=>s!==cmpRef&&resultsData[s]).length>0?'No differences found.':'Select at least one scenario to compare.'}</div>}
@@ -1426,7 +1439,7 @@ export default function ResultsRegionPage() {
                     options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10,padding:16}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
                   />
                 </div>
-                {activeInd.source==='techFuel'&&makeLegend('ev-tf',allTechfuels.filter(tf=>evolutionData.datasets.some(d=>tfLabel(d)===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
+                {activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(evolutionData.datasets.map(tfLabel))].map(seriesLegendItem))}
                 {activeInd.source==='costs'&&makeLegend('ev-cost',MAIN_COST_CATS.filter(cat=>evolutionData.datasets.some(d=>tfLabel(d)===(COST_LABELS[cat]||cat))).map(cat=>({label:COST_LABELS[cat]||cat,color:costColor(cat)})))}
                 {activeInd.source==='trade'&&(()=>{const ps=[...new Set(evolutionData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));return <div style={{flexShrink:0,display:'flex',flexDirection:'column',gap:6}}>{makeLegend('ev-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})))}{aSc.length>1&&makeLegend('__ev_scen__',aSc.map((s,i)=>({label:s,color:SCEN_COLORS[i%SCEN_COLORS.length],shape:'line'})),false)}</div>;})()}
               </div>
@@ -1464,7 +1477,7 @@ export default function ResultsRegionPage() {
                         <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:3}}>Δ vs <b style={{color:t.muted}}>{cmpRef}</b>: {baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef)).join(' · ')}</div>
                       )}
                     </div>
-                    {activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:techColor(tf)||SCEN_COLORS[0]})))}
+                    {activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(cmpEvData.datasets.map(tfLabel))].map(seriesLegendItem))}
                     {activeInd.source==='costs'&&makeLegend('ev-cost',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:costColor(tf)})))}
                     {activeInd.source==='trade'&&(()=>{const ps=[...new Set(cmpEvData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();const compareScsL=baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef));return <div style={{flexShrink:0,display:'flex',flexDirection:'column',gap:6}}>{makeLegend('ev-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})))}{compareScsL.length>1&&makeLegend('__cmp_scen__',compareScsL.map((s,i)=>({label:s,color:SCEN_COLORS[(i+1)%SCEN_COLORS.length],shape:'line'})),false)}</div>;})()}
                   </div>
@@ -1494,15 +1507,15 @@ export default function ResultsRegionPage() {
             {dispResult.chartData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="line" height={dispResult.grouped?255:195}
+                  <CJChart type="bar" height={dispResult.grouped?255:195}
                     data={{...dispResult.chartData,datasets:dispResult.chartData.datasets.filter(d=>!isHidden('disp-tf',d.label))}}
                     plugins={dispResult.plugin?[dispResult.plugin]:[]}
                     cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
-                    options={{...cjDefaults(t),layout:{padding:{top:dispResult.grouped?18:4,bottom:dispResult.grouped?70:4}},scales:{x:{grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:!dispResult.grouped,color:t.muted,font:{size:8},maxTicksLimit:12,...(dispResult.xTicks||{})}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'MW',color:t.muted,font:{size:8}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
+                    options={{...cjDefaults(t),layout:{padding:{top:dispResult.grouped?18:4,bottom:dispResult.grouped?70:4}},scales:{x:{stacked:true,grid:{color:hexA(t.panelBorder,0.35),drawTicks:false},ticks:{display:!dispResult.grouped,color:t.muted,font:{size:8},maxTicksLimit:12,...(dispResult.xTicks||{})}},y:{stacked:true,grid:{color:hexA(t.panelBorder,0.35)},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'MW',color:t.muted,font:{size:8}}},yR:{type:'linear',position:'right',display:dispResult.chartData.datasets.some(d=>d.label==='Marginal cost'&&!isHidden('disp-tf','Marginal cost')),grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'USD/MWh',color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false}}}}
                   />
                 </div>
                 {makeLegend('disp-tf',[
-                  ...dispTechfuels.map(tf=>({label:tf,color:techColor(tf)})),
+                  ...dispTechfuels.map(legendItem),
                   {label:'Demand',color:'#8B0000',shape:'line'},
                   {label:'Marginal cost',color:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',shape:'line'},
                 ])}
@@ -1534,7 +1547,7 @@ export default function ResultsRegionPage() {
                           plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,...deltaTooltip}}}}
                       />
                     </div>
-                    {makeLegend('disp-tf',[...dispTechfuels.map(tf=>({label:tf,color:techColor(tf)})),{label:'Demand',color:'#8B0000',shape:'line'},{label:'Marginal cost',color:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',shape:'line'}])}
+                    {makeLegend('disp-tf',[...dispTechfuels.map(legendItem),{label:'Demand',color:'#8B0000',shape:'line'},{label:'Marginal cost',color:t.isDark?'rgba(255,255,255,0.88)':'#1E3A8A',shape:'line'}])}
                   </div>
                 </>:cmpRef&&cmpRef===dispScenario?
                   <div style={{fontSize:'0.55rem',color:t.lblMuted}}>Select a different reference scenario.</div>:

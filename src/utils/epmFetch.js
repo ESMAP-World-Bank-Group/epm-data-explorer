@@ -122,6 +122,24 @@ export function processYearlyZone(rows) {
   return out;
 }
 
+/** pEnergyBalance → { zone: { item: { year: val } } }, item being the `uni` column
+ *  ('Unmet demand: GWh', 'Imports exchange: GWh', …). This is the only annual file
+ *  that carries unmet demand — pYearlyZoneMerged has no attribute for it. */
+export function processEnergyBalance(rows) {
+  if (!rows?.length) return {};
+  const out = {};
+  for (const r of rows) {
+    const z = r.z || r.zone || ''; const item = r.uni || '';
+    const y = String(r.y || '').replace('.0', '').trim();
+    const val = parseFloat(r.value) || 0;
+    if (!z || !item || !y) continue;
+    if (!out[z]) out[z] = {};
+    if (!out[z][item]) out[z][item] = {};
+    out[z][item][y] = (out[z][item][y] || 0) + val;
+  }
+  return out;
+}
+
 /** pDispatchComplete → { zone: { year: { q: { d: { t: { techfuel: val } } } } } } */
 export function processDispatchResults(rows) {
   if (!rows?.length) return {};

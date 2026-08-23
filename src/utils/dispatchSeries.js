@@ -7,23 +7,24 @@
 // pages each carried a copy of this with a separate branch for the full-year and the
 // single-season case, which is how they came to disagree on what a season chart draws.
 //
-// Both charts of the dispatch tab are built here. The level chart is a stacked area of
-// generation. The difference chart is a stacked bar, because a difference has both
-// signs and an area stack cannot hold them: Chart.js sums a stack as it goes, so a
-// -500 on one fuel cancels a +500 on another instead of showing either.
+// Both charts of the dispatch tab are built here, and both are stacked bars. A
+// dispatch stack is not all one sign: EPM writes Exports and Storage Charge as
+// negative, and a difference is negative wherever the scenario generates less. An
+// area stack cannot hold that — the Filler plugin fills between one dataset and the
+// one below it in the stack, which stops meaning anything once the series cross zero
+// — whereas bars split cleanly around it, gains piling up above and losses below.
 
 import { buildTimeAxis, blockLabels, axisTicks, TARGET_FULL, TARGET_SEASON } from './timeAxis';
+import { fillFor } from './chartColors';
 
 const DEMAND_COLOR = '#8B0000';
 const DEMAND_OVERLAY = '#CC0000';
 
 const EMPTY = { chartData: { labels: [], datasets: [] }, plugin: null, xTicks: null, grouped: false };
 
-function hexA(hex, a) {
-  if (!hex || hex.length < 7) return `rgba(128,128,128,${a})`;
-  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${a})`;
-}
+/** Bar options shared by both charts: full width in both directions so the bars sit
+ *  edge to edge and the stack reads as a filled profile rather than a bar chart. */
+const BAR = { type: 'bar', borderWidth: 0, barPercentage: 1, categoryPercentage: 1, stack: 'gen' };
 
 /** The slice of the year a view shows, and how to read a value inside it.
  *  sources: the dispatch objects the chart draws, {season: {day: {t: {techfuel: MW}}}}.
@@ -137,14 +138,12 @@ function overlay({ ax, seasons, days, grouped, isDark, hoursData, totalDays, lin
  *  zDisp: {season: {day: {t: {techfuel: MW}}}} — 'Demand' is one of the techfuel keys.
  *  price: {season: {day: {t: USD/MWh}}}, or null when the view has no single zone. */
 export function buildDispatchSeries({ slices, zDisp, price, seasons, days, daySel,
-                                     techColor, isDark, mcColor, hoursData, totalDays }) {
+                                     isDark, mcColor, hoursData, totalDays }) {
   if (!seasons?.length || !days?.length || !zDisp) return EMPTY;
   const w = viewWindow({ slices, sources: [zDisp], seasons, days, daySel });
 
   const datasets = w.techfuels.map(tf => ({
-    label: tf, fill: true, data: w.gen(zDisp, tf),
-    backgroundColor: hexA(techColor(tf), 0.7), borderColor: techColor(tf),
-    borderWidth: 0, pointRadius: 0, tension: 0, stack: 'gen',
+    ...BAR, label: tf, data: w.gen(zDisp, tf), backgroundColor: fillFor(tf, 0.8),
   }));
   const priceLine = w.line(price, null);
   const demandLine = w.line(zDisp, 'Demand');
@@ -167,16 +166,15 @@ export function buildDispatchSeries({ slices, zDisp, price, seasons, days, daySe
 /** The same window, as the difference between two scenarios: A minus B per techfuel,
  *  stacked bars so gains pile up above zero and losses below it. */
 export function buildDispatchDeltaSeries({ slices, zA, zB, priceA, priceB, seasons, days, daySel,
-                                          techColor, isDark, mcColor, hoursData, totalDays }) {
+                                          isDark, mcColor, hoursData, totalDays }) {
   if (!seasons?.length || !days?.length || !zA || !zB) return EMPTY;
   const w = viewWindow({ slices, sources: [zA, zB], seasons, days, daySel });
 
   const datasets = w.techfuels.map(tf => {
     const a = w.gen(zA, tf), b = w.gen(zB, tf);
     return {
-      label: tf, type: 'bar', data: a.map((v, i) => +(v - b[i]).toFixed(1)),
-      backgroundColor: hexA(techColor(tf), 0.75), borderWidth: 0,
-      barPercentage: 1, categoryPercentage: 1, stack: 'gen',
+      ...BAR, label: tf, data: a.map((v, i) => +(v - b[i]).toFixed(1)),
+      backgroundColor: fillFor(tf, 0.8),
     };
   }).filter(d => d.data.some(v => v !== 0));
 
