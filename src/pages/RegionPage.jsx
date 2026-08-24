@@ -15,12 +15,13 @@ import {
   processGenData, processDemand, processDemandData, processTransmissionResults,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
-  computeCentroid, normalizeFuel,
+  normalizeFuel,
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
+import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
@@ -1954,21 +1955,7 @@ export default function RegionPage() {
 
         // Zone centroids — linestring endpoints are canonical (match the drawn lines);
         // polygon centroids fill in zones that appear in zonesGJ but not in any linestring.
-        const zoneCentroids = {};
-        if (lsgj) {
-          for (const f of lsgj.features) {
-            const coords = f.geometry.coordinates;
-            const z = f.properties.z, z2 = f.properties.z_other;
-            if (z  && !zoneCentroids[z])  zoneCentroids[z]  = coords[0];
-            if (z2 && !zoneCentroids[z2]) zoneCentroids[z2] = coords[coords.length - 1];
-          }
-        }
-        if (zonesGJ) {
-          for (const f of zonesGJ.features) {
-            const z = f.properties.z;
-            if (z && !zoneCentroids[z]) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
-          }
-        }
+        const zoneCentroids = zoneCentroidMap(zonesGJ, lsgj);
 
         // Country centroids = average of zone centroids per country
         const countryCentroids = {};

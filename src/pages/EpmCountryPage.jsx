@@ -9,12 +9,13 @@ import {
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processGenData, processDemand, processDemandData, processNTC, processExtNTC, processTransmissionResults,
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
-  availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
+  availableYears, EPM_FUEL_COLORS, normalizeFuel,
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
+import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { source } from '../utils/mapSource';
@@ -402,21 +403,7 @@ export default function EpmCountryPage() {
           .map(f => f.properties.ISO_A3))]
       : [];
 
-    const zoneCentroids = {};
-    if (linestringGJ) {
-      for (const f of linestringGJ.features) {
-        const coords = f.geometry.coordinates;
-        const z = f.properties.z, z2 = f.properties.z_other;
-        if (z  && !zoneCentroids[z])  zoneCentroids[z]  = coords[0];
-        if (z2 && !zoneCentroids[z2]) zoneCentroids[z2] = coords[coords.length - 1];
-      }
-    }
-    if (zonesGJ) {
-      for (const f of zonesGJ.features) {
-        const z = f.properties.z;
-        if (z && !zoneCentroids[z]) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
-      }
-    }
+    const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     // Expose for the in-place donut / NTC update effects (no map rebuild needed).
     zoneCentroidsRef.current = zoneCentroids;
     countryZonesRef.current  = countryZones;

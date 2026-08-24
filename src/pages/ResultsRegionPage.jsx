@@ -8,7 +8,7 @@ import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTimeSlices, processTransmissionResults, processPlants, processCosts, processExtNTC, processEnergyBalance,
-  computeCentroid, resultYears,
+  resultYears,
 } from '../utils/epmFetch';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
 import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLegendItem } from '../utils/annualExtras';
@@ -19,6 +19,7 @@ import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, rai
 import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { source } from '../utils/mapSource';
+import { zoneCentroidMap } from '../utils/centroids';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -388,9 +389,7 @@ export default function ResultsRegionPage() {
     const regionCountries = [...new Set(zcmapRows.map(r=>r.c))].sort();
     const colorMap = {};
     regionCountries.forEach((c,i) => { colorMap[c] = MAP_PALETTE[i%MAP_PALETTE.length]; });
-    const zoneCentroids = {};
-    if (linestringGJ) { for (const f of linestringGJ.features) { const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2; if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0]; if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1]; } }
-    for (const f of zonesGJ.features) { const z=f.properties.z; if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;} }
+    const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const lons=Object.values(zoneCentroids).map(c=>c[0]);
     const lats=Object.values(zoneCentroids).map(c=>c[1]);
     const bounds=lons.length?[[Math.min(...lons)-2,Math.min(...lats)-2],[Math.max(...lons)+2,Math.max(...lats)+2]]:null;
@@ -514,9 +513,7 @@ export default function ResultsRegionPage() {
     if (!map || mapLoadedCount===0 || !zonesGJ) return;
     if (!zonesExtGJ && !extNtc.length) return;
     if (source(map, 'ext-zones')) { setExtZonesVisible(map, showExtZones); return; }
-    const zoneCentroids = {};
-    if (linestringGJ) for (const f of linestringGJ.features) { const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2; if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0]; if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1]; }
-    for (const f of zonesGJ.features) { const z=f.properties.z; if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;} }
+    const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const extData = buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids);
     addExtZoneLayers(map, t, extData);
     const extPopup = new maplibregl.Popup({ closeButton:false, closeOnClick:false, offset:10, className:`popup-${theme}` });
@@ -541,9 +538,7 @@ export default function ResultsRegionPage() {
     const sd = resultsData[ovScenario] || Object.values(resultsData)[0];
     if (!sd) return;
     const tx = sd.transmission;
-    const zcCentroids = {};
-    if (linestringGJ) { for (const f of linestringGJ.features) { const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2; if(z&&!zcCentroids[z])zcCentroids[z]=coords[0]; if(z2&&!zcCentroids[z2])zcCentroids[z2]=coords[coords.length-1]; } }
-    if (zonesGJ) for (const f of zonesGJ.features) { const z=f.properties.z; if(z&&!zcCentroids[z]){const c=computeCentroid(f.geometry);if(c)zcCentroids[z]=c;} }
+    const zcCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
 
     const seen = new Set(); const features = [];
     for (const [z, z2map] of Object.entries(tx)) {
@@ -576,9 +571,7 @@ export default function ResultsRegionPage() {
     const sd = resultsData[ovScenario]||Object.values(resultsData)[0];
     if (!sd || !refYear || !zonesGJ) return;
     const tv = getT(theme);
-    const zcCentroids = {};
-    if (linestringGJ) { for (const f of linestringGJ.features) { const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2; if(z&&!zcCentroids[z])zcCentroids[z]=coords[0]; if(z2&&!zcCentroids[z2])zcCentroids[z2]=coords[coords.length-1]; } }
-    for (const f of zonesGJ.features) { const z=f.properties.z; if(z&&!zcCentroids[z]){const c=computeCentroid(f.geometry);if(c)zcCentroids[z]=c;} }
+    const zcCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     // Compute avg price per zone
     const prices = {};
     for (const [z, yearmap] of Object.entries(sd.price)) {
@@ -610,9 +603,7 @@ export default function ResultsRegionPage() {
     const unitDiv=1000; const unitLbl=pieDispMode==='capacity'?'GW':'TWh';
     const isDk=t.isDark;
     const allZonesList=zcmapRows.map(r=>r.z);
-    const zcC={};
-    if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zcC[z])zcC[z]=coords[0];if(z2&&!zcC[z2])zcC[z2]=coords[coords.length-1];}}
-    for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zcC[z]){const c=computeCentroid(f.geometry);if(c)zcC[z]=c;}}
+    const zcC = zoneCentroidMap(zonesGJ, linestringGJ);
     // Pre-compute zone avg prices for center color
     const zPrices={};
     for(const z of allZonesList){const qmap=sd.price[z]?.[refYear]||{};let tw=0,tp=0;for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}if(tw>0)zPrices[z]=tp/tw;}

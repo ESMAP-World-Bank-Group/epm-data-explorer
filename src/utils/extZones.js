@@ -2,7 +2,7 @@
 // External neighbours in zones_ext.geojson may be Points OR Polygons/MultiPolygons.
 // The renderer draws a subtle polygon fill (when available) + a centroid node + the
 // NTC corridor lines from each internal zone centroid to the external centroid.
-import { computeCentroid } from './epmFetch';
+import { featureCentroid } from './centroids';
 import { layer } from './mapSource';
 
 // All layer ids the toggle controls (fill/border first so nodes+lines sit on top).
@@ -23,7 +23,7 @@ export function buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids) {
       if (f.geometry.type === 'Point') {
         extNodeCoords[z] = f.geometry.coordinates;
       } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
-        const c = computeCentroid(f.geometry);
+        const c = featureCentroid(f);
         if (c) extNodeCoords[z] = c;
         extPolyFeatures.push({ type: 'Feature', properties: { z }, geometry: f.geometry });
       }
