@@ -17,6 +17,7 @@ import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { source, layer } from '../utils/mapSource';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -450,14 +451,14 @@ export default function EpmZonePage() {
   // ── Zone switch: update highlight + marker + recenter WITHOUT rebuilding the map ──
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !map.getLayer('zone-fill-active')) return;
+    if (!map || !map.isStyleLoaded() || !layer(map, 'zone-fill-active')) return;
     map.setFilter('zone-fill-dim',     ['!=', ['get', 'z'], zoneIdDecoded]);
     map.setFilter('zone-border-dim',   ['!=', ['get', 'z'], zoneIdDecoded]);
     map.setFilter('zone-fill-active',  ['==', ['get', 'z'], zoneIdDecoded]);
     map.setFilter('zone-border-active',['==', ['get', 'z'], zoneIdDecoded]);
     const zoneNtcFilter = ['any', ['==', ['get', 'z'], zoneIdDecoded], ['==', ['get', 'z_other'], zoneIdDecoded]];
-    if (map.getLayer('ntc-lines-active')) map.setFilter('ntc-lines-active', zoneNtcFilter);
-    if (map.getLayer('ntc-labels'))       map.setFilter('ntc-labels', zoneNtcFilter);
+    if (layer(map, 'ntc-lines-active')) map.setFilter('ntc-lines-active', zoneNtcFilter);
+    if (layer(map, 'ntc-labels'))       map.setFilter('ntc-labels', zoneNtcFilter);
 
     const center = zoneCentroids[zoneIdDecoded];
     markerRef.current?.remove();
@@ -475,9 +476,9 @@ export default function EpmZonePage() {
   // NTC lines — update MW in place when trade data changes (no map rebuild → no flash).
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !epmData || !map.isStyleLoaded() || !map.getSource('ntc-lines')) return;
+    if (!map || !epmData || !map.isStyleLoaded() || !source(map, 'ntc-lines')) return;
     const features = buildZoneNtcFeatures(epmData, zoneCentroids, epmData.linestringGJ, outputNtc, epmYear);
-    map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
+    source(map, 'ntc-lines').setData({ type: 'FeatureCollection', features });
   }, [epmData, zoneCentroids, outputNtc, epmYear]);
 
   // ── Computed values ───────────────────────────────────────────────────────────

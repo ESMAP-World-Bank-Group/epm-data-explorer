@@ -9,6 +9,7 @@ import REResourcesTab from '../components/tabs/REResourcesTab';
 import LoadTab from '../components/tabs/LoadTab';
 import ZoningTab from '../components/tabs/ZoningTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { source, layer } from '../utils/mapSource';
 
 function downloadBlob(content, filename, type = 'application/octet-stream') {
   const blob = new Blob([content], { type });
@@ -464,7 +465,7 @@ export default function CountryPage() {
 
   const toggleFuel = useCallback(fuel => {
     const map = mapRef.current;
-    if (!map || !map.getLayer(`plants-${fuel}`)) return;
+    if (!map || !layer(map, `plants-${fuel}`)) return;
     setFuelsOff(prev => {
       const next = new Set(prev);
       if (next.has(fuel)) { next.delete(fuel); map.setLayoutProperty(`plants-${fuel}`, 'visibility', 'visible'); }
@@ -475,7 +476,7 @@ export default function CountryPage() {
 
   const toggleKv = useCallback(key => {
     const map = mapRef.current;
-    if (!map || !map.getLayer(`lines-${key}`)) return;
+    if (!map || !layer(map, `lines-${key}`)) return;
     setKvsOff(prev => {
       const next = new Set(prev);
       if (next.has(key)) { next.delete(key); map.setLayoutProperty(`lines-${key}`, 'visibility', 'visible'); }
@@ -490,7 +491,7 @@ export default function CountryPage() {
     setLinesOn(prev => {
       const next = !prev;
       for (const { key } of VOLTAGE_BRACKETS)
-        if (!kvsOff.has(key) && map.getLayer(`lines-${key}`))
+        if (!kvsOff.has(key) && layer(map, `lines-${key}`))
           map.setLayoutProperty(`lines-${key}`, 'visibility', next ? 'visible' : 'none');
       return next;
     });
@@ -502,7 +503,7 @@ export default function CountryPage() {
     setPlantsOn(prev => {
       const next = !prev;
       for (const fuel of presentFuels)
-        if (!fuelsOff.has(fuel) && map.getLayer(`plants-${fuel}`))
+        if (!fuelsOff.has(fuel) && layer(map, `plants-${fuel}`))
           map.setLayoutProperty(`plants-${fuel}`, 'visibility', next ? 'visible' : 'none');
       return next;
     });
@@ -510,7 +511,7 @@ export default function CountryPage() {
 
   const toggleSubs = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !map.getLayer('substations')) return;
+    if (!map || !layer(map, 'substations')) return;
     setSubsOn(prev => {
       const next = !prev;
       map.setLayoutProperty('substations', 'visibility', next ? 'visible' : 'none');
@@ -524,7 +525,7 @@ export default function CountryPage() {
     setLoadCentersOn(prev => {
       const next = !prev;
       for (const id of ['load-centers', 'load-centers-labels']) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', next ? 'visible' : 'none');
+        if (layer(map, id)) map.setLayoutProperty(id, 'visibility', next ? 'visible' : 'none');
       }
       return next;
     });
@@ -532,7 +533,7 @@ export default function CountryPage() {
 
   const toggleZoneLabels = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !map.getLayer('zone-labels')) return;
+    if (!map || !layer(map, 'zone-labels')) return;
     setZoneLabelsOn(prev => {
       const next = !prev;
       map.setLayoutProperty('zone-labels', 'visibility', next ? 'visible' : 'none');
@@ -546,7 +547,7 @@ export default function CountryPage() {
     setZoneCorridorsOn(prev => {
       const next = !prev;
       for (const id of ['zone-corridors-ex', 'zone-corridors-labels', 'zone-corridors-dots']) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', next ? 'visible' : 'none');
+        if (layer(map, id)) map.setLayoutProperty(id, 'visibility', next ? 'visible' : 'none');
       }
       return next;
     });
@@ -557,7 +558,7 @@ export default function CountryPage() {
     if (!map) return;
     setLcMinPop(pop);
     for (const id of ['load-centers', 'load-centers-labels']) {
-      if (map.getLayer(id)) map.setFilter(id, ['>=', ['get', 'pop'], pop]);
+      if (layer(map, id)) map.setFilter(id, ['>=', ['get', 'pop'], pop]);
     }
   }, []);
 
@@ -566,7 +567,7 @@ export default function CountryPage() {
     if (!map) return;
     setMinMw(mw);
     for (const fuel of Object.keys(FUEL_COLORS)) {
-      if (!map.getLayer(`plants-${fuel}`)) continue;
+      if (!layer(map, `plants-${fuel}`)) continue;
       map.setFilter(`plants-${fuel}`, ['all',
         ['==',  ['get', 'fuel'], fuel],
         ['>=', ['get', 'mw'],   mw],
@@ -579,7 +580,7 @@ export default function CountryPage() {
     if (!map) return;
     setCircleScale(scale);
     for (const fuel of Object.keys(FUEL_COLORS)) {
-      if (!map.getLayer(`plants-${fuel}`)) continue;
+      if (!layer(map, `plants-${fuel}`)) continue;
       map.setPaintProperty(`plants-${fuel}`, 'circle-radius', plantRadiusExpr(scale));
     }
   }, []);
@@ -588,7 +589,7 @@ export default function CountryPage() {
     const map = mapRef.current;
     if (!map) return;
     setLcCircleScale(scale);
-    if (map.getLayer('load-centers')) {
+    if (layer(map, 'load-centers')) {
       map.setPaintProperty('load-centers', 'circle-radius', lcRadiusExpr(scale));
     }
   }, []);
@@ -596,21 +597,21 @@ export default function CountryPage() {
   // ── Zone overlay ─────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReadyRef.current || !map.getSource('zone-fills')) return;
+    if (!map || !mapReadyRef.current || !source(map, 'zone-fills')) return;
     const ZONE_IDS  = ['zone-fills', 'zone-borders'];
     const ADMIN_IDS = ['admin1-fills', 'admin1-borders'];
 
     const showAdmin = zoneMode === 'admin';
     for (const id of ADMIN_IDS) {
-      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showAdmin ? 'visible' : 'none');
+      if (layer(map, id)) map.setLayoutProperty(id, 'visibility', showAdmin ? 'visible' : 'none');
     }
 
     if (zoneMode !== 'modeling' || !nZones) {
       for (const id of ZONE_IDS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+        if (layer(map, id)) map.setLayoutProperty(id, 'visibility', 'none');
       }
       for (const id of ['zone-corridors-ex', 'zone-corridors-labels', 'zone-corridors-dots']) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+        if (layer(map, id)) map.setLayoutProperty(id, 'visibility', 'none');
       }
       return;
     }
@@ -624,10 +625,10 @@ export default function CountryPage() {
       fetch(`/data/zones/${label}_inner.geojson`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`/data/zones/${label}_corridors.geojson`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([zonesGJ, topo, innerGJ, corridorsGJ]) => {
-      if (!zonesGJ || !map.getSource('zone-fills')) return;
+      if (!zonesGJ || !source(map, 'zone-fills')) return;
       zonesGJ.features.forEach((f, i) => { f.properties.color = COLORS[i % COLORS.length]; });
-      map.getSource('zone-fills').setData(zonesGJ);
-      if (innerGJ && map.getSource('zone-inner')) map.getSource('zone-inner').setData(innerGJ);
+      source(map, 'zone-fills').setData(zonesGJ);
+      if (innerGJ && source(map, 'zone-inner')) source(map, 'zone-inner').setData(innerGJ);
 
       // Build interzone line geometries from centroids
       const centroids = {};
@@ -648,12 +649,12 @@ export default function CountryPage() {
           geometry: { type: 'LineString', coordinates: [centroids[l.z], centroids[l.zz]] },
           properties: l,
         }));
-      map.getSource('zone-lines').setData({ type: 'FeatureCollection', features: lineFeatures });
+      source(map, 'zone-lines').setData({ type: 'FeatureCollection', features: lineFeatures });
 
       // Corridor capacity overlay — always update source (clear if no file for this zone count)
       const emptyGJ = { type: 'FeatureCollection', features: [] };
-      if (map.getSource('zone-corridors-src'))
-        map.getSource('zone-corridors-src').setData(corridorsGJ || emptyGJ);
+      if (source(map, 'zone-corridors-src'))
+        source(map, 'zone-corridors-src').setData(corridorsGJ || emptyGJ);
       // Extract unique zone centroids from corridor endpoints
       const centroidMap = new Map();
       for (const f of (corridorsGJ?.features || [])) {
@@ -663,17 +664,17 @@ export default function CountryPage() {
         if (!centroidMap.has(ks)) centroidMap.set(ks, { type: 'Feature', geometry: { type: 'Point', coordinates: s }, properties: { zone: f.properties.zone_a } });
         if (!centroidMap.has(ke)) centroidMap.set(ke, { type: 'Feature', geometry: { type: 'Point', coordinates: e }, properties: { zone: f.properties.zone_b } });
       }
-      if (map.getSource('zone-centroids-src'))
-        map.getSource('zone-centroids-src').setData({ type: 'FeatureCollection', features: [...centroidMap.values()] });
+      if (source(map, 'zone-centroids-src'))
+        source(map, 'zone-centroids-src').setData({ type: 'FeatureCollection', features: [...centroidMap.values()] });
       for (const id of ['zone-corridors-ex', 'zone-corridors-labels', 'zone-corridors-dots']) {
-        if (map.getLayer(id))
+        if (layer(map, id))
           map.setLayoutProperty(id, 'visibility', zoneCorridorsOn ? 'visible' : 'none');
       }
 
       for (const id of ZONE_IDS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+        if (layer(map, id)) map.setLayoutProperty(id, 'visibility', 'visible');
       }
-      if (map.getLayer('zone-labels'))
+      if (layer(map, 'zone-labels'))
         map.setLayoutProperty('zone-labels', 'visibility', zoneLabelsOn ? 'visible' : 'none');
     });
   }, [zoneMode, nZones, iso, zoneLabelsOn, zoneCorridorsOn]);
@@ -681,7 +682,7 @@ export default function CountryPage() {
   // ── Plant source hot-swap ─────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map?.getSource('plants') || !info || !countryFeatureRef.current) return;
+    if (!source(map, 'plants') || !info || !countryFeatureRef.current) return;
     const filename = plantSource === 'gppd'
       ? `region_plants_${info.region.id}_gppd.geojson`
       : `region_plants_${info.region.id}.geojson`;
@@ -693,7 +694,7 @@ export default function CountryPage() {
           ...data,
           features: data.features.filter(f => pointInFeature(f.geometry.coordinates, cf)),
         };
-        map.getSource('plants').setData(filtered);
+        source(map, 'plants').setData(filtered);
         setFilteredPlantsData(filtered);
         const fuels = new Set(filtered.features.map(f => f.properties.fuel).filter(f => FUEL_COLORS[f]));
         setPresentFuels(fuels);

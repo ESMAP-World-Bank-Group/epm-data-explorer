@@ -17,6 +17,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { source } from '../utils/mapSource';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -381,9 +382,9 @@ export default function EpmCountryPage() {
   // NTC year update — runs when user clicks a year on a chart
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !epmData || !map.getSource('ntc-lines')) return;
+    if (!map || !epmData || !source(map, 'ntc-lines')) return;
     const features = buildNtcFeatures(epmData, zoneCentroidsRef.current, countryZonesRef.current, epmData.linestringGJ, outputNtc, epmYear);
-    map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
+    source(map, 'ntc-lines').setData({ type: 'FeatureCollection', features });
   }, [epmYear, epmData, outputNtc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Map ──────────────────────────────────────────────────────────────────────
@@ -585,9 +586,9 @@ export default function EpmCountryPage() {
   // NTC lines — update MW in place when trade data changes (no map rebuild → no flash).
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !epmData || mapLoadedCount === 0 || !map.getSource('ntc-lines')) return;
+    if (!map || !epmData || mapLoadedCount === 0 || !source(map, 'ntc-lines')) return;
     const features = buildNtcFeatures(epmData, zoneCentroidsRef.current, countryZonesRef.current, epmData.linestringGJ);
-    map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
+    source(map, 'ntc-lines').setData({ type: 'FeatureCollection', features });
   }, [mapLoadedCount, epmData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Computed values ───────────────────────────────────────────────────────────

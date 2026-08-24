@@ -3,6 +3,7 @@
 // The renderer draws a subtle polygon fill (when available) + a centroid node + the
 // NTC corridor lines from each internal zone centroid to the external centroid.
 import { computeCentroid } from './epmFetch';
+import { layer } from './mapSource';
 
 // All layer ids the toggle controls (fill/border first so nodes+lines sit on top).
 export const EXT_LAYER_IDS = [
@@ -112,5 +113,5 @@ export function bindExtZoneHandlers(map, popup, extNtc, extNtcYr) {
 export function setExtZonesVisible(map, visible) {
   if (!map) return;
   const vis = visible ? 'visible' : 'none';
-  for (const id of EXT_LAYER_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+  for (const id of EXT_LAYER_IDS) if (layer(map, id)) map.setLayoutProperty(id, 'visibility', vis);
 }

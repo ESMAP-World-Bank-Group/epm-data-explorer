@@ -10,6 +10,8 @@
 // It is not zones_ext.geojson either — those are external trading neighbours, which
 // these are not. A model without the file simply gets no layer.
 
+import { source, layer } from './mapSource';
+
 export const OFFGRID_LAYER_IDS = ['offgrid-fill', 'offgrid-border'];
 
 // Read a paint property off the first of these layers that exists, so the off-grid
@@ -19,7 +21,7 @@ export const OFFGRID_LAYER_IDS = ['offgrid-fill', 'offgrid-border'];
 function paintOf(map, layers, prop, fallback) {
   for (const id of layers) {
     try {
-      const v = map.getLayer(id) ? map.getPaintProperty(id, prop) : undefined;
+      const v = layer(map, id) ? map.getPaintProperty(id, prop) : undefined;
       if (v !== undefined) return v;
     } catch { /* layer without that property — try the next one */ }
   }
@@ -32,7 +34,7 @@ const BORDER_LAYERS = ['zone-border', 'zone-border-dim'];
 // Add the off-grid source + layers to a loaded map. Visible from the start: the gap
 // should simply not be there, without the user having to find a toggle.
 export function addOffgridLayers(map, tv, offgridGJ) {
-  if (!offgridGJ?.features?.length || map.getSource('offgrid-zones')) return;
+  if (!offgridGJ?.features?.length || source(map, 'offgrid-zones')) return;
 
   // The zone fill colours by ISO_A3 and the off-grid features carry ISO_A3 too, so
   // the page's own expression applies here unchanged -> same colour as the country.
@@ -54,5 +56,5 @@ export function addOffgridLayers(map, tv, offgridGJ) {
 export function setOffgridVisible(map, visible) {
   if (!map) return;
   const vis = visible ? 'visible' : 'none';
-  for (const id of OFFGRID_LAYER_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+  for (const id of OFFGRID_LAYER_IDS) if (layer(map, id)) map.setLayoutProperty(id, 'visibility', vis);
 }

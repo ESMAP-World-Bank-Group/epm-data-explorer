@@ -24,6 +24,7 @@ import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
+import { source } from '../utils/mapSource';
 
 // chart.js via CDN — no npm dep
 function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey, onClickYear }) {
@@ -1601,6 +1602,20 @@ function AboutTab({ region, t, epmData, activeFolder }) {
               <b style={{ color: t.lbl }}>Data folder:</b>{' '}
               <code style={{ fontSize: '0.52rem' }}>{activeFolder ?? region.epm.dataFolder}</code>
             </div>
+            {/* A folder is offered as soon as the directory exists, and a directory
+                holding only its DATA_SOURCES page exists while its data still sits in
+                the private store. Every fetch then returns nothing and the page has
+                only empty panels to show, which reads as a broken site rather than as
+                an unpublished folder. Say which it is. */}
+            {!epmLoading && epmData && !epmData.zcmap.length && (
+              <div style={{ marginTop: 6, padding: '6px 8px', borderRadius: 6,
+                border: `1px solid ${t.panelBorder}`, color: t.lblMuted, fontSize: '0.55rem' }}>
+                <b style={{ color: t.lbl }}>Not published.</b>{' '}
+                No input data is readable for <code style={{ fontSize: '0.52rem' }}>{activeFolder}</code> on
+                this branch — the folder is there but its tables are not. Pick another
+                folder above, or see the data sources page below.
+              </div>
+            )}
             <div>
               <b style={{ color: t.lbl }}>Source:</b>{' '}
               <a href={`https://github.com/ESMAP-World-Bank-Group/EPM/tree/${region.epm.branch}`}
@@ -2314,7 +2329,7 @@ export default function RegionPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !epmData || mapLoaded === 0) return;
-    if (!map.getSource('ntc-lines')) return;
+    if (!source(map, 'ntc-lines')) return;
     const ntcYrs = availableYears(epmData.ntc);
     const yr = epmYear
       || ntcYrs.find(y => epmData.ntc.some(r => (r.years[y] || 0) > 0))
@@ -2335,20 +2350,20 @@ export default function RegionPage() {
         properties: { z: r.z, z_other: r.z2, ntc_mw: r.years[yr] || 0 },
         geometry: { type: 'LineString', coordinates: [zoneCentroidsRef.current[r.z], zoneCentroidsRef.current[r.z2]] },
       }));
-    map.getSource('ntc-lines').setData({ type: 'FeatureCollection', features });
+    source(map, 'ntc-lines').setData({ type: 'FeatureCollection', features });
   }, [epmYear, mapLoaded, epmData, outputNtc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Plant source hot-swap (OSM mode only)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map?.getSource('plants')) return;
+    if (!source(map, 'plants')) return;
     const suffix = plantSource === 'gppd' ? '_gppd' : plantSource === 'gem' ? '_gem' : '';
     const f  = `region_plants_${regionId}${suffix}.geojson`;
     const cf = `region_capacity_${regionId}${suffix}.json`;
     fetch(`/data/cache/${f}`)
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(data => {
-        map.getSource('plants').setData(data);
+        source(map, 'plants').setData(data);
         const fuels = new Set(data.features.map(f => f.properties.fuel).filter(f => FUEL_COLORS[f]));
         setPresentFuels(fuels);
         return fetch(`/data/cache/${cf}`).then(r => r.json());

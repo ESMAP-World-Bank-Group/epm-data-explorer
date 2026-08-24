@@ -17,6 +17,8 @@
  */
 
 /** Country features only: everything the Bank attributes to a country. */
+import { layer } from './mapSource';
+
 export const COUNTRY_ONLY = ['!=', ['get', 'STATUS'], 'non-determined'];
 /** The unattributed areas. */
 export const NON_DETERMINED_ONLY = ['==', ['get', 'STATUS'], 'non-determined'];
@@ -180,6 +182,6 @@ export function addRegionCoast(map, { areas, color, width, opacity }) {
  */
 export function raiseBoundaries(map) {
   for (const id of BROKEN_LAYERS) {
-    if (map.getLayer(id)) map.moveLayer(id);
+    if (layer(map, id)) map.moveLayer(id);
   }
 }

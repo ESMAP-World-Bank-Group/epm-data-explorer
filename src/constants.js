@@ -1,3 +1,5 @@
+import { source, layer } from './utils/mapSource';
+
 export const FUEL_COLORS = {
   solar:      '#FFD700',
   wind:       '#44DAEC',
@@ -122,9 +124,9 @@ export function mapStyle(theme) {
 }
 
 export function swapBasemap(map, basemap, theme) {
-  if (!map || !map.getLayer('land')) return;
-  if (map.getLayer('basemap-raster')) map.removeLayer('basemap-raster');
-  if (map.getSource('basemap-tiles')) map.removeSource('basemap-tiles');
+  if (!map || !layer(map, 'land')) return;
+  if (layer(map, 'basemap-raster')) map.removeLayer('basemap-raster');
+  if (source(map, 'basemap-tiles')) map.removeSource('basemap-tiles');
   const t = getT(theme);
 
   if (basemap === 'labeled') {
@@ -146,14 +148,14 @@ export function swapBasemap(map, basemap, theme) {
   }
 
   map.setPaintProperty('land', 'fill-opacity', basemap === 'minimal' ? 1 : 0);
-  if (map.getLayer('borders'))
+  if (layer(map, 'borders'))
     map.setPaintProperty('borders', 'line-opacity', basemap === 'satellite' ? 0.45 : 1);
 }
 
 export function toggleSatLabels(map, show, theme) {
   if (!map) return;
-  if (map.getLayer('sat-labels')) map.removeLayer('sat-labels');
-  if (map.getSource('sat-labels-tiles')) map.removeSource('sat-labels-tiles');
+  if (layer(map, 'sat-labels')) map.removeLayer('sat-labels');
+  if (source(map, 'sat-labels-tiles')) map.removeSource('sat-labels-tiles');
   if (!show) return;
   const t = getT(theme);
   map.addSource('sat-labels-tiles', {

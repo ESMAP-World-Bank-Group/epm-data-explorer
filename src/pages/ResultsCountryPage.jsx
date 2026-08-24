@@ -18,6 +18,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
+import { source } from '../utils/mapSource';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -283,7 +284,7 @@ export default function ResultsCountryPage() {
     const map=mapRef.current;
     if(!map||mapLoadedCount===0||!zonesGJ)return;
     if(!zonesExtGJ&&!extNtc.length)return;
-    if(map.getSource('ext-zones')){setExtZonesVisible(map,showExtZones);return;}
+    if(source(map, 'ext-zones')){setExtZonesVisible(map,showExtZones);return;}
     const zoneCentroids={};
     if(linestringGJ)for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}
     for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
@@ -299,7 +300,7 @@ export default function ResultsCountryPage() {
   // no hole. Independent of the ext layers above, which return early without them.
   useEffect(()=>{
     const map=mapRef.current;
-    if(!map||mapLoadedCount===0||!offgridGJ||map.getSource('offgrid-zones'))return;
+    if(!map||mapLoadedCount===0||!offgridGJ||source(map, 'offgrid-zones'))return;
     addOffgridLayers(map,t,offgridGJ);
   },[mapLoadedCount,offgridGJ,theme]); // eslint-disable-line
 
@@ -312,7 +313,7 @@ export default function ResultsCountryPage() {
 
   // Update NTC
   useEffect(()=>{
-    const map=mapRef.current;if(!map||!map.getSource('ntc-results')||!refYear)return;
+    const map=mapRef.current;if(!map||!source(map, 'ntc-results')||!refYear)return;
     const sd=resultsData[ovScenario]||Object.values(resultsData)[0];if(!sd)return;
     const tx=sd.transmission;const zoneCentroids={};if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}}if(zonesGJ)for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
     const seen=new Set();const features=[];
@@ -324,7 +325,7 @@ export default function ResultsCountryPage() {
       let coords=lf?lf.geometry.coordinates:(zoneCentroids[z]&&zoneCentroids[z2]?[zoneCentroids[z],zoneCentroids[z2]]:null);if(!coords)continue;
       features.push({type:'Feature',properties:{z,z2,fwd,rev,util,vol,cap,yr:refYear},geometry:{type:'LineString',coordinates:(lfFwd===(fwd>=rev))?coords:[...coords].reverse()}});
     }}
-    map.getSource('ntc-results').setData({type:'FeatureCollection',features});
+    source(map, 'ntc-results').setData({type:'FeatureCollection',features});
   },[resultsData,refYear,ovScenario,zonesGJ,linestringGJ,countryZoneIds,mapLoadedCount]); // eslint-disable-line
 
   // Price dots

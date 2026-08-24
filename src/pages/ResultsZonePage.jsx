@@ -15,6 +15,7 @@ import { techColor, hexA, cssFillFor } from '../utils/chartColors';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { source } from '../utils/mapSource';
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 function fmt(n,d=0){if(n==null||isNaN(n))return'—';return n.toLocaleString('en-US',{maximumFractionDigits:d});}
@@ -172,7 +173,7 @@ export default function ResultsZonePage() {
     const map=mapRef.current;
     if(!map||mapLoadedCount===0||!zonesGJ)return;
     if(!zonesExtGJ&&!extNtc.length)return;
-    if(map.getSource('ext-zones')){setExtZonesVisible(map,showExtZones);return;}
+    if(source(map, 'ext-zones')){setExtZonesVisible(map,showExtZones);return;}
     const zoneCentroids={};
     if(linestringGJ)for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}
     for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
@@ -188,13 +189,13 @@ export default function ResultsZonePage() {
   // no hole. Independent of the ext layers above, which return early without them.
   useEffect(()=>{
     const map=mapRef.current;
-    if(!map||mapLoadedCount===0||!offgridGJ||map.getSource('offgrid-zones'))return;
+    if(!map||mapLoadedCount===0||!offgridGJ||source(map, 'offgrid-zones'))return;
     addOffgridLayers(map,t,offgridGJ);
   },[mapLoadedCount,offgridGJ,theme]); // eslint-disable-line
 
   // Update NTC
   useEffect(()=>{
-    const map=mapRef.current;if(!map||!map.getSource('ntc-results')||!refYear)return;
+    const map=mapRef.current;if(!map||!source(map, 'ntc-results')||!refYear)return;
     const sd=resultsData[scenario]||Object.values(resultsData)[0];if(!sd)return;
     const tx=sd.transmission;const zoneCentroids={};
     if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}}
@@ -208,7 +209,7 @@ export default function ResultsZonePage() {
       let coords=lf?lf.geometry.coordinates:(zoneCentroids[z]&&zoneCentroids[z2]?[zoneCentroids[z],zoneCentroids[z2]]:null);if(!coords)continue;
       features.push({type:'Feature',properties:{z,z2,fwd,rev,util,vol,cap,yr:refYear},geometry:{type:'LineString',coordinates:(lfFwd===(fwd>=rev))?coords:[...coords].reverse()}});
     }}
-    map.getSource('ntc-results').setData({type:'FeatureCollection',features});
+    source(map, 'ntc-results').setData({type:'FeatureCollection',features});
   },[resultsData,refYear,scenario,zonesGJ,linestringGJ,zoneIdDecoded,mapLoadedCount]); // eslint-disable-line
 
   if(!region)return<div style={{padding:40,color:t.text}}>Loading…</div>;
