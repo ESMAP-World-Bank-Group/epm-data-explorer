@@ -1584,7 +1584,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVa
 
 // ── About tab ─────────────────────────────────────────────────────────────────
 
-function AboutTab({ region, t, epmData, activeFolder }) {
+function AboutTab({ region, t, epmData, epmLoading, activeFolder }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 8, padding: '12px 14px',
@@ -2561,7 +2561,8 @@ export default function RegionPage() {
             scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} setEpmYear={setEpmYear} />
         )}
         {activeTab === 'about' && (
-          <AboutTab region={region} t={t} epmData={epmData} activeFolder={activeFolder} />
+          <AboutTab region={region} t={t} epmData={epmData} epmLoading={epmLoading}
+            activeFolder={activeFolder} />
         )}
       </div>
     </div>
