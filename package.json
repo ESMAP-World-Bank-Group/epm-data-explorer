@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run lint:crash && vite build",
     "lint": "eslint .",
+    "lint:crash": "eslint src -c eslint.crash.config.js --no-config-lookup",
     "preview": "vite preview"
   },
   "dependencies": {
