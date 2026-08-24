@@ -8,18 +8,23 @@ import {
   fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTimeSlices, processTransmissionResults, processPlants, processCosts, processExtNTC, processEnergyBalance,
+  processTradePrice,
   resultYears,
 } from '../utils/epmFetch';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
 import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLegendItem } from '../utils/annualExtras';
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
-import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
+import {
+  buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible,
+  extNodeCoordMap, buildExtFlowFeatures, updateExtFlows, bindExtFlowHandlers, addExtPriceDots,
+} from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { source } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
+import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -82,6 +87,8 @@ export default function ResultsCountryPage() {
   const [zonesExtGJ,   setZonesExtGJ]   = useState(null);
   const [offgridGJ,    setOffgridGJ]    = useState(null);
   const [extNtc,       setExtNtc]       = useState([]);
+  const [tradePrice,   setTradePrice]   = useState({});   // border price paid on imports
+  const [tradePriceExp,setTradePriceExp]= useState({});   // border price received on exports
   const [showExtZones, setShowExtZones] = useState(true);
   const showExtRef     = useRef(true);
   const [hoursData,    setHoursData]    = useState({});
@@ -138,13 +145,34 @@ export default function ResultsCountryPage() {
 
   useEffect(()=>{track('results_view',{type:'country',region:regionId,country:countryDecoded});fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,countryDecoded]);
 
+  // The inputs a results map still needs: the zoning, the hour weights, and the two
+  // things that describe the border — how much can cross it and what it costs there.
+  // config.csv is asked where each of those lives, because the border prices are
+  // scenario variants: the folder holds pTradePrice_eu_central.csv and five siblings,
+  // and pTradePrice.csv, the name a guess would pick, is a stale leftover.
   useEffect(()=>{
     if(!region?.epm)return;
-    const{branch,dataFolder}=region.epm;
-    Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchEpmCSV(branch,dataFolder,'pHours.csv'),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'trade/pExtTransferLimit.csv'),fetchZonesOffgridGeoJSON(branch,dataFolder)]).then(([zc,hr,zExt,extRaw,offGJ])=>{
+    const{branch,dataFolder,scenariosFile,configFile}=region.epm;
+    let stale=false;
+    (async()=>{
+      const cfg=await fetchScenarioConfig(branch,dataFolder,{scenariosFile,configFile}).catch(()=>null);
+      const rf=(p,fallback)=>resolveFile(cfg,null,p,fallback);
+      const[zc,hr,zExt,extRaw,offGJ,tpIn,tpOut]=await Promise.all([
+        fetchEpmCSV(branch,dataFolder,'zcmap.csv'),
+        fetchEpmCSV(branch,dataFolder,rf('pHours','pHours.csv')),
+        fetchZonesExtGeoJSON(branch,dataFolder),
+        fetchEpmCSV(branch,dataFolder,rf('pExtTransferLimit','trade/pExtTransferLimit.csv')),
+        fetchZonesOffgridGeoJSON(branch,dataFolder),
+        fetchEpmCSV(branch,dataFolder,rf('pTradePrice','trade/pTradePrice.csv')),
+        fetchEpmCSV(branch,dataFolder,rf('pTradePriceExport','trade/pTradePriceExport.csv')),
+      ]);
+      if(stale)return;
       setZcmapRows(zc||[]);if(hr){setHoursData(processHours(hr));setSlices(processTimeSlices(hr));}
       setZonesExtGJ(zExt||null);setExtNtc(extRaw?processExtNTC(extRaw):[]);setOffgridGJ(offGJ||null);
-    });
+      setTradePrice(tpIn?processTradePrice(tpIn):{});
+      setTradePriceExp(tpOut?processTradePrice(tpOut):{});
+    })();
+    return()=>{stale=true;};
   },[region]);
 
   // The zone layers belong to the run, not to the branch: a run publishes the
@@ -288,10 +316,25 @@ export default function ResultsCountryPage() {
     const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const extData=buildExtZoneData(zonesExtGJ,extNtc,zoneCentroids,refYear);
     if(source(map, 'ext-zones')){updateExtZoneData(map,extData);return;}
-    addExtZoneLayers(map,t,extData,{visible:showExtRef.current});
+    addExtZoneLayers(map,t,extData,{visible:showExtRef.current,mode:'results',arrowImage:'ntc-arrow-c'});
     const extPopup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
     bindExtZoneHandlers(map,extPopup);
+    bindExtFlowHandlers(map,extPopup);
   },[mapLoadedCount,zonesGJ,linestringGJ,zonesExtGJ,extNtc,refYear,theme]); // eslint-disable-line
+
+  // What crossed the external corridors, kept to the country's own zones the way the
+  // ntc-results effect keeps the internal ones — same run, same year, so both halves
+  // of a corridor map move together.
+  useEffect(()=>{
+    const map=mapRef.current;
+    if(!map||!source(map, 'ext-flows'))return;
+    const sd=resultsData[ovScenario]||Object.values(resultsData)[0];
+    updateExtFlows(map,buildExtFlowFeatures({
+      tx:sd?.transmission,extNtc,year:refYear,zones:new Set(countryZoneIds),
+      zoneCentroids:zoneCentroidMap(zonesGJ,linestringGJ),
+      extNodeCoords:extNodeCoordMap(zonesExtGJ),
+    }));
+  },[resultsData,ovScenario,refYear,zonesGJ,linestringGJ,zonesExtGJ,extNtc,countryZoneIds,mapLoadedCount]);
   useEffect(()=>{showExtRef.current=showExtZones;setExtZonesVisible(mapRef.current,showExtZones);},[showExtZones]);
 
   // Off-grid areas (no toggle): painted like the rest of the country so the map has
@@ -336,7 +379,9 @@ export default function ResultsCountryPage() {
     const vals=Object.values(prices);if(!vals.length)return;
     const minV=Math.min(...vals),maxV=Math.max(...vals),rng=maxV-minV||1;
     for(const[z,price]of Object.entries(prices)){const coord=zoneCentroids[z];if(!coord)continue;const el=document.createElement('div');el.style.cssText=`width:10px;height:10px;border-radius:50%;background:${priceColor((price-minV)/rng)};border:1.5px solid rgba(255,255,255,0.7);box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;`;el.title=`${z}: ${price.toFixed(1)} $/MWh`;dotMarkersRef.current.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(coord).addTo(map));}
-  },[resultsData,refYear,ovScenario,zonesGJ,allZones,hoursData,theme,mapLoadedCount]); // eslint-disable-line
+    if(showExtZones)addExtPriceDots(map,dotMarkersRef.current,
+      {zonesExtGJ,tradePrice,tradePriceExp,hoursData,year:refYear,min:minV,rng,colorFor:priceColor});
+  },[resultsData,refYear,ovScenario,zonesGJ,allZones,hoursData,theme,mapLoadedCount,showExtZones,zonesExtGJ,tradePrice,tradePriceExp]); // eslint-disable-line
 
   // ── Zone mix pie markers ──────────────────────────────────────────────────
   useEffect(()=>{

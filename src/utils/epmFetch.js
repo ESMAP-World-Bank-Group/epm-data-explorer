@@ -525,6 +525,44 @@ export function processExtNTC(rows) {
   return Object.values(pairs);
 }
 
+/** pTradePrice / pTradePriceExport (zext,q,d,year,t01…tNN) → the same nested shape as
+ *  processHourlyPrice, { zext: { year: { q: { d: { t: USD/MWh } } } } }, so a border
+ *  price and an internal marginal can be averaged by the very same code.
+ *
+ *  They are not the same kind of number, though: a border price is an assumption the
+ *  study wrote down, an internal price is what the model settled on. Whatever draws
+ *  them has to keep them apart. */
+export function processTradePrice(rows) {
+  if (!rows?.length) return {};
+  const cols = sliceCols(rows[0]);
+  const out = {};
+  for (const r of rows) {
+    const z = r.zext || r.z || r.zone || '';
+    const y = String(r.year || r.y || '').trim();
+    const q = r.q || '', d = r.d || '';
+    if (!z || !y || !q || !d) continue;
+    const day = (((out[z] ||= {})[y] ||= {})[q] ||= {})[d] ||= {};
+    for (const c of cols) {
+      const v = parseFloat(r[c]);
+      if (Number.isFinite(v)) day[c.replace(/^(t)0+(\d)/i, '$1$2')] = v;
+    }
+  }
+  return out;
+}
+
+/** The hours-weighted mean of one zone-year of prices — { q: { d: { t: price } } }
+ *  against the pHours weights. Returns null when the year has no prices at all,
+ *  which is not the same as a price of zero. */
+export function weightedAvgPrice(qmap, hoursData) {
+  let tw = 0, tp = 0;
+  for (const [q, days] of Object.entries(qmap || {}))
+    for (const [d, hrs] of Object.entries(days || {})) {
+      const w = hoursData?.[q]?.[d] || 0;
+      for (const p of Object.values(hrs)) { tp += p * w; tw += w; }
+    }
+  return tw > 0 ? tp / tw : null;
+}
+
 /** Returns { z, z2, years: { '2024': avgMW, ... } }[] — averaged over quarters */
 export function processNTC(rows) {
   if (!rows?.length) return [];

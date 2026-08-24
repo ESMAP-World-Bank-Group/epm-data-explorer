@@ -12,7 +12,10 @@ import {
 } from '../utils/epmFetch';
 import { buildDispatchSeries } from '../utils/dispatchSeries';
 import { techColor, hexA, cssFillFor } from '../utils/chartColors';
-import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
+import {
+  buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible,
+  extNodeCoordMap, buildExtFlowFeatures, updateExtFlows, bindExtFlowHandlers,
+} from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { source } from '../utils/mapSource';
@@ -175,10 +178,24 @@ export default function ResultsZonePage() {
     const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const extData=buildExtZoneData(zonesExtGJ,extNtc,zoneCentroids,refYear);
     if(source(map, 'ext-zones')){updateExtZoneData(map,extData);return;}
-    addExtZoneLayers(map,t,extData,{visible:showExtRef.current});
+    addExtZoneLayers(map,t,extData,{visible:showExtRef.current,mode:'results',arrowImage:'ntc-arrow-z'});
     const extPopup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
     bindExtZoneHandlers(map,extPopup);
+    bindExtFlowHandlers(map,extPopup);
   },[mapLoadedCount,zonesGJ,linestringGJ,zonesExtGJ,extNtc,refYear,theme]); // eslint-disable-line
+
+  // What crossed this zone's own external corridors, alongside the internal ones the
+  // ntc-results effect draws — same run, same year.
+  useEffect(()=>{
+    const map=mapRef.current;
+    if(!map||!source(map, 'ext-flows'))return;
+    const sd=resultsData[scenario]||Object.values(resultsData)[0];
+    updateExtFlows(map,buildExtFlowFeatures({
+      tx:sd?.transmission,extNtc,year:refYear,zones:new Set([zoneIdDecoded]),
+      zoneCentroids:zoneCentroidMap(zonesGJ,linestringGJ),
+      extNodeCoords:extNodeCoordMap(zonesExtGJ),
+    }));
+  },[resultsData,scenario,refYear,zonesGJ,linestringGJ,zonesExtGJ,extNtc,zoneIdDecoded,mapLoadedCount]);
   useEffect(()=>{showExtRef.current=showExtZones;setExtZonesVisible(mapRef.current,showExtZones);},[showExtZones]);
 
   // Off-grid areas (no toggle): painted like the rest of the country so the map has
