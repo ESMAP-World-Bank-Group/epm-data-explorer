@@ -1,112 +1,367 @@
-// Shared external-zone map layers (inputs + results).
-// External neighbours in zones_ext.geojson may be Points OR Polygons/MultiPolygons.
-// The renderer draws a subtle polygon fill (when available) + a centroid node + the
-// NTC corridor lines from each internal zone centroid to the external centroid.
-import { computeCentroid } from './epmFetch';
-import { layer } from './mapSource';
+// The external neighbours: zones the model trades with but does not solve.
+//
+// They are drawn in grey, and the grey is the point. Everything the model decided —
+// which plants ran, what the price came out at — is in colour; an external zone has
+// none of that, only a border capacity someone typed in. Colouring it like an internal
+// zone would claim a result that does not exist.
+//
+// zones_ext.geojson gives them as Points or as Polygons/MultiPolygons. Either way each
+// one resolves to a single anchor (see utils/centroids), which is where its node sits
+// and where the corridors from the internal zones terminate.
+import maplibregl from 'maplibre-gl';
+import { featureCentroid } from './centroids';
+import { weightedAvgPrice } from './epmFetch';
+import { layer, source } from './mapSource';
 
-// All layer ids the toggle controls (fill/border first so nodes+lines sit on top).
+// All layer ids the toggle controls, bottom to top: the country body, then the
+// corridors crossing it, then the node and its label. setExtZonesVisible skips ids a
+// given map never created, so a page is free to build only part of this list.
 export const EXT_LAYER_IDS = [
-  'ext-zones-fill', 'ext-zones-border',
-  'ext-ntc-lines-layer', 'ext-ntc-labels', 'ext-nodes-circles', 'ext-nodes-labels',
+  'ext-zones-fill', 'ext-zones-hover', 'ext-zones-border',
+  'ext-ntc-lines-layer', 'ext-ntc-labels',
+  'ext-flow-bg', 'ext-flow-arrows', 'ext-flow-hit',
+  'ext-nodes-circles', 'ext-nodes-labels',
 ];
 
-// Build node coords (Point coords or polygon centroid), polygon features, corridor
-// lines and node features from the raw zones_ext geojson + processed extNtc corridors.
-export function buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids) {
-  const extNodeCoords = {};
-  const extPolyFeatures = [];
-  if (zonesExtGJ?.features) {
-    for (const f of zonesExtGJ.features) {
-      const z = f.properties?.z;
-      if (!z || !f.geometry) continue;
-      if (f.geometry.type === 'Point') {
-        extNodeCoords[z] = f.geometry.coordinates;
-      } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
-        const c = computeCentroid(f.geometry);
-        if (c) extNodeCoords[z] = c;
-        extPolyFeatures.push({ type: 'Feature', properties: { z }, geometry: f.geometry });
-      }
-    }
+// The same ramp the internal corridors use, so a saturated external line and a
+// saturated internal one are the same red.
+const UTIL_COLOR = ['interpolate', ['linear'], ['get', 'util'], 0, '#FFD700', 0.5, '#FF8C00', 1, '#E53935'];
+
+/** The one grey palette, so the fill, the border, the node and the label cannot drift
+ *  apart across the five maps that draw them. */
+export function extGrey(isDark) {
+  return isDark
+    ? { fill: '#3b3b3b', hover: '#6f6f6f', line: '#8a8a8a',
+      node: 'rgba(40,40,40,0.85)', text: '#e0e0e0', dim: '#cccccc', halo: 'rgba(0,0,0,0.6)' }
+    : { fill: '#d6d6d6', hover: '#9a9a9a', line: '#8a8a8a',
+      node: 'rgba(255,255,255,0.85)', text: '#222222', dim: '#444444', halo: 'rgba(255,255,255,0.7)' };
+}
+
+/** The year to read a corridor's capacity at: the one asked for when the table has it,
+ *  otherwise the last year before it — a capacity is a step function of the year a line
+ *  is commissioned, so the previous entry is the value still in force, not a guess. */
+function pickYear(years, want) {
+  if (!years.length) return null;
+  if (!want) return years[0];
+  const w = String(want);
+  if (years.includes(w)) return w;
+  const before = years.filter(y => y <= w);
+  return before.length ? before[before.length - 1] : years[0];
+}
+
+/** zext → [lon, lat], the point every corridor to that neighbour terminates on. */
+export function extNodeCoordMap(zonesExtGJ) {
+  const out = {};
+  for (const f of zonesExtGJ?.features || []) {
+    const z = f.properties?.z;
+    if (!z || !f.geometry) continue;
+    const c = featureCentroid(f);
+    if (c) out[z] = c;
   }
+  return out;
+}
+
+// Node coords, polygon features, corridor lines and node features, from the raw
+// zones_ext geojson and the processed pExtTransferLimit rows.
+export function buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids, year = null) {
+  const extNodeCoords = extNodeCoordMap(zonesExtGJ);
+  const polyGeom = {};
+  for (const f of zonesExtGJ?.features || []) {
+    const z = f.properties?.z;
+    if (!z || !f.geometry) continue;
+    if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') polyGeom[z] = f.geometry;
+  }
+
   const yrs = extNtc?.length ? Object.keys(extNtc[0].years).sort() : [];
-  const extNtcYr = yrs[0] || '2024';
+  const extNtcYr = pickYear(yrs, year) || '2024';
+
+  // Every corridor that lands on a zone, carried on the zone's own feature. A popup that
+  // reads its rows out of the feature cannot go stale against the selected year the way
+  // one closing over the data at layer-creation time did.
+  const linksBy = {};
+  for (const r of extNtc || []) (linksBy[r.zext] ||= []).push({ z: r.z, mw: r.years[extNtcYr] || 0 });
+  const links = z => JSON.stringify(linksBy[z] || []);
+
+  const extPolyFeatures = Object.entries(polyGeom).map(([z, geometry]) => ({
+    type: 'Feature', properties: { z, links: links(z) }, geometry,
+  }));
   const extLineFeatures = (extNtc || [])
     .filter(r => zoneCentroids[r.z] && extNodeCoords[r.zext])
     .map(r => ({
       type: 'Feature',
-      properties: { z: r.z, zext: r.zext, ntc_mw: r.years[extNtcYr] || 0 },
+      properties: { z: r.z, zext: r.zext, ntc_mw: r.years[extNtcYr] || 0, yr: extNtcYr },
       geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], extNodeCoords[r.zext]] },
     }));
   const extNodeFeatures = Object.entries(extNodeCoords).map(([z, coords]) => ({
-    type: 'Feature', properties: { z }, geometry: { type: 'Point', coordinates: coords },
+    type: 'Feature', properties: { z, links: links(z) }, geometry: { type: 'Point', coordinates: coords },
   }));
   return { extNodeCoords, extPolyFeatures, extLineFeatures, extNodeFeatures, extNtcYr };
 }
 
-// Add all external-zone sources+layers to a loaded map (hidden by default).
-export function addExtZoneLayers(map, tv, data) {
+// Add every external-zone source and layer to a loaded map. `visible` is applied at
+// creation rather than after it: the layers are on by default, and creating them hidden
+// only to reveal them a tick later flashes a map without its neighbours every time it
+// is rebuilt — on a theme change, on a region change.
+//
+// `mode` decides what is drawn on the corridors. An inputs map shows the capacity that
+// was declared for them; a results map shows what actually crossed, in the colours the
+// internal corridors already use, and so has no room for the capacity line underneath —
+// the flow layer carries the capacity in its popup and still draws corridors that ended
+// up carrying nothing, exactly as the internal ones do.
+export function addExtZoneLayers(map, tv, data, { visible = true, mode = 'inputs', arrowImage = null } = {}) {
   const { extPolyFeatures, extLineFeatures, extNodeFeatures } = data;
+  const g = extGrey(tv.isDark);
+  const vis = visible ? 'visible' : 'none';
 
   map.addSource('ext-zones', { type: 'geojson', data: { type: 'FeatureCollection', features: extPolyFeatures } });
   map.addLayer({ id: 'ext-zones-fill', type: 'fill', source: 'ext-zones',
-    layout: { visibility: 'none' },
-    paint: { 'fill-color': tv.isDark ? '#3b3b3b' : '#d6d6d6', 'fill-opacity': 0.22 } });
+    layout: { visibility: vis },
+    paint: { 'fill-color': g.fill, 'fill-opacity': 0.22 } });
+  map.addLayer({ id: 'ext-zones-hover', type: 'fill', source: 'ext-zones',
+    layout: { visibility: vis }, filter: ['==', ['get', 'z'], ''],
+    paint: { 'fill-color': g.hover, 'fill-opacity': 0.4 } });
   map.addLayer({ id: 'ext-zones-border', type: 'line', source: 'ext-zones',
-    layout: { visibility: 'none' },
-    paint: { 'line-color': '#8a8a8a', 'line-width': 1, 'line-dasharray': [2, 1.5], 'line-opacity': 0.65 } });
+    layout: { visibility: vis },
+    paint: { 'line-color': g.line, 'line-width': 1, 'line-dasharray': [2, 1.5], 'line-opacity': 0.65 } });
 
-  map.addSource('ext-ntc-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: extLineFeatures } });
-  map.addLayer({ id: 'ext-ntc-lines-layer', type: 'line', source: 'ext-ntc-lines',
-    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#888888',
-      'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3, 5000, 4.5],
-      'line-opacity': 0.85 } });
+  if (mode === 'results') addExtFlowLayers(map, vis, arrowImage);
+  else {
+    map.addSource('ext-ntc-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: extLineFeatures } });
+    map.addLayer({ id: 'ext-ntc-lines-layer', type: 'line', source: 'ext-ntc-lines',
+      layout: { visibility: vis, 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': g.line,
+        'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3, 5000, 4.5],
+        'line-opacity': 0.85 } });
+  }
 
   map.addSource('ext-nodes', { type: 'geojson', data: { type: 'FeatureCollection', features: extNodeFeatures } });
   map.addLayer({ id: 'ext-nodes-circles', type: 'circle', source: 'ext-nodes',
-    layout: { visibility: 'none' },
-    paint: { 'circle-radius': 5, 'circle-color': tv.isDark ? 'rgba(40,40,40,0.85)' : 'rgba(255,255,255,0.85)',
-      'circle-stroke-width': 1.5, 'circle-stroke-color': '#888888' } });
+    layout: { visibility: vis },
+    paint: { 'circle-radius': 5, 'circle-color': g.node,
+      'circle-stroke-width': 1.5, 'circle-stroke-color': g.line } });
   map.addLayer({ id: 'ext-nodes-labels', type: 'symbol', source: 'ext-nodes',
-    layout: { visibility: 'none', 'text-field': ['get', 'z'], 'text-size': 10,
+    layout: { visibility: vis, 'text-field': ['get', 'z'], 'text-size': 10,
       'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-allow-overlap': false },
-    paint: { 'text-color': tv.isDark ? '#e0e0e0' : '#222222',
-      'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)', 'text-halo-width': 1 } });
-  map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
-    layout: { visibility: 'none', 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
-      'text-size': 9, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
-    paint: { 'text-color': tv.isDark ? '#cccccc' : '#444444',
-      'text-halo-color': tv.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)', 'text-halo-width': 1 } });
+    paint: { 'text-color': g.text, 'text-halo-color': g.halo, 'text-halo-width': 1 } });
+  if (mode !== 'results') {
+    map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
+      layout: { visibility: vis, 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
+        'text-size': 9, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
+      paint: { 'text-color': g.dim, 'text-halo-color': g.halo, 'text-halo-width': 1 } });
+  }
 }
 
-// Hover popups for corridor lines, nodes and polygon fills.
-export function bindExtZoneHandlers(map, popup, extNtc, extNtcYr) {
-  map.on('mouseenter', 'ext-ntc-lines-layer', e => {
+// The external half of a results map's corridors: same ramp, same widths and the same
+// travelling arrows as ntc-results, dashed so it stays clear which end of the line the
+// model did not solve. `arrowImage` is the SDF arrow the page registered — each results
+// page has its own id, and without one the arrows are simply left off.
+function addExtFlowLayers(map, vis, arrowImage) {
+  map.addSource('ext-flows', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'ext-flow-bg', type: 'line', source: 'ext-flows',
+    layout: { visibility: vis, 'line-cap': 'butt', 'line-join': 'round' },
+    paint: { 'line-color': UTIL_COLOR,
+      'line-width': ['interpolate', ['linear'], ['get', 'vol'], 0, 1, 500, 2.5, 5000, 5],
+      'line-dasharray': [2.5, 1.2], 'line-opacity': 0.88 } });
+  if (arrowImage) {
+    map.addLayer({ id: 'ext-flow-arrows', type: 'symbol', source: 'ext-flows',
+      filter: ['>', ['get', 'vol'], 0],
+      layout: { visibility: vis, 'icon-image': arrowImage, 'icon-allow-overlap': false,
+        'symbol-placement': 'line', 'symbol-spacing': 55, 'icon-rotation-alignment': 'map', 'icon-size': 0.9 },
+      paint: { 'icon-color': UTIL_COLOR } });
+  }
+  map.addLayer({ id: 'ext-flow-hit', type: 'line', source: 'ext-flows',
+    layout: { visibility: vis },
+    paint: { 'line-color': '#000000', 'line-width': 20, 'line-opacity': 0 } });
+}
+
+// Push a rebuilt data set into layers that already exist — what a year change needs.
+// Rebuilding the layers instead would drop the toggle state and re-bind the handlers.
+export function updateExtZoneData(map, data) {
+  if (!map || !data) return;
+  const fc = features => ({ type: 'FeatureCollection', features });
+  source(map, 'ext-zones')?.setData(fc(data.extPolyFeatures));
+  source(map, 'ext-ntc-lines')?.setData(fc(data.extLineFeatures));
+  source(map, 'ext-nodes')?.setData(fc(data.extNodeFeatures));
+}
+
+// Hover popups for corridor lines, nodes and country bodies. Everything shown is read
+// off the hovered feature, so these bind once and stay right as the year changes.
+export function bindExtZoneHandlers(map, popup) {
+  const clear = () => {
+    map.getCanvas().style.cursor = '';
+    if (layer(map, 'ext-zones-hover')) map.setFilter('ext-zones-hover', ['==', ['get', 'z'], '']);
+    popup.remove();
+  };
+
+  map.on('mousemove', 'ext-ntc-lines-layer', e => {
     map.getCanvas().style.cursor = 'pointer';
-    const { z, zext, ntc_mw } = e.features[0].properties;
+    const p = e.features[0].properties;
     popup.setLngLat(e.lngLat)
-      .setHTML(`<b>${z} ↔ ${zext}</b><br><span style="opacity:.75">NTC: ${Math.round(ntc_mw).toLocaleString()} MW</span>`)
+      .setHTML(`<b>${p.z} ↔ ${p.zext}</b><br><span style="opacity:.75">NTC ${p.yr}: ${Math.round(p.ntc_mw).toLocaleString()} MW</span>`)
       .addTo(map);
   });
-  map.on('mouseleave', 'ext-ntc-lines-layer', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+  map.on('mouseleave', 'ext-ntc-lines-layer', clear);
 
-  const nodeInfo = e => {
+  const zoneInfo = (e, highlight) => {
     map.getCanvas().style.cursor = 'pointer';
-    const zext = e.features[0].properties.z;
-    const rows = (extNtc || []).filter(r => r.zext === zext).map(r =>
-      `<div style="display:flex;justify-content:space-between;gap:12px">` +
-      `<span style="opacity:.75">${r.z}</span>` +
-      `<span style="font-weight:600">${Math.round(r.years[extNtcYr] || 0).toLocaleString()} MW</span></div>`
+    const p = e.features[0].properties;
+    if (highlight && layer(map, 'ext-zones-hover')) map.setFilter('ext-zones-hover', ['==', ['get', 'z'], p.z]);
+    let rows;
+    try { rows = JSON.parse(p.links || '[]'); } catch { rows = []; }
+    const html = rows.map(r =>
+      '<div style="display:flex;justify-content:space-between;gap:12px">'
+      + `<span style="opacity:.75">${r.z}</span>`
+      + `<span style="font-weight:600">${Math.round(r.mw).toLocaleString()} MW</span></div>`
     ).join('');
     popup.setLngLat(e.lngLat)
-      .setHTML(`<b>${zext}</b><br>${rows || '<span style="opacity:.6">No NTC data</span>'}`)
+      .setHTML(`<b>${p.z}</b> <span style="opacity:.55">· external</span><br>`
+        + (html || '<span style="opacity:.6">No NTC data</span>'))
       .addTo(map);
   };
-  map.on('mouseenter', 'ext-nodes-circles', nodeInfo);
-  map.on('mouseleave', 'ext-nodes-circles', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
-  map.on('mouseenter', 'ext-zones-fill', nodeInfo);
-  map.on('mouseleave', 'ext-zones-fill', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+  map.on('mousemove', 'ext-nodes-circles', e => zoneInfo(e, false));
+  map.on('mouseleave', 'ext-nodes-circles', clear);
+  map.on('mousemove', 'ext-zones-fill', e => zoneInfo(e, true));
+  map.on('mouseleave', 'ext-zones-fill', clear);
+}
+
+const HOURS_PER_YEAR = 8760;
+const at = (tx, a, b, attr, y) => tx?.[a]?.[b]?.[attr]?.[y];
+
+/** What crossed each external corridor in `year`, as line features for `ext-flows`.
+ *
+ *  EPM publishes external exchange two ways and they are not equally good.
+ *  pInterchangeExternalImports / …Exports are the real thing: two directions, GWh, one
+ *  row per corridor. pNetImport carries a single net figure and is the only one that
+ *  currently reaches output_csv, so it is the fallback — and a lossy one, since a
+ *  corridor that imports and exports in different seasons collapses to one number.
+ *  A feature says which of the two it came from, and the popup says so too.
+ *
+ *  `zones` restricts the internal end, for the country and single-zone maps. */
+export function buildExtFlowFeatures({ tx, extNtc, zoneCentroids, extNodeCoords, year, zones = null }) {
+  if (!year) return [];
+  const y = String(year);
+
+  const capYrs = extNtc?.length ? Object.keys(extNtc[0].years).sort() : [];
+  const capYr = pickYear(capYrs, y);
+  const capBy = {};
+  for (const r of extNtc || []) {
+    const k = `${r.z}||${r.zext}`;
+    capBy[k] = Math.max(capBy[k] || 0, r.years[capYr] || 0);
+  }
+
+  // Every corridor that has either a declared capacity or a published flow: a line that
+  // carried nothing is a fact about the year, not a reason to leave it off the map.
+  const pairs = new Map();
+  for (const r of extNtc || []) pairs.set(`${r.z}||${r.zext}`, { z: r.z, zext: r.zext });
+  for (const [a, bmap] of Object.entries(tx || {})) {
+    for (const b of Object.keys(bmap || {})) {
+      if (extNodeCoords[b] && zoneCentroids[a]) pairs.set(`${a}||${b}`, { z: a, zext: b });
+      else if (extNodeCoords[a] && zoneCentroids[b]) pairs.set(`${b}||${a}`, { z: b, zext: a });
+    }
+  }
+
+  const features = [];
+  for (const { z, zext } of pairs.values()) {
+    if (zones && !zones.has(z)) continue;
+    const from = zoneCentroids[z], to = extNodeCoords[zext];
+    if (!from || !to) continue;
+
+    const impRaw = at(tx, zext, z, 'InterchangeExternalImports', y) ?? at(tx, z, zext, 'InterchangeExternalImports', y);
+    const expRaw = at(tx, z, zext, 'InterchangeExternalExports', y) ?? at(tx, zext, z, 'InterchangeExternalExports', y);
+    const directional = impRaw != null || expRaw != null;
+    const imp = impRaw || 0, exp = expRaw || 0;
+
+    let net, vol;
+    if (directional) { net = imp - exp; vol = Math.abs(imp) + Math.abs(exp); }
+    else {
+      const fwd = at(tx, z, zext, 'NetImport', y);
+      const rev = at(tx, zext, z, 'NetImport', y);
+      net = fwd != null ? fwd : (rev != null ? -rev : 0);
+      vol = Math.abs(net);
+    }
+
+    const cap = capBy[`${z}||${zext}`] || 0;
+    if (!vol && !cap) continue;
+    const util = cap > 0 ? Math.min(1, (vol * 1e3) / (cap * HOURS_PER_YEAR)) : 0;
+
+    // The arrow follows the net: coordinates run from the zone out to the neighbour,
+    // reversed when the zone is a net importer.
+    features.push({
+      type: 'Feature',
+      properties: { z, zext, imp, exp, net, vol, cap, util, yr: y, capYr, directional },
+      geometry: { type: 'LineString', coordinates: net > 0 ? [to, from] : [from, to] },
+    });
+  }
+  return features;
+}
+
+/** Push a rebuilt flow set into `ext-flows`, if this map has one. */
+export function updateExtFlows(map, features) {
+  source(map, 'ext-flows')?.setData({ type: 'FeatureCollection', features });
+}
+
+const gwh = v => `${Math.round(v).toLocaleString()} GWh`;
+
+// Hover popup for the external corridors of a results map.
+export function bindExtFlowHandlers(map, popup) {
+  map.on('mousemove', 'ext-flow-hit', e => {
+    map.getCanvas().style.cursor = 'pointer';
+    const p = e.features[0].properties;
+    const row = (k, v) => '<div style="display:flex;justify-content:space-between;gap:14px">'
+      + `<span style="opacity:.75">${k}</span><span style="font-weight:600">${v}</span></div>`;
+    let body;
+    if (p.directional === true || p.directional === 'true') {
+      body = row('Import', gwh(p.imp)) + row('Export', gwh(p.exp));
+    } else {
+      const dir = p.net > 0 ? 'net import' : p.net < 0 ? 'net export' : 'no exchange';
+      body = row('Net exchange', `${gwh(Math.abs(p.net))} <span style="opacity:.6;font-weight:400">${dir}</span>`);
+    }
+    if (p.cap > 0) {
+      body += row('Capacity', `${Math.round(p.cap).toLocaleString()} MW`);
+      body += row('Utilisation', `${(p.util * 100).toFixed(0)}%`);
+    }
+    popup.setLngLat(e.lngLat)
+      .setHTML(`<b>${p.z} ↔ ${p.zext}</b> <span style="opacity:.55">· external, ${p.yr}</span><br>${body}`)
+      .addTo(map);
+  });
+  map.on('mouseleave', 'ext-flow-hit', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+}
+
+/** The dot that marks a border price. Same fill ramp as the internal price dots, so the
+ *  two can be read against each other, but ringed in a dashed grey: an internal price is
+ *  a marginal the model produced, a border price is a number the study assumed, and the
+ *  map should not let them be mistaken for one another. */
+function extPriceDotEl(color, title) {
+  const el = document.createElement('div');
+  el.style.cssText = `width:13px;height:13px;box-sizing:border-box;border-radius:50%;background:${color};`
+    + 'border:2px dashed rgba(130,130,130,0.95);box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;';
+  el.title = title;
+  return el;
+}
+
+/** The border-price dots, dropped into the same marker list as the zone prices.
+ *
+ *  They are put on the internal scale but clamped to it rather than allowed to stretch
+ *  it: a border price is an assumption, and one expensive neighbour must not wash out
+ *  the colours of everything the model actually solved. What sets them apart visually
+ *  is the dashed ring, and the tooltip says outright that this is an input.
+ *
+ *  `colorFor` is the page's own ramp, so a border price and a zone price at the same
+ *  level come out the same colour. */
+export function addExtPriceDots(map, markers, opts) {
+  const { zonesExtGJ, tradePrice, tradePriceExp, hoursData, year, min, rng, colorFor } = opts;
+  if (!map || !year) return;
+  for (const [zext, coord] of Object.entries(extNodeCoordMap(zonesExtGJ))) {
+    const impP = weightedAvgPrice(tradePrice?.[zext]?.[year], hoursData);
+    const expP = weightedAvgPrice(tradePriceExp?.[zext]?.[year], hoursData);
+    if (impP == null && expP == null) continue;
+    const t_ = Math.min(1, Math.max(0, ((impP ?? expP) - min) / (rng || 1)));
+    const title = `${zext} — border price (input, ${year})`
+      + (impP != null ? `\nImport ${impP.toFixed(1)} $/MWh` : '')
+      + (expP != null ? `\nExport ${expP.toFixed(1)} $/MWh` : '');
+    markers.push(new maplibregl.Marker({ element: extPriceDotEl(colorFor(t_), title), anchor: 'center' })
+      .setLngLat(coord).addTo(map));
+  }
 }
 
 // Show / hide all external-zone layers (toggle).

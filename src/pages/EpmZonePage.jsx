@@ -9,11 +9,12 @@ import {
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
   processGenData, processDemand, processDemandData, processNTC, processTransmissionResults,
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
-  availableYears, EPM_FUEL_COLORS, computeCentroid, normalizeFuel,
+  availableYears, EPM_FUEL_COLORS, normalizeFuel,
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
+import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
@@ -321,23 +322,7 @@ export default function EpmZonePage() {
   // ── Map ──────────────────────────────────────────────────────────────────────
   // Zone centroids — shared by the map build + the lightweight zone-switch effect.
   const zoneCentroids = useMemo(() => {
-    const out = {};
-    const gj = epmData?.zonesGJ, ls = epmData?.linestringGJ;
-    if (ls) {
-      for (const f of ls.features) {
-        const coords = f.geometry.coordinates;
-        const z = f.properties.z, z2 = f.properties.z_other;
-        if (z  && !out[z])  out[z]  = coords[0];
-        if (z2 && !out[z2]) out[z2] = coords[coords.length - 1];
-      }
-    }
-    if (gj) {
-      for (const f of gj.features) {
-        const z = f.properties.z;
-        if (z && !out[z]) { const c = computeCentroid(f.geometry); if (c) out[z] = c; }
-      }
-    }
-    return out;
+    return zoneCentroidMap(epmData?.zonesGJ, epmData?.linestringGJ);
   }, [epmData]);
 
   // Build the map ONCE per region / data / theme — NOT per zone.

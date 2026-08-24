@@ -15,12 +15,13 @@ import {
   processGenData, processDemand, processDemandData, processTransmissionResults,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
-  computeCentroid, normalizeFuel,
+  normalizeFuel,
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
-import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
+import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
+import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
@@ -1720,7 +1721,8 @@ export default function RegionPage() {
   const [pieMode,         setPieMode]         = useState('zone');
   const [epmYear,         setEpmYear]         = useState(null);
   const [outputNtc,       setOutputNtc]       = useState([]);
-  const [showExtZones,    setShowExtZones]    = useState(false);
+  const [showExtZones,    setShowExtZones]    = useState(true);
+  const showExtRef = useRef(true);
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(680);
   const [autoFolders,     setAutoFolders]     = useState(null);
@@ -1954,21 +1956,7 @@ export default function RegionPage() {
 
         // Zone centroids — linestring endpoints are canonical (match the drawn lines);
         // polygon centroids fill in zones that appear in zonesGJ but not in any linestring.
-        const zoneCentroids = {};
-        if (lsgj) {
-          for (const f of lsgj.features) {
-            const coords = f.geometry.coordinates;
-            const z = f.properties.z, z2 = f.properties.z_other;
-            if (z  && !zoneCentroids[z])  zoneCentroids[z]  = coords[0];
-            if (z2 && !zoneCentroids[z2]) zoneCentroids[z2] = coords[coords.length - 1];
-          }
-        }
-        if (zonesGJ) {
-          for (const f of zonesGJ.features) {
-            const z = f.properties.z;
-            if (z && !zoneCentroids[z]) { const c = computeCentroid(f.geometry); if (c) zoneCentroids[z] = c; }
-          }
-        }
+        const zoneCentroids = zoneCentroidMap(zonesGJ, lsgj);
 
         // Country centroids = average of zone centroids per country
         const countryCentroids = {};
@@ -2104,9 +2092,9 @@ export default function RegionPage() {
         }
 
         // ── External zone layers (toggle-controlled) ─────────────────────
-        const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids);
-        addExtZoneLayers(map, tv, extData);
-        bindExtZoneHandlers(map, popup, epmData.extNtc || [], extData.extNtcYr);
+        const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids, epmYear);
+        addExtZoneLayers(map, tv, extData, { visible: showExtRef.current });
+        bindExtZoneHandlers(map, popup);
 
         // ── Areas of the modelled countries that belong to no zone ──────
         addOffgridLayers(map, tv, epmData.offgridGJ);
@@ -2256,10 +2244,21 @@ export default function RegionPage() {
     };
   }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // External zones toggle
+  // External zones toggle. The ref is what the map-load handler reads, so a rebuilt
+  // map comes back at the visibility the user left it at.
   useEffect(() => {
+    showExtRef.current = showExtZones;
     setExtZonesVisible(mapRef.current, showExtZones);
   }, [showExtZones, mapLoaded]);
+
+  // Ext corridors carry a capacity per year, like the internal ones, so they follow the
+  // year selector instead of staying frozen at the first year of the table.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !epmData || mapLoaded === 0 || !source(map, 'ext-ntc-lines')) return;
+    updateExtZoneData(map, buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [],
+      zoneCentroidsRef.current, epmYear));
+  }, [mapLoaded, epmData, epmYear]);
 
   // Basemap switcher
   useEffect(() => {

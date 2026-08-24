@@ -8,17 +8,23 @@ import {
   fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTimeSlices, processTransmissionResults, processPlants, processCosts, processExtNTC, processEnergyBalance,
-  computeCentroid, resultYears,
+  processTradePrice,
+  resultYears,
 } from '../utils/epmFetch';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
 import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLegendItem } from '../utils/annualExtras';
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
-import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
+import {
+  buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible,
+  extNodeCoordMap, buildExtFlowFeatures, updateExtFlows, bindExtFlowHandlers, addExtPriceDots,
+} from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { source } from '../utils/mapSource';
+import { zoneCentroidMap } from '../utils/centroids';
+import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -81,8 +87,10 @@ export default function ResultsCountryPage() {
   const [zonesExtGJ,   setZonesExtGJ]   = useState(null);
   const [offgridGJ,    setOffgridGJ]    = useState(null);
   const [extNtc,       setExtNtc]       = useState([]);
-  const [showExtZones, setShowExtZones] = useState(false);
-  const showExtRef     = useRef(false);
+  const [tradePrice,   setTradePrice]   = useState({});   // border price paid on imports
+  const [tradePriceExp,setTradePriceExp]= useState({});   // border price received on exports
+  const [showExtZones, setShowExtZones] = useState(true);
+  const showExtRef     = useRef(true);
   const [hoursData,    setHoursData]    = useState({});
   // Slice count comes from pHours: 24 for a chronological model, 6-7 for a load-block one.
   const [slices,       setSlices]       = useState({nT:24,isHourly:true,hours:{}});
@@ -137,13 +145,34 @@ export default function ResultsCountryPage() {
 
   useEffect(()=>{track('results_view',{type:'country',region:regionId,country:countryDecoded});fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,countryDecoded]);
 
+  // The inputs a results map still needs: the zoning, the hour weights, and the two
+  // things that describe the border — how much can cross it and what it costs there.
+  // config.csv is asked where each of those lives, because the border prices are
+  // scenario variants: the folder holds pTradePrice_eu_central.csv and five siblings,
+  // and pTradePrice.csv, the name a guess would pick, is a stale leftover.
   useEffect(()=>{
     if(!region?.epm)return;
-    const{branch,dataFolder}=region.epm;
-    Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchEpmCSV(branch,dataFolder,'pHours.csv'),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'trade/pExtTransferLimit.csv'),fetchZonesOffgridGeoJSON(branch,dataFolder)]).then(([zc,hr,zExt,extRaw,offGJ])=>{
+    const{branch,dataFolder,scenariosFile,configFile}=region.epm;
+    let stale=false;
+    (async()=>{
+      const cfg=await fetchScenarioConfig(branch,dataFolder,{scenariosFile,configFile}).catch(()=>null);
+      const rf=(p,fallback)=>resolveFile(cfg,null,p,fallback);
+      const[zc,hr,zExt,extRaw,offGJ,tpIn,tpOut]=await Promise.all([
+        fetchEpmCSV(branch,dataFolder,'zcmap.csv'),
+        fetchEpmCSV(branch,dataFolder,rf('pHours','pHours.csv')),
+        fetchZonesExtGeoJSON(branch,dataFolder),
+        fetchEpmCSV(branch,dataFolder,rf('pExtTransferLimit','trade/pExtTransferLimit.csv')),
+        fetchZonesOffgridGeoJSON(branch,dataFolder),
+        fetchEpmCSV(branch,dataFolder,rf('pTradePrice','trade/pTradePrice.csv')),
+        fetchEpmCSV(branch,dataFolder,rf('pTradePriceExport','trade/pTradePriceExport.csv')),
+      ]);
+      if(stale)return;
       setZcmapRows(zc||[]);if(hr){setHoursData(processHours(hr));setSlices(processTimeSlices(hr));}
       setZonesExtGJ(zExt||null);setExtNtc(extRaw?processExtNTC(extRaw):[]);setOffgridGJ(offGJ||null);
-    });
+      setTradePrice(tpIn?processTradePrice(tpIn):{});
+      setTradePriceExp(tpOut?processTradePrice(tpOut):{});
+    })();
+    return()=>{stale=true;};
   },[region]);
 
   // The zone layers belong to the run, not to the branch: a run publishes the
@@ -227,7 +256,7 @@ export default function ResultsCountryPage() {
     if(!containerRef.current||!region||!zonesGJ)return;
     const regionCountries=[...new Set(zcmapRows.map(r=>r.c))].sort();
     const colorMap={};regionCountries.forEach((c,i)=>{colorMap[c]=MAP_PALETTE[i%MAP_PALETTE.length];});
-    const zoneCentroids={};if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}}for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
+    const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const cCoords=countryZoneIds.flatMap(z=>zoneCentroids[z]?[zoneCentroids[z]]:[]);
     const lons=cCoords.map(c=>c[0]),lats=cCoords.map(c=>c[1]);
     const bounds=lons.length?[[Math.min(...lons)-1.5,Math.min(...lats)-1.5],[Math.max(...lons)+1.5,Math.max(...lats)+1.5]]:null;
@@ -284,16 +313,28 @@ export default function ResultsCountryPage() {
     const map=mapRef.current;
     if(!map||mapLoadedCount===0||!zonesGJ)return;
     if(!zonesExtGJ&&!extNtc.length)return;
-    if(source(map, 'ext-zones')){setExtZonesVisible(map,showExtZones);return;}
-    const zoneCentroids={};
-    if(linestringGJ)for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}
-    for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
-    const extData=buildExtZoneData(zonesExtGJ,extNtc,zoneCentroids);
-    addExtZoneLayers(map,t,extData);
+    const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
+    const extData=buildExtZoneData(zonesExtGJ,extNtc,zoneCentroids,refYear);
+    if(source(map, 'ext-zones')){updateExtZoneData(map,extData);return;}
+    addExtZoneLayers(map,t,extData,{visible:showExtRef.current,mode:'results',arrowImage:'ntc-arrow-c'});
     const extPopup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
-    bindExtZoneHandlers(map,extPopup,extNtc,extData.extNtcYr);
-    setExtZonesVisible(map,showExtRef.current);
-  },[mapLoadedCount,zonesGJ,linestringGJ,zonesExtGJ,extNtc,showExtZones,theme]); // eslint-disable-line
+    bindExtZoneHandlers(map,extPopup);
+    bindExtFlowHandlers(map,extPopup);
+  },[mapLoadedCount,zonesGJ,linestringGJ,zonesExtGJ,extNtc,refYear,theme]); // eslint-disable-line
+
+  // What crossed the external corridors, kept to the country's own zones the way the
+  // ntc-results effect keeps the internal ones — same run, same year, so both halves
+  // of a corridor map move together.
+  useEffect(()=>{
+    const map=mapRef.current;
+    if(!map||!source(map, 'ext-flows'))return;
+    const sd=resultsData[ovScenario]||Object.values(resultsData)[0];
+    updateExtFlows(map,buildExtFlowFeatures({
+      tx:sd?.transmission,extNtc,year:refYear,zones:new Set(countryZoneIds),
+      zoneCentroids:zoneCentroidMap(zonesGJ,linestringGJ),
+      extNodeCoords:extNodeCoordMap(zonesExtGJ),
+    }));
+  },[resultsData,ovScenario,refYear,zonesGJ,linestringGJ,zonesExtGJ,extNtc,countryZoneIds,mapLoadedCount]);
   useEffect(()=>{showExtRef.current=showExtZones;setExtZonesVisible(mapRef.current,showExtZones);},[showExtZones]);
 
   // Off-grid areas (no toggle): painted like the rest of the country so the map has
@@ -315,7 +356,7 @@ export default function ResultsCountryPage() {
   useEffect(()=>{
     const map=mapRef.current;if(!map||!source(map, 'ntc-results')||!refYear)return;
     const sd=resultsData[ovScenario]||Object.values(resultsData)[0];if(!sd)return;
-    const tx=sd.transmission;const zoneCentroids={};if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}}if(zonesGJ)for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
+    const tx=sd.transmission;const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const seen=new Set();const features=[];
     for(const[z,z2map]of Object.entries(tx)){for(const[z2,attrs]of Object.entries(z2map)){const key=[z,z2].sort().join('||');if(seen.has(key))continue;seen.add(key);
       if(!countryZoneIds.includes(z)&&!countryZoneIds.includes(z2))continue;
@@ -333,12 +374,14 @@ export default function ResultsCountryPage() {
     const map=mapRef.current;if(!map||!refYear||!zonesGJ)return;
     dotMarkersRef.current.forEach(m=>m.remove());dotMarkersRef.current=[];
     const sd=resultsData[ovScenario]||Object.values(resultsData)[0];if(!sd)return;
-    const tv=getT(theme);const zoneCentroids={};if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zoneCentroids[z])zoneCentroids[z]=coords[0];if(z2&&!zoneCentroids[z2])zoneCentroids[z2]=coords[coords.length-1];}}for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zoneCentroids[z]){const c=computeCentroid(f.geometry);if(c)zoneCentroids[z]=c;}}
+    const tv=getT(theme);const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const prices={};for(const z of allZones){const qmap=sd.price[z]?.[refYear]||{};let tw=0,tp=0;for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}if(tw>0)prices[z]=tp/tw;}
     const vals=Object.values(prices);if(!vals.length)return;
     const minV=Math.min(...vals),maxV=Math.max(...vals),rng=maxV-minV||1;
     for(const[z,price]of Object.entries(prices)){const coord=zoneCentroids[z];if(!coord)continue;const el=document.createElement('div');el.style.cssText=`width:10px;height:10px;border-radius:50%;background:${priceColor((price-minV)/rng)};border:1.5px solid rgba(255,255,255,0.7);box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;`;el.title=`${z}: ${price.toFixed(1)} $/MWh`;dotMarkersRef.current.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(coord).addTo(map));}
-  },[resultsData,refYear,ovScenario,zonesGJ,allZones,hoursData,theme,mapLoadedCount]); // eslint-disable-line
+    if(showExtZones)addExtPriceDots(map,dotMarkersRef.current,
+      {zonesExtGJ,tradePrice,tradePriceExp,hoursData,year:refYear,min:minV,rng,colorFor:priceColor});
+  },[resultsData,refYear,ovScenario,zonesGJ,allZones,hoursData,theme,mapLoadedCount,showExtZones,zonesExtGJ,tradePrice,tradePriceExp]); // eslint-disable-line
 
   // ── Zone mix pie markers ──────────────────────────────────────────────────
   useEffect(()=>{
@@ -349,7 +392,7 @@ export default function ResultsCountryPage() {
     const attr=pieDispMode==='capacity'?'CapacityTechFuel':'EnergyTechFuelComplete';
     const unitDiv=1000;const unitLbl=pieDispMode==='capacity'?'GW':'TWh';
     const isDk=t.isDark;
-    const zcC={};if(linestringGJ){for(const f of linestringGJ.features){const coords=f.geometry.coordinates,z=f.properties.z,z2=f.properties.z_other||f.properties.z2;if(z&&!zcC[z])zcC[z]=coords[0];if(z2&&!zcC[z2])zcC[z2]=coords[coords.length-1];}}for(const f of zonesGJ.features){const z=f.properties.z;if(z&&!zcC[z]){const c=computeCentroid(f.geometry);if(c)zcC[z]=c;}}
+    const zcC = zoneCentroidMap(zonesGJ, linestringGJ);
     const zPrices={};for(const z of allZones){const qmap=sd.price[z]?.[refYear]||{};let tw=0,tp=0;for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}if(tw>0)zPrices[z]=tp/tw;}
     const pVals=Object.values(zPrices);const pMin=pVals.length?Math.min(...pVals):0;const pRng=pVals.length?Math.max(...pVals)-pMin||1:1;
     const SZ=44,dpr=window.devicePixelRatio||1,cx=SZ/2,cy=SZ/2,oR=SZ/2-1.5,iR=oR*0.50;
