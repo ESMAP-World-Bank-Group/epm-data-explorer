@@ -12,7 +12,7 @@ import {
   availableYears, EPM_FUEL_COLORS, normalizeFuel,
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
-import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
+import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
 import { zoneCentroidMap } from '../utils/centroids';
@@ -230,7 +230,8 @@ export default function EpmCountryPage() {
   const [selZone,       setSelZone]       = useState('all');
   const [mapLoadedCount,setMapLoadedCount]= useState(0);
   const [showDonuts,    setShowDonuts]    = useState(true);
-  const [showExtZones,  setShowExtZones]  = useState(false);
+  const [showExtZones,  setShowExtZones]  = useState(true);
+  const showExtRef = useRef(true);
 
   // ── Load region ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -510,10 +511,9 @@ export default function EpmCountryPage() {
 
       // ── Ext NTC zones (polygon- or point-based neighbours) ─────────────────
       {
-        const extNtc = epmData.extNtc || [];
-        const extData = buildExtZoneData(epmData.zonesExtGJ, extNtc, zoneCentroids);
-        addExtZoneLayers(map, tv, extData);
-        bindExtZoneHandlers(map, popup, extNtc, extData.extNtcYr);
+        const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids, epmYear);
+        addExtZoneLayers(map, tv, extData, { visible: showExtRef.current });
+        bindExtZoneHandlers(map, popup);
       }
 
       // ── Areas of the modelled countries that belong to no zone ─────────────
@@ -565,10 +565,21 @@ export default function EpmCountryPage() {
     }
   }, [mapLoadedCount, epmData, theme, showDonuts]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ext zones visibility toggle.
+  // Ext zones visibility toggle. The ref is what the map-load handler reads, so a
+  // rebuilt map comes back at the visibility the user left it at.
   useEffect(() => {
+    showExtRef.current = showExtZones;
     setExtZonesVisible(mapRef.current, showExtZones);
   }, [showExtZones, mapLoadedCount]);
+
+  // Ext corridors carry a capacity per year, like the internal ones, so they follow the
+  // year selector instead of staying frozen at the first year of the table.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !epmData || mapLoadedCount === 0 || !source(map, 'ext-ntc-lines')) return;
+    updateExtZoneData(map, buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [],
+      zoneCentroidsRef.current, epmYear));
+  }, [mapLoadedCount, epmData, epmYear]);
 
   // NTC lines — update MW in place when trade data changes (no map rebuild → no flash).
   useEffect(() => {

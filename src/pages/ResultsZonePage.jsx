@@ -12,7 +12,7 @@ import {
 } from '../utils/epmFetch';
 import { buildDispatchSeries } from '../utils/dispatchSeries';
 import { techColor, hexA, cssFillFor } from '../utils/chartColors';
-import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, setExtZonesVisible } from '../utils/extZones';
+import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { source } from '../utils/mapSource';
@@ -47,8 +47,8 @@ export default function ResultsZonePage() {
   const [zonesExtGJ,   setZonesExtGJ]   = useState(null);
   const [offgridGJ,    setOffgridGJ]    = useState(null);
   const [extNtc,       setExtNtc]       = useState([]);
-  const [showExtZones, setShowExtZones] = useState(false);
-  const showExtRef     = useRef(false);
+  const [showExtZones, setShowExtZones] = useState(true);
+  const showExtRef     = useRef(true);
   const [hoursData,    setHoursData]    = useState({});
   // Slice count comes from pHours: 24 for a chronological model, 6-7 for a load-block one.
   const [slices,       setSlices]       = useState({nT:24,isHourly:true,hours:{}});
@@ -172,14 +172,13 @@ export default function ResultsZonePage() {
     const map=mapRef.current;
     if(!map||mapLoadedCount===0||!zonesGJ)return;
     if(!zonesExtGJ&&!extNtc.length)return;
-    if(source(map, 'ext-zones')){setExtZonesVisible(map,showExtZones);return;}
     const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
-    const extData=buildExtZoneData(zonesExtGJ,extNtc,zoneCentroids);
-    addExtZoneLayers(map,t,extData);
+    const extData=buildExtZoneData(zonesExtGJ,extNtc,zoneCentroids,refYear);
+    if(source(map, 'ext-zones')){updateExtZoneData(map,extData);return;}
+    addExtZoneLayers(map,t,extData,{visible:showExtRef.current});
     const extPopup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
-    bindExtZoneHandlers(map,extPopup,extNtc,extData.extNtcYr);
-    setExtZonesVisible(map,showExtRef.current);
-  },[mapLoadedCount,zonesGJ,linestringGJ,zonesExtGJ,extNtc,showExtZones,theme]); // eslint-disable-line
+    bindExtZoneHandlers(map,extPopup);
+  },[mapLoadedCount,zonesGJ,linestringGJ,zonesExtGJ,extNtc,refYear,theme]); // eslint-disable-line
   useEffect(()=>{showExtRef.current=showExtZones;setExtZonesVisible(mapRef.current,showExtZones);},[showExtZones]);
 
   // Off-grid areas (no toggle): painted like the rest of the country so the map has
