@@ -1749,8 +1749,9 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
 
       <RawDataTable
         key={url} t={t} url={url} filename={filename}
-        subtitle={[`epm/input/${activeFolder}/${file}`, meta?.unit && `Unit: ${meta.unit}`]
-          .filter(Boolean).join('  ·  ')}
+        title={plain(meta?.label) || activeParam}
+        path={`${activeParam}  ·  epm/input/${activeFolder}/${file}`}
+        unit={meta?.unit || ''}
         missingMsg={`config.csv declares ${file}, but this folder does not ship it.`}
         lines={inputLines({ filename, param: activeParam, meta,
           regionName: region?.name, branch, dataFolder: activeFolder, url })}

@@ -19,6 +19,9 @@
 //     uses (declared '[USD]', and the values confirm it -- they reach 2.4e10).
 //   * InterconUtilization and CongestionShare are declared '[%]' but both are
 //     computed as a plain share and never exceed 1.
+//   * The *PerMWh attributes carry a `uni` label ending ': $m', copied by the
+//     merge from the money parameter they are stacked onto. They are USD/MWh --
+//     which is why the attribute is consulted before the label.
 //
 // EmissionsIntensityZone is deliberately left without a unit. generate_report.gms
 // divides pEmissionsZone -- already scaled to Mt -- by GWh and labels the result
@@ -59,6 +62,52 @@ export const RESULT_UNIT_BY_FILE = {
 
 /** Files that hold no measurement at all -- they get the header, not a unit column. */
 const UNITLESS_FILES = new Set(['pSettings.csv', 'input_scenarios.csv']);
+
+/** A readable name for each result file EPM publishes today. The names are the
+ *  GAMS declarations in epm/generate_report.gms said plainly -- pCostsMerged is
+ *  'Annual cost summary [million USD] by zone and year' -- not new coinages, so
+ *  a reader who knows the model still recognises what they are looking at. */
+export const RESULT_FILE_LABELS = {
+  'pCostsMerged.csv': 'Annual costs by zone',
+  'pYearlyZoneMerged.csv': 'Yearly zone indicators',
+  'pTechFuelMerged.csv': 'Capacity & energy by technology',
+  'pPlantMerged.csv': 'Plant-level results',
+  'pTransmissionMerged.csv': 'Transmission & interchange',
+  'pCapexInvestmentMerged.csv': 'Capex investment',
+  'pNetPresentCostSystemMerged.csv': 'System net present cost',
+  'pSummary.csv': 'Summary -- all indicators',
+  'pDispatchComplete.csv': 'Hourly dispatch',
+  'pHourlyPrice.csv': 'Hourly marginal price',
+  'pEnergyBalance.csv': 'Energy balance',
+  'pPrice.csv': 'Annual average price',
+  'pSettings.csv': 'Run settings',
+};
+
+/** Readable name for a result file. An older run writes files this table has
+ *  never heard of -- the tableau-era folders hold about forty-six of them -- so
+ *  an unknown name is unpacked from its camel case rather than left blank:
+ *  pEnergyByFuel -> 'Energy by fuel'. Acronyms are kept whole (LCOE, NPV). */
+export function resultLabel(filename) {
+  const parts = (filename || '').split('/').filter(Boolean);
+  const key = parts[parts.length - 1] || '';
+  if (!key) return '';
+  // A split parameter is published as pDispatchComplete/y2030.csv: the folder is
+  // the parameter and the leaf is the slice of it, so name it as both.
+  if (parts.length > 1) return `${resultLabel(`${parts[parts.length - 2]}.csv`)} -- ${key.replace(/\.csv$/i, '')}`;
+  if (RESULT_FILE_LABELS[key]) return RESULT_FILE_LABELS[key];
+  const words = key.replace(/\.csv$/i, '')
+    .replace(/^p(?=[A-Z])/, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return key;
+  return words.map((w, i) => (
+    /^[A-Z0-9]{2,}$/.test(w) ? w
+      : i === 0 ? w.charAt(0).toUpperCase() + w.slice(1)
+        : w.charAt(0).toLowerCase() + w.slice(1)
+  )).join(' ');
+}
 
 /** The unit hidden in a `uni` cell, for the files that put it there.
  *  'Carbon costs: $m' -> '$m', 'Demand: GWh' -> 'GWh'. A `uni` holding a zone or
@@ -122,9 +171,38 @@ function headerBlock(lines, eol) {
  * the per-row lookup for callers that already know the unit.
  *
  * The original bytes are preserved: this only prepends comment lines and appends
- * one column. A file we cannot place a unit on keeps its columns and gets the
- * header alone.
+ * one column, whose values come from the same unitResolver the on-screen table
+ * reads -- so what is shown and what is downloaded cannot disagree.
  */
+/** How to place a unit on each row of one file, and whether a `unit` column is
+ *  warranted at all. The on-screen table and the download both read this, which
+ *  is the only reason the two can be trusted to agree. */
+export function unitResolver(header, { filename = '', unitFor = null } = {}) {
+  const cols  = header.map(h => h.trim());
+  const iAttr = cols.indexOf('attribute');
+  const iUni  = cols.indexOf('uni');
+  const fileUnit = RESULT_UNIT_BY_FILE[filename] || '';
+
+  // The attribute is asked first and the `uni` label only after it. That order
+  // matters: the merge copies `uni` across from the money parameter it stacks a
+  // per-MWh variant onto, so 217 rows of a single run say 'Fuel costs: $m' on a
+  // NetPresentCostSystemPerMWh row. The attribute is right in every one of them.
+  const resolve = unitFor || ((fields) => {
+    const attr = iAttr !== -1 ? (fields[iAttr] || '').trim() : '';
+    const fromAttr = attr ? RESULT_UNIT_BY_ATTRIBUTE[attr] : '';
+    if (fromAttr) return fromAttr;
+    const uni = iUni !== -1 ? (fields[iUni] || '').trim() : '';
+    return (uni ? unitFromUni(uni) : '') || fileUnit;
+  });
+
+  // A file we cannot place a unit on keeps its columns untouched.
+  const addColumn = !UNITLESS_FILES.has(filename)
+    && !cols.includes('unit')
+    && (!!unitFor || iAttr !== -1 || iUni !== -1 || !!fileUnit);
+
+  return { addColumn, resolve };
+}
+
 export function annotateCsv(text, { filename = '', lines = [], unitFor = null } = {}) {
   if (!text) return text;
   const bom  = text.charCodeAt(0) === 0xFEFF ? '﻿' : '';
@@ -133,22 +211,7 @@ export function annotateCsv(text, { filename = '', lines = [], unitFor = null } 
   if (!records.length) return text;
 
   const eol = records[0].eol || '\r\n';
-  const header = records[0].fields.map(h => h.trim());
-  const iAttr = header.indexOf('attribute');
-  const iUni  = header.indexOf('uni');
-  const fileUnit = RESULT_UNIT_BY_FILE[filename] || '';
-
-  const resolve = unitFor || ((fields) => {
-    const uni = iUni !== -1 ? (fields[iUni] || '').trim() : '';
-    const fromUni = uni ? unitFromUni(uni) : '';
-    if (fromUni) return fromUni;
-    const attr = iAttr !== -1 ? (fields[iAttr] || '').trim() : '';
-    return RESULT_UNIT_BY_ATTRIBUTE[attr] || fileUnit;
-  });
-
-  const addColumn = !UNITLESS_FILES.has(filename)
-    && !header.includes('unit')
-    && (!!unitFor || iAttr !== -1 || iUni !== -1 || !!fileUnit);
+  const { addColumn, resolve } = unitResolver(records[0].fields, { filename, unitFor });
 
   const note = addColumn ? 'unit: last column, added on download -- EPM does not write it' : '';
   const out = [bom, headerBlock([...lines, note, "pandas: pd.read_csv(path, comment='#')"], eol)];

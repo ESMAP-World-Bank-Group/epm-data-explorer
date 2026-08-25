@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchOutputFileList, resultCsvUrl } from '../utils/epmFetch';
-import { resultLines } from '../utils/csvMeta';
+import { resultLines, resultLabel } from '../utils/csvMeta';
 import RawDataTable from './RawDataTable';
 
 // --- Raw data: the result files a run wrote ---
@@ -61,7 +61,7 @@ export default function RawOutputsTab({ t, regionName, branch, outputDir, simRun
         <label style={{ display: 'flex', gap: 5, alignItems: 'center', color: t.lblMuted }}>
           File
           <select value={file} onChange={e => setPicked(e.target.value)} style={{ ...sel, maxWidth: 340 }}>
-            {list.map(f => <option key={f} value={f}>{f}</option>)}
+            {list.map(f => <option key={f} value={f}>{resultLabel(f)} — {f}</option>)}
           </select>
         </label>
 
@@ -70,7 +70,8 @@ export default function RawOutputsTab({ t, regionName, branch, outputDir, simRun
 
       <RawDataTable
         key={url} t={t} url={url} filename={filename}
-        subtitle={`${outputDir}/${simRun}/${scen}/output_csv/${file}`}
+        title={resultLabel(file)}
+        path={`${outputDir}/${simRun}/${scen}/output_csv/${file}`}
         missingMsg={`${file} is listed for this run but could not be read.`}
         lines={resultLines({ filename, regionName, branch, simRun, scenario: scen, url })}
       />

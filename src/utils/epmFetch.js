@@ -85,7 +85,7 @@ export async function fetchRunList(branch, outputDir) {
  *  name here is probed before it is offered. */
 const MERGED_RESULT_FILES = [
   'pCapexInvestmentMerged.csv', 'pCostsMerged.csv', 'pDispatchComplete.csv',
-  'pHourlyPrice.csv', 'pNetPresentCostSystemMerged.csv', 'pPlantMerged.csv',
+  'pEnergyBalance.csv', 'pHourlyPrice.csv', 'pNetPresentCostSystemMerged.csv', 'pPlantMerged.csv',
   'pSettings.csv', 'pSummary.csv', 'pTechFuelMerged.csv',
   'pTransmissionMerged.csv', 'pYearlyZoneMerged.csv',
 ];

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { csvRecords, annotateCsv } from '../utils/csvMeta';
+import { csvRecords, annotateCsv, unitResolver } from '../utils/csvMeta';
 import { fetchFileSize } from '../utils/epmFetch';
 
 // --- One CSV, shown as it is stored ---
@@ -26,13 +26,15 @@ const fmtBytes = (n) => (
 /**
  * @param url        where the CSV lives (already resolved for R2 vs GitHub)
  * @param filename   name the download should carry
+ * @param title      readable name of what the file holds
+ * @param path       where it sits in the repo, shown under the name
+ * @param unit       unit of the whole file, when the caller already knows it
  * @param lines      provenance header lines, from csvMeta's resultLines/inputLines
  * @param unitFor    optional per-row unit resolver, passed through to annotateCsv
- * @param subtitle   one line under the toolbar: unit, description, whatever fits
  * @param missingMsg what to say when the file is not in this folder at all
  */
 export default function RawDataTable({ t, url, filename, lines = [], unitFor = null,
-  subtitle = '', missingMsg = 'This file is not in this folder.' }) {
+  title = '', path = '', unit = '', missingMsg = 'This file is not in this folder.' }) {
   // The parent renders this with key={url}, so switching file makes a new
   // instance rather than a stale one to clean up: no rows of the previous file
   // can survive under the new heading, and there is no reset to get wrong.
@@ -95,6 +97,24 @@ export default function RawDataTable({ t, url, filename, lines = [], unitFor = n
     return { shown: rows.slice(0, ROW_CAP), matched: rows.length };
   }, [parsed, filter]);
 
+  // Units are worked out once, over every row rather than the page on screen: a
+  // file whose unit never changes says so once in the heading, and one whose
+  // unit changes per row earns a column. Filtering must not move that line.
+  const units = useMemo(() => {
+    if (!parsed) return null;
+    const { addColumn, resolve } = unitResolver(parsed.header, { filename, unitFor });
+    if (!addColumn) return null;
+    let constant = null, anyBlank = false, varies = false;
+    for (const r of parsed.rows) {
+      const u = resolve(r);
+      if (!u) { anyBlank = true; continue; }
+      if (constant === null) constant = u;
+      else if (constant !== u) varies = true;
+    }
+    return { resolve, varies: varies || (anyBlank && constant !== null),
+      constant: varies ? '' : (constant || ''), anyBlank };
+  }, [parsed, filename, unitFor]);
+
   // The download is always the whole file, never the filtered view: a CSV named
   // after a parameter but holding a search result is a trap for whoever opens it.
   const handleDownload = () => {
@@ -113,22 +133,49 @@ export default function RawDataTable({ t, url, filename, lines = [], unitFor = n
     border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.muted, cursor: 'pointer',
   };
 
-  if (state === 'idle')    return <div style={note}>Pick a file to see its contents.</div>;
-  if (state === 'loading') return <div style={note}>Loading…</div>;
-  if (state === 'missing') return <div style={note}>{missingMsg}</div>;
-  if (state === 'error')   return <div style={note}>Could not read this file.</div>;
-  if (state === 'oversize') return (
+  // One unit for the whole file belongs next to its name, said once. A unit that
+  // changes from row to row is a column instead -- see the memo above.
+  const oneUnit = unit || units?.constant || '';
+  const unitCol = !!units?.varies;
+  const chip = { fontSize: '0.4rem', color: t.lbl, padding: '1px 5px', borderRadius: 3,
+    border: `1px solid ${t.panelBorder}`, backgroundColor: t.cardBg, whiteSpace: 'nowrap' };
+  const mono = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+
+  // The heading stands above every state, not only the loaded one: a file that is
+  // missing or too large to open still has to say which file it is.
+  const heading = (title || path) ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+        {title && <span style={{ fontSize: '0.62rem', color: t.text, fontWeight: 700 }}>{title}</span>}
+        {oneUnit && <span style={chip}>{oneUnit}</span>}
+      </div>
+      <div style={{ fontSize: '0.44rem', color: t.muted, fontFamily: mono }}>({filename})</div>
+      {path && <div style={{ fontSize: '0.4rem', color: t.lblMuted }}>{path}</div>}
+    </div>
+  ) : null;
+
+  const withHeading = (body) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>{heading}{body}</div>
+  );
+
+  if (state === 'idle')    return withHeading(<div style={note}>Pick a file to see its contents.</div>);
+  if (state === 'loading') return withHeading(<div style={note}>Loading…</div>);
+  if (state === 'missing') return withHeading(<div style={note}>{missingMsg}</div>);
+  if (state === 'error')   return withHeading(<div style={note}>Could not read this file.</div>);
+  if (state === 'oversize') return withHeading(
     <div style={note}>
       This file is {fmtBytes(size)} — too large to open without asking.{' '}
       <button onClick={() => load()} style={{ ...btn, marginLeft: 4 }}>Load anyway</button>
     </div>
   );
-  if (!parsed) return <div style={note}>This file is empty.</div>;
+  if (!parsed) return withHeading(<div style={note}>This file is empty.</div>);
 
   const capped = matched > shown.length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {heading}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: '0.44rem' }}>
         <input
           value={filter} onChange={e => setFilter(e.target.value)} placeholder="filter rows…"
@@ -143,11 +190,8 @@ export default function RawDataTable({ t, url, filename, lines = [], unitFor = n
         <button onClick={handleDownload} style={{ ...btn, marginLeft: 'auto' }}>Download CSV</button>
       </div>
 
-      {subtitle && <div style={{ fontSize: '0.42rem', color: t.lblMuted }}>{subtitle}</div>}
-
       <div style={{ overflow: 'auto', maxHeight: 480, border: `1px solid ${t.panelBorder}`, borderRadius: 4 }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: '0.42rem', width: '100%',
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: '0.42rem', width: '100%', fontFamily: mono }}>
           <thead>
             <tr>
               {parsed.header.map((h, i) => (
@@ -157,6 +201,13 @@ export default function RawDataTable({ t, url, filename, lines = [], unitFor = n
                   {h}
                 </th>
               ))}
+              {unitCol && (
+                <th style={{ position: 'sticky', top: 0, zIndex: 1, textAlign: 'left',
+                  padding: '4px 8px', whiteSpace: 'nowrap', color: t.lbl, fontWeight: 700,
+                  backgroundColor: t.cardBg, borderBottom: `1px solid ${t.panelBorder}` }}>
+                  unit
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -168,6 +219,11 @@ export default function RawDataTable({ t, url, filename, lines = [], unitFor = n
                     {r[ci] ?? ''}
                   </td>
                 ))}
+                {unitCol && (
+                  <td style={{ padding: '3px 8px', whiteSpace: 'nowrap', color: t.lbl }}>
+                    {units.resolve(r)}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -177,6 +233,13 @@ export default function RawDataTable({ t, url, filename, lines = [], unitFor = n
       {capped && (
         <div style={{ fontSize: '0.42rem', color: t.lblMuted }}>
           Capped at {ROW_CAP} rows — download for the rest.
+        </div>
+      )}
+
+      {units?.anyBlank && (
+        <div style={{ fontSize: '0.4rem', color: t.lblMuted }}>
+          Rows with an empty unit are ones EPM writes at a different scale than it declares
+          (EmissionsIntensityZone) — labelling them would put a confident unit on a wrong number.
         </div>
       )}
     </div>
