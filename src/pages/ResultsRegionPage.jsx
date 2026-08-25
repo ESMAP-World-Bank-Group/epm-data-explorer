@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
+  fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear, resultCsvUrl,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTimeSlices, processTransmissionResults, processPlants, processCosts, processExtNTC, processEnergyBalance,
   processTradePrice,
@@ -113,7 +113,11 @@ function DownloadBtn({ url, filename, t }) {
   const handle = async () => {
     setBusy(true);
     try {
-      const res = await fetch(url); const text = await res.text();
+      const res = await fetch(url);
+      // Without this the error page (GitHub answers 404 with a "404: Not Found"
+      // body) would be saved under the CSV's name instead of the data.
+      if (!res.ok) { alert(`Download failed (${res.status}): ${filename}`); return; }
+      const text = await res.text();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([text],{type:'text/csv'}));
       a.download = filename; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),100);
@@ -760,7 +764,7 @@ export default function ResultsRegionPage() {
 
   const pickCmpRef = v => { setCmpRef(v); setCmpScenarios(defaultScenarios(scenarioList.filter(s=>s!==v))); };
   const selectStyle = { fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer' };
-  const csvUrl = (scen, file) => `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${region.epm?.branch}/${outputDir}/${simRun}/${scen}/output_csv/${file}`;
+  const csvUrl = (scen, file) => resultCsvUrl(region.epm?.branch, simRun, scen, file, outputDir);
   const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} t={t}/>)}</div>:null;
   const TABS = ['overview','snapshot','evolution','dispatch','trade','plants','summary'];
   const TAB_LABELS = { overview:'Overview', snapshot:'Snapshot', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants', summary:'Summary' };

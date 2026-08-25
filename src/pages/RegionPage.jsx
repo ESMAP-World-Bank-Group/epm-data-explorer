@@ -15,7 +15,7 @@ import {
   processGenData, processDemand, processDemandData, processTransmissionResults,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
-  normalizeFuel,
+  normalizeFuel, rawFileUrl,
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
@@ -458,9 +458,12 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
 
   const handleDownload = async () => {
     const { branch, dataFolder } = region.epm;
-    const url = `https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM/${branch}/epm/input/${dataFolder}/supply/pGenDataInput.csv`;
+    const url = rawFileUrl(branch, `epm/input/${dataFolder}/supply/pGenDataInput.csv`);
     try {
       const res = await fetch(url);
+      // An error body saved under the CSV's name looks like a corrupt file to the
+      // user, so refuse the download instead of writing it out.
+      if (!res.ok) { alert(`Download failed (${res.status})`); return; }
       const text = await res.text();
       downloadBlob(text, `pGenDataInput_${region.id}.csv`, 'text/csv');
     } catch { alert('Download failed'); }

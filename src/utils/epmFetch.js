@@ -7,6 +7,17 @@ const R2_BASE     = 'https://pub-fbe9fb64480745d48ed524b3803b349d.r2.dev';
 const R2_BRANCHES = new Set(['blacksea_2026']);   // branches whose data lives in R2
 function rawBase(branch) { return R2_BRANCHES.has(branch) ? R2_BASE : GITHUB_RAW; }
 
+/** Public URL of a repo file, honouring the R2/GitHub split above.
+ *  `path` is relative to the repo root, e.g. 'epm/input/data_x/supply/pGenDataInput.csv'.
+ *  Use this for download links too: hardcoding the GitHub raw host makes R2 branches
+ *  serve GitHub's "404: Not Found" body as the file's contents. */
+export function rawFileUrl(branch, path) { return `${rawBase(branch)}/${branch}/${path}`; }
+
+/** Public URL of a result CSV: {outputDir}/{simRun}/{scenario}/output_csv/{filename} */
+export function resultCsvUrl(branch, simRun, scenario, filename, outputDir = 'epm/output') {
+  return rawFileUrl(branch, `${outputDir}/${simRun}/${scenario}/output_csv/${filename}`);
+}
+
 const API_BASE = 'https://api.github.com/repos/ESMAP-World-Bank-Group/EPM';
 
 // ── Results: GitHub Contents API ──────────────────────────────────────────────
@@ -71,7 +82,7 @@ export async function fetchRunList(branch, outputDir) {
 
 /** Fetch a result CSV: {outputDir}/{simRun}/{scenario}/output_csv/{filename} */
 export async function fetchResultCSV(branch, simRun, scenario, filename, outputDir = 'epm/output') {
-  const url = `${rawBase(branch)}/${branch}/${outputDir}/${simRun}/${scenario}/output_csv/${filename}`;
+  const url = resultCsvUrl(branch, simRun, scenario, filename, outputDir);
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
