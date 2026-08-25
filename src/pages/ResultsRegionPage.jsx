@@ -25,6 +25,7 @@ import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { source } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
+import { priceDotEl } from '../utils/priceDot';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -626,10 +627,7 @@ export default function ResultsRegionPage() {
     for (const [z, price] of Object.entries(prices)) {
       const coord=zcCentroids[z]; if(!coord)continue;
       const t_=(price-minP)/rng;
-      const color=priceColor(t_);
-      const el=document.createElement('div');
-      el.style.cssText=`width:10px;height:10px;border-radius:50%;background:${color};border:1.5px solid rgba(255,255,255,0.7);box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;`;
-      el.title=`${z}: ${price.toFixed(1)} USD/MWh`;
+      const el=priceDotEl(priceColor(t_),`${z}: ${price.toFixed(1)} USD/MWh`);
       dotMarkersRef.current.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(coord).addTo(map));
     }
     if (showExtZones) addExtPriceDots(map, dotMarkersRef.current,

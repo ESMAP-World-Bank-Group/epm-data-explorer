@@ -12,10 +12,13 @@ import maplibregl from 'maplibre-gl';
 import { featureCentroid } from './centroids';
 import { weightedAvgPrice } from './epmFetch';
 import { layer, source } from './mapSource';
+import { priceDotEl } from './priceDot';
 
-// All layer ids the toggle controls, bottom to top: the country body, then the
-// corridors crossing it, then the node and its label. setExtZonesVisible skips ids a
-// given map never created, so a page is free to build only part of this list.
+// All layer ids the toggle controls: the country body, the corridors crossing it, then
+// the node and its label. Not a drawing order — the bodies are slipped under the map's
+// internal corridors (see lowestCorridorLayer) while the rest goes on top.
+// setExtZonesVisible skips ids a given map never created, so a page is free to build
+// only part of this list.
 export const EXT_LAYER_IDS = [
   'ext-zones-fill', 'ext-zones-hover', 'ext-zones-border',
   'ext-ntc-lines-layer', 'ext-ntc-labels',
@@ -27,14 +30,36 @@ export const EXT_LAYER_IDS = [
 // saturated internal one are the same red.
 const UTIL_COLOR = ['interpolate', ['linear'], ['get', 'util'], 0, '#FFD700', 0.5, '#FF8C00', 1, '#E53935'];
 
+// An inputs map draws its internal corridors in one amber, at one width ramp, with one
+// label style. External corridors take exactly the same, because they are the same kind
+// of statement: a transfer limit someone declared. Drawing them grey and thinner made
+// them read as decoration sitting under the map rather than as part of it.
+const NTC_AMBER = '#f0b030';
+const NTC_LABEL = '#b07800';
+const NTC_WIDTH = ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3.5, 8000, 6];
+// Same, for a results map: the flow ramp and widths ntc-bg uses, solid. The dash this
+// layer used to carry is what made a lightly-loaded external corridor -- pale gold, 1px,
+// broken -- disappear into the basemap while its internal neighbour stayed legible.
+const FLOW_WIDTH = ['interpolate', ['linear'], ['get', 'vol'], 0, 1, 500, 2.5, 5000, 5];
+
+// The lowest internal corridor layer on this map, whatever the page called it. The grey
+// bodies of the neighbours go *under* it: added last they veil every corridor that
+// crosses a neighbour's territory, which is the other half of "the lines look like they
+// are beneath the map". undefined = no corridors yet, and addLayer appends as before.
+const INTERNAL_CORRIDOR_LAYERS = ['ntc-bg', 'ntc-lines-bg', 'ntc-lines-layer'];
+function lowestCorridorLayer(map) {
+  for (const id of INTERNAL_CORRIDOR_LAYERS) if (layer(map, id)) return id;
+  return undefined;
+}
+
 /** The one grey palette, so the fill, the border, the node and the label cannot drift
  *  apart across the five maps that draw them. */
 export function extGrey(isDark) {
   return isDark
     ? { fill: '#3b3b3b', hover: '#6f6f6f', line: '#8a8a8a',
-      node: 'rgba(40,40,40,0.85)', text: '#e0e0e0', dim: '#cccccc', halo: 'rgba(0,0,0,0.6)' }
+      node: 'rgba(40,40,40,0.85)', text: '#e0e0e0', halo: 'rgba(0,0,0,0.6)' }
     : { fill: '#d6d6d6', hover: '#9a9a9a', line: '#8a8a8a',
-      node: 'rgba(255,255,255,0.85)', text: '#222222', dim: '#444444', halo: 'rgba(255,255,255,0.7)' };
+      node: 'rgba(255,255,255,0.85)', text: '#222222', halo: 'rgba(255,255,255,0.7)' };
 }
 
 /** The year to read a corridor's capacity at: the one asked for when the table has it,
@@ -113,31 +138,30 @@ export function addExtZoneLayers(map, tv, data, { visible = true, mode = 'inputs
   const g = extGrey(tv.isDark);
   const vis = visible ? 'visible' : 'none';
 
+  const under = lowestCorridorLayer(map);
   map.addSource('ext-zones', { type: 'geojson', data: { type: 'FeatureCollection', features: extPolyFeatures } });
   map.addLayer({ id: 'ext-zones-fill', type: 'fill', source: 'ext-zones',
     layout: { visibility: vis },
-    paint: { 'fill-color': g.fill, 'fill-opacity': 0.22 } });
+    paint: { 'fill-color': g.fill, 'fill-opacity': 0.22 } }, under);
   map.addLayer({ id: 'ext-zones-hover', type: 'fill', source: 'ext-zones',
     layout: { visibility: vis }, filter: ['==', ['get', 'z'], ''],
-    paint: { 'fill-color': g.hover, 'fill-opacity': 0.4 } });
+    paint: { 'fill-color': g.hover, 'fill-opacity': 0.4 } }, under);
   map.addLayer({ id: 'ext-zones-border', type: 'line', source: 'ext-zones',
     layout: { visibility: vis },
-    paint: { 'line-color': g.line, 'line-width': 1, 'line-dasharray': [2, 1.5], 'line-opacity': 0.65 } });
+    paint: { 'line-color': g.line, 'line-width': 1, 'line-dasharray': [2, 1.5], 'line-opacity': 0.65 } }, under);
 
   if (mode === 'results') addExtFlowLayers(map, vis, arrowImage);
   else {
     map.addSource('ext-ntc-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: extLineFeatures } });
     map.addLayer({ id: 'ext-ntc-lines-layer', type: 'line', source: 'ext-ntc-lines',
       layout: { visibility: vis, 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': g.line,
-        'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3, 5000, 4.5],
-        'line-opacity': 0.85 } });
+      paint: { 'line-color': NTC_AMBER, 'line-width': NTC_WIDTH, 'line-opacity': 0.9 } });
   }
 
   map.addSource('ext-nodes', { type: 'geojson', data: { type: 'FeatureCollection', features: extNodeFeatures } });
   map.addLayer({ id: 'ext-nodes-circles', type: 'circle', source: 'ext-nodes',
     layout: { visibility: vis },
-    paint: { 'circle-radius': 5, 'circle-color': g.node,
+    paint: { 'circle-radius': 4, 'circle-color': g.node,
       'circle-stroke-width': 1.5, 'circle-stroke-color': g.line } });
   map.addLayer({ id: 'ext-nodes-labels', type: 'symbol', source: 'ext-nodes',
     layout: { visibility: vis, 'text-field': ['get', 'z'], 'text-size': 10,
@@ -146,8 +170,8 @@ export function addExtZoneLayers(map, tv, data, { visible = true, mode = 'inputs
   if (mode !== 'results') {
     map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
       layout: { visibility: vis, 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
-        'text-size': 9, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
-      paint: { 'text-color': g.dim, 'text-halo-color': g.halo, 'text-halo-width': 1 } });
+        'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
+      paint: { 'text-color': NTC_LABEL, 'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
   }
 }
 
@@ -158,10 +182,8 @@ export function addExtZoneLayers(map, tv, data, { visible = true, mode = 'inputs
 function addExtFlowLayers(map, vis, arrowImage) {
   map.addSource('ext-flows', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'ext-flow-bg', type: 'line', source: 'ext-flows',
-    layout: { visibility: vis, 'line-cap': 'butt', 'line-join': 'round' },
-    paint: { 'line-color': UTIL_COLOR,
-      'line-width': ['interpolate', ['linear'], ['get', 'vol'], 0, 1, 500, 2.5, 5000, 5],
-      'line-dasharray': [2.5, 1.2], 'line-opacity': 0.88 } });
+    layout: { visibility: vis, 'line-join': 'round' },
+    paint: { 'line-color': UTIL_COLOR, 'line-width': FLOW_WIDTH, 'line-opacity': 0.88 } });
   if (arrowImage) {
     map.addLayer({ id: 'ext-flow-arrows', type: 'symbol', source: 'ext-flows',
       filter: ['>', ['get', 'vol'], 0],
@@ -327,24 +349,13 @@ export function bindExtFlowHandlers(map, popup) {
   map.on('mouseleave', 'ext-flow-hit', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
 }
 
-/** The dot that marks a border price. Same fill ramp as the internal price dots, so the
- *  two can be read against each other, but ringed in a dashed grey: an internal price is
- *  a marginal the model produced, a border price is a number the study assumed, and the
- *  map should not let them be mistaken for one another. */
-function extPriceDotEl(color, title) {
-  const el = document.createElement('div');
-  el.style.cssText = `width:13px;height:13px;box-sizing:border-box;border-radius:50%;background:${color};`
-    + 'border:2px dashed rgba(130,130,130,0.95);box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;';
-  el.title = title;
-  return el;
-}
-
 /** The border-price dots, dropped into the same marker list as the zone prices.
  *
  *  They are put on the internal scale but clamped to it rather than allowed to stretch
  *  it: a border price is an assumption, and one expensive neighbour must not wash out
  *  the colours of everything the model actually solved. What sets them apart visually
- *  is the dashed ring, and the tooltip says outright that this is an input.
+ *  is the dashed ring — utils/priceDot draws both, same box and same diameter, so a
+ *  border price is never the heavier mark — and the tooltip says it is an input.
  *
  *  `colorFor` is the page's own ramp, so a border price and a zone price at the same
  *  level come out the same colour. */
@@ -359,7 +370,7 @@ export function addExtPriceDots(map, markers, opts) {
     const title = `${zext} — border price (input, ${year})`
       + (impP != null ? `\nImport ${impP.toFixed(1)} $/MWh` : '')
       + (expP != null ? `\nExport ${expP.toFixed(1)} $/MWh` : '');
-    markers.push(new maplibregl.Marker({ element: extPriceDotEl(colorFor(t_), title), anchor: 'center' })
+    markers.push(new maplibregl.Marker({ element: priceDotEl(colorFor(t_), title, { external: true }), anchor: 'center' })
       .setLngLat(coord).addTo(map));
   }
 }

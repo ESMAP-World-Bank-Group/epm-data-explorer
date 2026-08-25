@@ -24,6 +24,7 @@ import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { source } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
+import { priceDotEl } from '../utils/priceDot';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
@@ -378,7 +379,7 @@ export default function ResultsCountryPage() {
     const prices={};for(const z of allZones){const qmap=sd.price[z]?.[refYear]||{};let tw=0,tp=0;for(const[q,days]of Object.entries(qmap))for(const[d,hrs]of Object.entries(days)){const w=hoursData[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}if(tw>0)prices[z]=tp/tw;}
     const vals=Object.values(prices);if(!vals.length)return;
     const minV=Math.min(...vals),maxV=Math.max(...vals),rng=maxV-minV||1;
-    for(const[z,price]of Object.entries(prices)){const coord=zoneCentroids[z];if(!coord)continue;const el=document.createElement('div');el.style.cssText=`width:10px;height:10px;border-radius:50%;background:${priceColor((price-minV)/rng)};border:1.5px solid rgba(255,255,255,0.7);box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;`;el.title=`${z}: ${price.toFixed(1)} $/MWh`;dotMarkersRef.current.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(coord).addTo(map));}
+    for(const[z,price]of Object.entries(prices)){const coord=zoneCentroids[z];if(!coord)continue;const el=priceDotEl(priceColor((price-minV)/rng),`${z}: ${price.toFixed(1)} $/MWh`);dotMarkersRef.current.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(coord).addTo(map));}
     if(showExtZones)addExtPriceDots(map,dotMarkersRef.current,
       {zonesExtGJ,tradePrice,tradePriceExp,hoursData,year:refYear,min:minV,rng,colorFor:priceColor});
   },[resultsData,refYear,ovScenario,zonesGJ,allZones,hoursData,theme,mapLoadedCount,showExtZones,zonesExtGJ,tradePrice,tradePriceExp]); // eslint-disable-line
