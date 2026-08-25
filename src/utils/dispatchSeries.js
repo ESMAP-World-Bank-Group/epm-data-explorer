@@ -23,8 +23,17 @@ const DEMAND_OVERLAY = '#CC0000';
 const EMPTY = { chartData: { labels: [], datasets: [] }, plugin: null, xTicks: null, grouped: false };
 
 /** Bar options shared by both charts: full width in both directions so the bars sit
- *  edge to edge and the stack reads as a filled profile rather than a bar chart. */
-const BAR = { type: 'bar', borderWidth: 0, barPercentage: 1, categoryPercentage: 1, stack: 'gen' };
+ *  edge to edge and the stack reads as a filled profile rather than a bar chart.
+ *
+ *  barThickness 'flex' is what makes that actually true at full-year width. A year here
+ *  is seasons x day types x 24 hours -- 480 slots on a Black Sea run -- and at a chart
+ *  width of about 900px each bar is under two pixels. Sized from a percentage, those
+ *  bars land on fractional pixel boundaries and the canvas antialiases every edge, so
+ *  the stack stops reading as a profile and turns into a vertical blur. 'flex' sizes
+ *  each bar from its neighbours' boundaries instead, which puts the edges back on whole
+ *  pixels and leaves no seam between one hour and the next. */
+const BAR = { type: 'bar', borderWidth: 0, barPercentage: 1, categoryPercentage: 1,
+  barThickness: 'flex', stack: 'gen' };
 
 /** The slice of the year a view shows, and how to read a value inside it.
  *  sources: the dispatch objects the chart draws, {season: {day: {t: {techfuel: MW}}}}.

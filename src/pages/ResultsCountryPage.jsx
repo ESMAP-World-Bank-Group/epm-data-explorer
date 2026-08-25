@@ -22,10 +22,11 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
-import { source } from '../utils/mapSource';
+import { source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
 import { priceDotEl } from '../utils/priceDot';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
+import { externalZoneSet } from '../utils/zoneClass';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -303,6 +304,7 @@ export default function ResultsCountryPage() {
       });
       map.on('mouseleave','zone-fill',()=>{map.getCanvas().style.cursor='';hovZ=null;map.setFilter('zone-hover',['==',['get','z'],'']),popup.remove();});
       map.on('click','zone-fill',e=>{const z=e.features[0].properties.z||'';if(countryZoneIds.includes(z)){setSelZone(prev=>prev===z?'all':z);}else{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(z)}`);} });
+      markStyleReady(map);
       setMapLoadedCount(c=>c+1);
       raiseBoundaries(map);
     });
@@ -312,7 +314,7 @@ export default function ResultsCountryPage() {
   // External zone layers (added once map + ext data ready)
   useEffect(()=>{
     const map=mapRef.current;
-    if(!map||mapLoadedCount===0||!zonesGJ)return;
+    if(!styleReady(map)||!zonesGJ)return;
     if(!zonesExtGJ&&!extNtc.length)return;
     const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const extData=buildExtZoneData(zonesExtGJ,extNtc,zoneCentroids,refYear);
@@ -342,7 +344,7 @@ export default function ResultsCountryPage() {
   // no hole. Independent of the ext layers above, which return early without them.
   useEffect(()=>{
     const map=mapRef.current;
-    if(!map||mapLoadedCount===0||!offgridGJ||source(map, 'offgrid-zones'))return;
+    if(!styleReady(map)||!offgridGJ||source(map, 'offgrid-zones'))return;
     addOffgridLayers(map,t,offgridGJ);
   },[mapLoadedCount,offgridGJ,theme]); // eslint-disable-line
 
@@ -446,9 +448,15 @@ export default function ResultsCountryPage() {
   const findBase=scens=>scens.find(s=>/^base/i.test(s))||scens[0];
 
   // ── Builders ──────────────────────────────────────────────────────────────────
+  // Zones this region wants read as neighbours rather than members — see
+  // utils/zoneClass. Empty for every region that has not asked. Not memoised: it is
+  // read inside extrasOf and never lands in a dependency array, so its identity does
+  // not matter, and a useMemo down here would sit after the page's early returns.
+  const extZones = externalZoneSet(region);
+
   /** Trade, unmet demand and line capacity for one scenario — see utils/annualExtras.
    *  at: x => { zones, year }, the rest of the context being the scenario's own data. */
-  const extrasOf=(scen,indKey,xs,at)=>extraSeries({indKey,xs,allYears,
+  const extrasOf=(scen,indKey,xs,at)=>extraSeries({indKey,xs,allYears,extZones,
     at:x=>{const c=at(x);return{tx:resultsData[scen]?.transmission||{},eb:resultsData[scen]?.energyBalance||{},zones:c.zones,year:c.year};}});
   const pushExtras=(datasets,series,scen,multi)=>{for(const e of series)if(e.data.some(v=>v!==0))datasets.push(extraDataset(e,scen,multi));orderStack(datasets);};
 

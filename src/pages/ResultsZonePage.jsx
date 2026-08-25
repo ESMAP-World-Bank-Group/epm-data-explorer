@@ -18,7 +18,7 @@ import {
 } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
-import { source } from '../utils/mapSource';
+import { source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
@@ -164,6 +164,7 @@ export default function ResultsZonePage() {
       map.on('mouseleave','zone-fill-dim',()=>{map.getCanvas().style.cursor='';popup.remove();});
       map.on('click','zone-fill-dim',e=>{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(e.features[0].properties.z||'')}`);});
       if(zoneCentroids[zoneIdDecoded]){const el=document.createElement('div');el.style.cssText=`font-size:0.55rem;font-weight:700;font-family:system-ui,sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;el.textContent=zoneIdDecoded;markerRef.current=new maplibregl.Marker({element:el,anchor:'bottom',offset:[0,-4]}).setLngLat(zoneCentroids[zoneIdDecoded]).addTo(map);}
+      markStyleReady(map);
       setMapLoadedCount(c=>c+1);
       raiseBoundaries(map);
     });
@@ -173,7 +174,7 @@ export default function ResultsZonePage() {
   // External zone layers (added once map + ext data ready)
   useEffect(()=>{
     const map=mapRef.current;
-    if(!map||mapLoadedCount===0||!zonesGJ)return;
+    if(!styleReady(map)||!zonesGJ)return;
     if(!zonesExtGJ&&!extNtc.length)return;
     const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const extData=buildExtZoneData(zonesExtGJ,extNtc,zoneCentroids,refYear);
@@ -202,7 +203,7 @@ export default function ResultsZonePage() {
   // no hole. Independent of the ext layers above, which return early without them.
   useEffect(()=>{
     const map=mapRef.current;
-    if(!map||mapLoadedCount===0||!offgridGJ||source(map, 'offgrid-zones'))return;
+    if(!styleReady(map)||!offgridGJ||source(map, 'offgrid-zones'))return;
     addOffgridLayers(map,t,offgridGJ);
   },[mapLoadedCount,offgridGJ,theme]); // eslint-disable-line
 

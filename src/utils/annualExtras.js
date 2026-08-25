@@ -19,6 +19,7 @@
 // where it was.
 
 import { fillFor, techColor, cssFillFor, seriesRank, texturedFill, texturedCss } from './chartColors';
+import { internalOnly } from './zoneClass';
 
 /** Which indicators get extras, and of which kind. */
 const EXTRA_KIND = {
@@ -99,26 +100,36 @@ export function unmetDemand(eb, zones, y) {
  *
  *  xs:  the chart's x values (years, or zone / country groups).
  *  at:  x => { tx, eb, zones, year } — what to read, and where, at that x.
- *  allYears: needed only by the cumulated indicator, which sums up to `year`. */
-export function extraSeries({ indKey, xs, at, allYears = [] }) {
+ *  allYears: needed only by the cumulated indicator, which sums up to `year`.
+ *  extZones: zones the region asked to present as external (see utils/zoneClass).
+ *    Dropping them from `zones` is the whole implementation: everything below splits
+ *    int from ext by asking whether the counterparty is in that list, so a zone that
+ *    leaves it stops being a member and becomes a neighbour — which is exactly what
+ *    naming it external means. */
+export function extraSeries({ indKey, xs, at, allYears = [], extZones }) {
   const kind = EXTRA_KIND[indKey];
   if (!kind) return [];
 
+  const ctx = (x) => {
+    const c = at(x);
+    return extZones?.size ? { ...c, zones: internalOnly(c.zones, extZones) } : c;
+  };
+
   if (kind === 'energy') {
-    const t = xs.map(x => { const c = at(x); return tradeSplit(c.tx, c.zones, c.year); });
+    const t = xs.map(x => { const c = ctx(x); return tradeSplit(c.tx, c.zones, c.year); });
     return [
       { label: 'Imports (int.)', kind, data: t.map(v => r0(v.impInt)) },
       { label: 'Imports (ext.)', kind, data: t.map(v => r0(v.impExt)) },
       { label: 'Exports (int.)', kind, data: t.map(v => r0(-v.expInt)) },
       { label: 'Exports (ext.)', kind, data: t.map(v => r0(-v.expExt)) },
-      { label: 'Unmet demand',   kind, data: xs.map(x => { const c = at(x); return r0(unmetDemand(c.eb, c.zones, c.year)); }) },
+      { label: 'Unmet demand',   kind, data: xs.map(x => { const c = ctx(x); return r0(unmetDemand(c.eb, c.zones, c.year)); }) },
     ];
   }
 
   const attr = CAP_ATTR[indKey] || 'NewTransmissionCapacity';
   const cumulate = indKey === 'NewCapacityTechFuelCumulated';
   const cap = xs.map(x => {
-    const c = at(x);
+    const c = ctx(x);
     if (!cumulate) return capacitySplit(c.tx, c.zones, c.year, attr);
     return allYears.filter(y => String(y) <= String(c.year))
       .reduce((acc, y) => { const s = capacitySplit(c.tx, c.zones, y, attr); return { int: acc.int + s.int, ext: acc.ext + s.ext }; },

@@ -15,15 +15,15 @@ import { layer, source } from './mapSource';
 import { priceDotEl } from './priceDot';
 
 // All layer ids the toggle controls: the country body, the corridors crossing it, then
-// the node and its label. Not a drawing order — the bodies are slipped under the map's
-// internal corridors (see lowestCorridorLayer) while the rest goes on top.
+// the node. Not a drawing order — the bodies are slipped under the map's internal
+// corridors (see lowestCorridorLayer) while the rest goes on top.
 // setExtZonesVisible skips ids a given map never created, so a page is free to build
 // only part of this list.
 export const EXT_LAYER_IDS = [
   'ext-zones-fill', 'ext-zones-hover', 'ext-zones-border',
   'ext-ntc-lines-layer', 'ext-ntc-labels',
   'ext-flow-bg', 'ext-flow-arrows', 'ext-flow-hit',
-  'ext-nodes-circles', 'ext-nodes-labels',
+  'ext-nodes-circles',
 ];
 
 // The same ramp the internal corridors use, so a saturated external line and a
@@ -52,14 +52,14 @@ function lowestCorridorLayer(map) {
   return undefined;
 }
 
-/** The one grey palette, so the fill, the border, the node and the label cannot drift
- *  apart across the five maps that draw them. */
+/** The one grey palette, so the fill, the border and the node cannot drift apart
+ *  across the five maps that draw them. */
 export function extGrey(isDark) {
   return isDark
     ? { fill: '#3b3b3b', hover: '#6f6f6f', line: '#8a8a8a',
-      node: 'rgba(40,40,40,0.85)', text: '#e0e0e0', halo: 'rgba(0,0,0,0.6)' }
+      node: 'rgba(40,40,40,0.85)' }
     : { fill: '#d6d6d6', hover: '#9a9a9a', line: '#8a8a8a',
-      node: 'rgba(255,255,255,0.85)', text: '#222222', halo: 'rgba(255,255,255,0.7)' };
+      node: 'rgba(255,255,255,0.85)' };
 }
 
 /** The year to read a corridor's capacity at: the one asked for when the table has it,
@@ -163,10 +163,9 @@ export function addExtZoneLayers(map, tv, data, { visible = true, mode = 'inputs
     layout: { visibility: vis },
     paint: { 'circle-radius': 4, 'circle-color': g.node,
       'circle-stroke-width': 1.5, 'circle-stroke-color': g.line } });
-  map.addLayer({ id: 'ext-nodes-labels', type: 'symbol', source: 'ext-nodes',
-    layout: { visibility: vis, 'text-field': ['get', 'z'], 'text-size': 10,
-      'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-allow-overlap': false },
-    paint: { 'text-color': g.text, 'text-halo-color': g.halo, 'text-halo-width': 1 } });
+  // No name under the node. Internal zones carry none on any map here, and writing one
+  // only on the external side made the neighbours the labelled half of the picture — the
+  // opposite of the point. Which zone it is stays one hover away.
   if (mode !== 'results') {
     map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
       layout: { visibility: vis, 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
