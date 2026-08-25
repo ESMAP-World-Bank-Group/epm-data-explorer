@@ -21,6 +21,7 @@ import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
+import { annotateCsv, inputLines } from '../utils/csvMeta';
 import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
@@ -458,13 +459,24 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
 
   const handleDownload = async () => {
     const { branch, dataFolder } = region.epm;
-    const url = rawFileUrl(branch, `epm/input/${dataFolder}/supply/pGenDataInput.csv`);
+    // The chart follows the variant picked above, so the download has to as well
+    // -- handing back the default while the page shows a variant is how you end
+    // up comparing a file against a figure it did not produce.
+    const relPath = resolveFile(scnMeta, varOverrides, 'pGenDataInput', 'supply/pGenDataInput.csv');
+    const url = rawFileUrl(branch, `epm/input/${dataFolder}/${relPath}`);
     try {
       const res = await fetch(url);
       // An error body saved under the CSV's name looks like a corrupt file to the
       // user, so refuse the download instead of writing it out.
       if (!res.ok) { alert(`Download failed (${res.status})`); return; }
-      const text = await res.text();
+      const filename = relPath.split('/').pop();
+      const text = annotateCsv(await res.text(), {
+        filename,
+        lines: inputLines({
+          filename, param: 'pGenDataInput', meta: scnMeta?.paramMeta?.pGenDataInput,
+          regionName: region.name, branch, dataFolder, url,
+        }),
+      });
       downloadBlob(text, `pGenDataInput_${region.id}.csv`, 'text/csv');
     } catch { alert('Download failed'); }
   };
@@ -694,7 +706,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
 
 const SEASON_LABEL = { Q1: 'Winter', Q2: 'Spring', Q3: 'Summer', Q4: 'Autumn' };
 
-function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant, setEpmYear }) {
+function DemandTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverrides, setVariant, setEpmYear }) {
   const allYears = availableYears(epmData?.demand || []);
   const allZones = [...new Set((epmData?.demand || []).map(r => r.zone))].sort();
   const zcmap    = epmData?.zcmap || [];
@@ -891,7 +903,29 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setV
   const handleDownload = () => {
     const header = 'zone,type,' + allYears.join(',');
     const rows = epmData.demand.map(r => `${r.zone},${r.type},${allYears.map(y => r.years[y] ?? '').join(',')}`);
-    downloadBlob([header, ...rows].join('\n'), `pDemandForecast_${epmData.branch || ''}.csv`, 'text/csv');
+    const src = epmData.demandSource || {};
+    const filename = `${src.param || 'pDemandForecast'}_${epmData.branch || ''}.csv`;
+    // Peak and energy are two different units sharing one table, so the unit has
+    // to go on the row: a header line reading 'GWh and MW' -- which is all
+    // config.csv says -- leaves the reader to work out which is which.
+    const text = annotateCsv([header, ...rows].join('\n') + '\n', {
+      filename,
+      lines: [
+        `EPM View export -- ${filename}`,
+        [region?.name && `region: ${region.name}`, epmData.branch && `branch: ${epmData.branch}`,
+          epmData.dataFolder && `data folder: ${epmData.dataFolder}`].filter(Boolean).join(' | '),
+        src.param && `parameter: ${src.param}`,
+        scnMeta?.paramMeta?.[src.param]?.label && `description: ${scnMeta.paramMeta[src.param].label}`,
+        src.derived
+          ? 'derived: peak is the highest block MW of the year, energy the block MW weighted by pHours -- not a copy of the source file'
+          : 'shape: the source file, one row per zone and demand type, years across the columns',
+        `downloaded: ${new Date().toISOString()}`,
+        src.file && epmData.dataFolder
+          && `source: ${rawFileUrl(epmData.branch, `epm/input/${epmData.dataFolder}/${src.file}`)}`,
+      ],
+      unitFor: (fields) => ((fields[1] || '').trim().toLowerCase() === 'peak' ? 'MW' : 'GWh'),
+    });
+    downloadBlob(text, filename, 'text/csv');
   };
 
   return (
@@ -1416,7 +1450,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
 
 // ── Trade / Transmission tab ──────────────────────────────────────────────────
 
-function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVariant, setEpmYear }) {
+function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverrides, setVariant, setEpmYear }) {
   const ntcYears = availableYears(epmData?.ntc || []);
   const [yr, setYr]       = useState(null);
   const [chartType, setChartType] = useState('bar'); // bar | line
@@ -1453,7 +1487,23 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, setVa
   const handleDownload = () => {
     const header = 'z,z2,' + ntcYears.join(',');
     const rows = epmData.ntc.map(r => `${r.z},${r.z2},${ntcYears.map(y => r.years[y] ?? '').join(',')}`);
-    downloadBlob([header, ...rows].join('\n'), `pTransferLimit_${epmData.branch || ''}.csv`, 'text/csv');
+    const filename = `pTransferLimit_${epmData.branch || ''}.csv`;
+    // One parameter, one unit for every cell, so it belongs in the header. What
+    // does need saying is that these are not the file's own numbers: processNTC
+    // averages a corridor over the quarters, which is what the chart plots.
+    const text = annotateCsv([header, ...rows].join('\n') + '\n', {
+      filename,
+      lines: [
+        ...inputLines({
+          filename, param: 'pTransferLimit', meta: scnMeta?.paramMeta?.pTransferLimit,
+          regionName: region?.name, branch: epmData.branch, dataFolder: epmData.dataFolder,
+          url: epmData.ntcFile && epmData.dataFolder
+            ? rawFileUrl(epmData.branch, `epm/input/${epmData.dataFolder}/${epmData.ntcFile}`) : '',
+        }),
+        'derived: one row per corridor, capacity averaged over the quarters of each year',
+      ],
+    });
+    downloadBlob(text, filename, 'text/csv');
   };
 
   const zcmap  = epmData?.zcmap || [];
@@ -1839,13 +1889,20 @@ export default function RegionPage() {
       // Folders that carry a full load table instead of a forecast (v7.9 style) fall back to pDemandData
       const demand = demandRaw?.length ? processDemand(demandRaw)
                                        : processDemandData(demandDataRaw, hoursRaw);
+      // Which parameter the tab is really showing, and so which one its download
+      // has to name: on a v7.9 folder the figures are not pDemandForecast at all.
+      const demandSource = demandRaw?.length
+        ? { param: 'pDemandForecast', file: rf('pDemandForecast', 'load/pDemandForecast.csv'), derived: false }
+        : { param: 'pDemandData',     file: rf('pDemandData', 'load/pDemandData.csv'),         derived: true  };
       const demandYears = availableYears(demand);
       const defaultYr = demandYears.find(y => parseInt(y) >= 2023) || demandYears[0];
       if (regionOrFolderChanged && defaultYr) setEpmYear(defaultYr);
       setEpmData(prev => ({
         gen:               genRaw    ? processGenData(genRaw)               : [],
         demand,
+        demandSource,
         ntc:               ntcRaw    ? processNTC(ntcRaw)                   : [],
+        ntcFile:           rf('pTransferLimit', 'trade/pTransferLimit.csv'),
         zcmap:             zcmapRaw  || [],
         demandProfileFull: profileRaw ? processDemandProfileFull(profileRaw) : {},
         vreProfile:        vreRaw    ? processVREProfile(vreRaw)            : {},
@@ -1860,6 +1917,7 @@ export default function RegionPage() {
         zonesExtGJ:   (regionOrFolderChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
         offgridGJ:    (regionOrFolderChanged || !prev) ? offgridGJ    : prev.offgridGJ,
         branch,
+        dataFolder: activeFolder,
       }));
     }).finally(() => setEpmLoading(false));
   }, [region, activeFolder, activeZcmap, varOverrides, scnMeta]);
@@ -2547,7 +2605,7 @@ export default function RegionPage() {
                          <NotAvailable t={t} />
         )}
         {activeTab === 'demand' && (
-          <DemandTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
+          <DemandTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} region={region}
             scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} setEpmYear={setEpmYear} />
         )}
         {activeTab === 'resources' && (
@@ -2560,7 +2618,7 @@ export default function RegionPage() {
           <ScenarioTab t={t} scnMeta={scnMeta} />
         )}
         {activeTab === 'trade' && (
-          <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm}
+          <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} region={region}
             scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} setEpmYear={setEpmYear} />
         )}
         {activeTab === 'about' && (

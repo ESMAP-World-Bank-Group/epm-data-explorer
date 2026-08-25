@@ -1,0 +1,190 @@
+// --- Metadata stamped onto the CSVs EPM View hands out ---
+//
+// A result CSV used to leave with nothing on it that said what it held. Half of
+// EPM's result files carry no unit at all -- pYearlyZoneMerged is
+// `c,z,attribute,y,value` and nothing more -- and the ones that do hide it in a
+// `uni` column that means a different thing in every file: a cost category in
+// pCostsMerged, the facing zone in pTransmissionMerged, a fuel in
+// pDispatchComplete. A reader had to already know the model to know whether a
+// column was MW or GWh.
+//
+// So a download now leaves with a comment header saying where the file came from
+// and, where the unit changes from row to row, a `unit` column.
+//
+// The units below are read off the parameter declarations in EPM's
+// epm/generate_report.gms and then checked against the values a real run writes.
+// Where the two disagree, what a run actually writes is what is recorded here:
+//
+//   * CapexInvestmentComponent is USD, not the $m every other cost attribute
+//     uses (declared '[USD]', and the values confirm it -- they reach 2.4e10).
+//   * InterconUtilization and CongestionShare are declared '[%]' but both are
+//     computed as a plain share and never exceed 1.
+//
+// EmissionsIntensityZone is deliberately left without a unit. generate_report.gms
+// divides pEmissionsZone -- already scaled to Mt -- by GWh and labels the result
+// tCO2/GWh, so a run writes 1e-9 of the declared unit (~3e-7 where the real
+// intensity is ~350 tCO2/GWh). Stamping the declared unit on that would hand the
+// reader a wrong number with a confident label on it.
+
+/** attribute -> unit, for the result files that name an attribute per row. */
+export const RESULT_UNIT_BY_ATTRIBUTE = {
+  // Capacity [MW]
+  CapacityPlant: 'MW', NewCapacityPlant: 'MW',
+  CapacityTechFuel: 'MW', NewCapacityTechFuel: 'MW', NewCapacityTechFuelCumulated: 'MW',
+  TransmissionCapacity: 'MW', NewTransmissionCapacity: 'MW',
+  DemandPeakZone: 'MW',
+  // Energy [GWh]
+  EnergyPlant: 'GWh', EnergyTechFuelComplete: 'GWh', DemandEnergyZone: 'GWh',
+  Interchange: 'GWh', NetImport: 'GWh', ReserveSpinningTechFuel: 'GWh',
+  // Money [million USD]
+  Costs: '$m', CostsPlant: '$m', DiscountedWeightedCostsCumulated: '$m',
+  NetPresentCostSystem: '$m',
+  // Money [USD] -- see the note above, these two are not $m
+  CapexInvestmentComponent: 'USD', CapexInvestmentComponentCumulated: 'USD',
+  // Unit costs
+  CostsPerMWh: 'USD/MWh', GenCostsPerMWh: 'USD/MWh', NetPresentCostPerMWh: 'USD/MWh',
+  NetPresentCostSystemPerMWh: 'USD/MWh', PlantAnnualLCOE: 'USD/MWh',
+  // Shares, 0-1 -- not percentages, whatever generate_report.gms declares
+  UtilizationTechFuel: 'share (0-1)', UtilizationPlant: 'share (0-1)',
+  InterconUtilization: 'share (0-1)', CongestionShare: 'share (0-1)',
+  // Emissions
+  EmissionsZone: 'Mt CO2',
+};
+
+/** Files whose every row shares one unit, so no `attribute` is needed to place it. */
+export const RESULT_UNIT_BY_FILE = {
+  'pHourlyPrice.csv': 'USD/MWh',
+  'pDispatchComplete.csv': 'MW',
+};
+
+/** Files that hold no measurement at all -- they get the header, not a unit column. */
+const UNITLESS_FILES = new Set(['pSettings.csv', 'input_scenarios.csv']);
+
+/** The unit hidden in a `uni` cell, for the files that put it there.
+ *  'Carbon costs: $m' -> '$m', 'Demand: GWh' -> 'GWh'. A `uni` holding a zone or
+ *  a fuel name ('Georgia', 'Onshore Wind') has no separator and yields nothing,
+ *  which is what makes this safe to try on every file -- including pSummary,
+ *  where both kinds of `uni` share the one column. */
+function unitFromUni(uni) {
+  const i = uni.lastIndexOf(': ');
+  if (i === -1) return '';
+  const tail = uni.slice(i + 2).trim();
+  return tail && !tail.includes(',') && tail.length <= 16 ? tail : '';
+}
+
+/** Split a CSV into records that each keep the exact source text they came from,
+ *  so an annotated file differs from the original only by what we append to it.
+ *  Handles quoted fields, embedded separators and newlines, CRLF and LF. */
+export function csvRecords(text) {
+  const out = [];
+  let i = 0, start = 0, field = '', fields = [], inQuotes = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      field += c; i++; continue;
+    }
+    if (c === '"') { inQuotes = true; i++; continue; }
+    if (c === ',') { fields.push(field); field = ''; i++; continue; }
+    if (c === '\n' || c === '\r') {
+      const eolAt = i;
+      i += (c === '\r' && text[i + 1] === '\n') ? 2 : 1;
+      fields.push(field);
+      out.push({ fields, text: text.slice(start, eolAt), eol: text.slice(eolAt, i) });
+      fields = []; field = ''; start = i;
+      continue;
+    }
+    field += c; i++;
+  }
+  if (i > start || field || fields.length) {
+    fields.push(field);
+    out.push({ fields, text: text.slice(start), eol: '' });
+  }
+  return out;
+}
+
+const csvEscape = (s) => (/[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+
+/** Comment header. Leading with `#` is safe: no EPM result file contains one, so
+ *  pandas' comment='#' cannot swallow a real value. */
+function headerBlock(lines, eol) {
+  return lines.filter(Boolean).map(l => `# ${l}`).join(eol) + eol;
+}
+
+/**
+ * Stamp provenance -- and, where it varies per row, a unit -- onto a CSV.
+ *
+ * `lines` describe where the file came from; whatever the caller knows goes in,
+ * and missing pieces are dropped rather than printed empty. `unitFor` overrides
+ * the per-row lookup for callers that already know the unit.
+ *
+ * The original bytes are preserved: this only prepends comment lines and appends
+ * one column. A file we cannot place a unit on keeps its columns and gets the
+ * header alone.
+ */
+export function annotateCsv(text, { filename = '', lines = [], unitFor = null } = {}) {
+  if (!text) return text;
+  const bom  = text.charCodeAt(0) === 0xFEFF ? '﻿' : '';
+  const body = bom ? text.slice(1) : text;
+  const records = csvRecords(body);
+  if (!records.length) return text;
+
+  const eol = records[0].eol || '\r\n';
+  const header = records[0].fields.map(h => h.trim());
+  const iAttr = header.indexOf('attribute');
+  const iUni  = header.indexOf('uni');
+  const fileUnit = RESULT_UNIT_BY_FILE[filename] || '';
+
+  const resolve = unitFor || ((fields) => {
+    const uni = iUni !== -1 ? (fields[iUni] || '').trim() : '';
+    const fromUni = uni ? unitFromUni(uni) : '';
+    if (fromUni) return fromUni;
+    const attr = iAttr !== -1 ? (fields[iAttr] || '').trim() : '';
+    return RESULT_UNIT_BY_ATTRIBUTE[attr] || fileUnit;
+  });
+
+  const addColumn = !UNITLESS_FILES.has(filename)
+    && !header.includes('unit')
+    && (!!unitFor || iAttr !== -1 || iUni !== -1 || !!fileUnit);
+
+  const note = addColumn ? 'unit: last column, added on download -- EPM does not write it' : '';
+  const out = [bom, headerBlock([...lines, note, "pandas: pd.read_csv(path, comment='#')"], eol)];
+
+  for (let r = 0; r < records.length; r++) {
+    const rec = records[r];
+    const blank = rec.fields.length === 1 && rec.fields[0] === '';
+    if (!addColumn || blank) { out.push(rec.text, rec.eol); continue; }
+    out.push(rec.text, ',', r === 0 ? 'unit' : csvEscape(resolve(rec.fields)), rec.eol);
+  }
+  return out.join('');
+}
+
+/** Provenance lines for a result CSV. */
+export function resultLines({ filename, regionName, branch, simRun, scenario, url }) {
+  return [
+    `EPM View export -- ${filename}`,
+    [regionName && `region: ${regionName}`, branch && `branch: ${branch}`].filter(Boolean).join(' | '),
+    [simRun && `run: ${simRun}`, scenario && `scenario: ${scenario}`].filter(Boolean).join(' | '),
+    `downloaded: ${new Date().toISOString()}`,
+    url && `source: ${url}`,
+  ];
+}
+
+/** Provenance lines for an input CSV. One file reads as one parameter, so its
+ *  unit is constant and belongs in the header -- a column repeating it on every
+ *  row would say nothing the header has not already said. */
+export function inputLines({ filename, param, meta, regionName, branch, dataFolder, url }) {
+  return [
+    `EPM View export -- ${filename}`,
+    [regionName && `region: ${regionName}`, branch && `branch: ${branch}`,
+      dataFolder && `data folder: ${dataFolder}`].filter(Boolean).join(' | '),
+    param && `parameter: ${param}`,
+    meta?.label && `description: ${meta.label}`,
+    meta?.unit && `unit: ${meta.unit}`,
+    `downloaded: ${new Date().toISOString()}`,
+    url && `source: ${url}`,
+  ];
+}

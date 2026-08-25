@@ -11,6 +11,7 @@ import {
   processTradePrice,
   resultYears,
 } from '../utils/epmFetch';
+import { annotateCsv, resultLines } from '../utils/csvMeta';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
 import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLegendItem } from '../utils/annualExtras';
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
@@ -108,7 +109,7 @@ function SectionTitle({ t, children, right }) {
 function Pill({ active, onClick, children }) {
   return <button onClick={onClick} style={{fontSize:'0.44rem',fontFamily:'inherit',padding:'2px 7px',borderRadius:3,cursor:'pointer',border:`1px solid ${active?'rgba(74,143,204,0.65)':'rgba(128,160,192,0.2)'}`,backgroundColor:active?'rgba(74,143,204,0.12)':'transparent',color:active?'rgba(74,143,204,1)':'rgba(128,160,192,0.7)',fontWeight:active?600:400}}>{children}</button>;
 }
-function DownloadBtn({ url, filename, t }) {
+function DownloadBtn({ url, filename, lines, t }) {
   const [busy, setBusy] = useState(false);
   const handle = async () => {
     setBusy(true);
@@ -117,7 +118,7 @@ function DownloadBtn({ url, filename, t }) {
       // Without this the error page (GitHub answers 404 with a "404: Not Found"
       // body) would be saved under the CSV's name instead of the data.
       if (!res.ok) { alert(`Download failed (${res.status}): ${filename}`); return; }
-      const text = await res.text();
+      const text = annotateCsv(await res.text(), { filename, lines });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([text],{type:'text/csv'}));
       a.download = filename; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),100);
@@ -765,7 +766,8 @@ export default function ResultsRegionPage() {
   const pickCmpRef = v => { setCmpRef(v); setCmpScenarios(defaultScenarios(scenarioList.filter(s=>s!==v))); };
   const selectStyle = { fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer' };
   const csvUrl = (scen, file) => resultCsvUrl(region.epm?.branch, simRun, scen, file, outputDir);
-  const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} t={t}/>)}</div>:null;
+  const dlLines = (scen, file) => resultLines({ filename:file, regionName:region.name, branch:region.epm?.branch, simRun, scenario:scen, url:csvUrl(scen,file) });
+  const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} lines={dlLines(sc,f)} t={t}/>)}</div>:null;
   const TABS = ['overview','snapshot','evolution','dispatch','trade','plants','summary'];
   const TAB_LABELS = { overview:'Overview', snapshot:'Snapshot', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants', summary:'Summary' };
 
