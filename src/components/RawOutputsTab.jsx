@@ -61,7 +61,8 @@ export default function RawOutputsTab({ t, regionName, branch, outputDir, simRun
         <label style={{ display: 'flex', gap: 5, alignItems: 'center', color: t.lblMuted }}>
           File
           <select value={file} onChange={e => setPicked(e.target.value)} style={{ ...sel, maxWidth: 340 }}>
-            {list.map(f => <option key={f} value={f}>{resultLabel(f)} — {f}</option>)}
+            {/* The csv name is on the heading right under this, so the list reads in words. */}
+            {list.map(f => <option key={f} value={f}>{resultLabel(f)}</option>)}
           </select>
         </label>
 
@@ -71,7 +72,6 @@ export default function RawOutputsTab({ t, regionName, branch, outputDir, simRun
       <RawDataTable
         key={url} t={t} url={url} filename={filename}
         title={resultLabel(file)}
-        path={`${outputDir}/${simRun}/${scen}/output_csv/${file}`}
         missingMsg={`${file} is listed for this run but could not be read.`}
         lines={resultLines({ filename, regionName, branch, simRun, scenario: scen, url })}
       />

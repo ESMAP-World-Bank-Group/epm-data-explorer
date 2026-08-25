@@ -1725,7 +1725,7 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
             style={{ ...sel, maxWidth:420 }}>
             {params.map(p => (
               <option key={p.param} value={p.param}>
-                {p.param}{plain(p.label) ? ` — ${plain(p.label)}` : ''}
+                {plain(p.label) || p.param}
               </option>
             ))}
           </select>
@@ -1750,7 +1750,6 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
       <RawDataTable
         key={url} t={t} url={url} filename={filename}
         title={plain(meta?.label) || activeParam}
-        path={`${activeParam}  ·  epm/input/${activeFolder}/${file}`}
         unit={meta?.unit || ''}
         missingMsg={`config.csv declares ${file}, but this folder does not ship it.`}
         lines={inputLines({ filename, param: activeParam, meta,

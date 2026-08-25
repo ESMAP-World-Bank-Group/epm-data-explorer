@@ -27,14 +27,13 @@ const fmtBytes = (n) => (
  * @param url        where the CSV lives (already resolved for R2 vs GitHub)
  * @param filename   name the download should carry
  * @param title      readable name of what the file holds
- * @param path       where it sits in the repo, shown under the name
  * @param unit       unit of the whole file, when the caller already knows it
  * @param lines      provenance header lines, from csvMeta's resultLines/inputLines
  * @param unitFor    optional per-row unit resolver, passed through to annotateCsv
  * @param missingMsg what to say when the file is not in this folder at all
  */
 export default function RawDataTable({ t, url, filename, lines = [], unitFor = null,
-  title = '', path = '', unit = '', missingMsg = 'This file is not in this folder.' }) {
+  title = '', unit = '', missingMsg = 'This file is not in this folder.' }) {
   // The parent renders this with key={url}, so switching file makes a new
   // instance rather than a stale one to clean up: no rows of the previous file
   // can survive under the new heading, and there is no reset to get wrong.
@@ -137,20 +136,22 @@ export default function RawDataTable({ t, url, filename, lines = [], unitFor = n
   // changes from row to row is a column instead -- see the memo above.
   const oneUnit = unit || units?.constant || '';
   const unitCol = !!units?.varies;
+  // Beside the name is where the unit is read once; on the value column is where
+  // it is read while looking at the numbers. It needs to be in both places.
+  const colLabel = (h) => (oneUnit && h.trim().toLowerCase() === 'value' ? `${h} [${oneUnit}]` : h);
   const chip = { fontSize: '0.4rem', color: t.lbl, padding: '1px 5px', borderRadius: 3,
     border: `1px solid ${t.panelBorder}`, backgroundColor: t.cardBg, whiteSpace: 'nowrap' };
   const mono = 'ui-monospace, SFMono-Regular, Menlo, monospace';
 
   // The heading stands above every state, not only the loaded one: a file that is
   // missing or too large to open still has to say which file it is.
-  const heading = (title || path) ? (
+  const heading = (title || filename) ? (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
         {title && <span style={{ fontSize: '0.62rem', color: t.text, fontWeight: 700 }}>{title}</span>}
         {oneUnit && <span style={chip}>{oneUnit}</span>}
       </div>
       <div style={{ fontSize: '0.44rem', color: t.muted, fontFamily: mono }}>({filename})</div>
-      {path && <div style={{ fontSize: '0.4rem', color: t.lblMuted }}>{path}</div>}
     </div>
   ) : null;
 
@@ -198,7 +199,7 @@ export default function RawDataTable({ t, url, filename, lines = [], unitFor = n
                 <th key={i} style={{ position: 'sticky', top: 0, zIndex: 1, textAlign: 'left',
                   padding: '4px 8px', whiteSpace: 'nowrap', color: t.lbl, fontWeight: 700,
                   backgroundColor: t.cardBg, borderBottom: `1px solid ${t.panelBorder}` }}>
-                  {h}
+                  {colLabel(h)}
                 </th>
               ))}
               {unitCol && (
