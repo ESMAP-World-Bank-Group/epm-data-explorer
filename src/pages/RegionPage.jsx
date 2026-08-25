@@ -20,7 +20,8 @@ import {
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
+import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
+import RawDataTable from '../components/RawDataTable';
 import { annotateCsv, inputLines } from '../utils/csvMeta';
 import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
@@ -1637,6 +1638,127 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverride
 
 // ── About tab ─────────────────────────────────────────────────────────────────
 
+// --- Raw data: the input files themselves, not a reading of them ---
+//
+// config.csv is already the index this tab needs: one row per parameter, in the
+// order the model reads them, carrying a description, a unit and the file it
+// points at, grouped under the section markers that mirror the folders on disk
+// (LOAD, SUPPLY, TRADE...). So the sub-tabs, both dropdowns and every label here
+// come out of the folder's own config -- nothing is hardcoded, and a folder that
+// adds a parameter shows it without a change to this file.
+//
+// Only parameters are listed. config.csv also names the solver options file and
+// the model type, which are settings rather than data, and a folder holds map
+// layers and stray zcmap variants that no one reads as a table.
+function RawInputsTab({ t, region, scnMeta, activeFolder }) {
+  const branch = region?.epm?.branch;
+
+  const sections = useMemo(() => {
+    const out = new Map();
+    for (const [param, meta] of Object.entries(scnMeta?.paramMeta || {})) {
+      // 'modeltype,RMIP' and 'cplexfile,cplex/....opt' live in config.csv too;
+      // neither is a table, and RMIP is not even a path.
+      if (!/\.csv$/i.test(meta.defaultFile || '')) continue;
+      const sec = meta.section || 'GENERAL';
+      if (!out.has(sec)) out.set(sec, []);
+      out.get(sec).push({ param, ...meta });
+    }
+    return out;
+  }, [scnMeta]);
+
+  const sectionNames = [...sections.keys()];
+  const [section, setSection] = useState('');
+  const [param,   setParam]   = useState('');
+  const [variant, setVariant] = useState('');
+
+  const activeSection = sections.has(section) ? section : sectionNames[0] || '';
+  const params        = sections.get(activeSection) || [];
+  const activeParam   = params.some(p => p.param === param) ? param : params[0]?.param || '';
+  const meta          = params.find(p => p.param === activeParam);
+
+  const variants   = scnMeta?.variantsForParam?.(activeParam) || [];
+  const useVariant = variants.includes(variant) ? variant : '';
+  const file       = useVariant || meta?.defaultFile || '';
+
+  // Which scenarios reach for a given variant -- the reason it exists at all,
+  // and the one thing the file name alone never says.
+  const usedBy = (f) => Object.entries(scnMeta?.overridesByParam?.[activeParam] || {})
+    .filter(([, v]) => v === f).map(([sc]) => sc);
+
+  if (!scnMeta) return <div style={{ fontSize:'0.44rem', color:t.lblMuted, padding:'10px 2px' }}>
+    No config.csv in this folder, so there is no parameter index to list.
+  </div>;
+  if (!file) return <div style={{ fontSize:'0.44rem', color:t.lblMuted, padding:'10px 2px' }}>
+    config.csv declares no data files for this folder.
+  </div>;
+
+  const url      = rawFileUrl(branch, `epm/input/${activeFolder}/${file}`);
+  const filename = file.split('/').pop();
+  // Description without the '(Unit: ...)' tail -- the unit is shown on its own,
+  // and repeating it inside the sentence just makes the dropdown wider.
+  const plain = (label) => (label || '').replace(/\s*\(Unit:[^)]*\)\s*/gi, ' ').trim();
+
+  const sel = { fontSize:'0.44rem', fontFamily:'inherit', padding:'3px 6px', borderRadius:3,
+    border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+      <div style={{ display:'flex', gap:2, flexWrap:'wrap' }}>
+        {sectionNames.map(sec => {
+          const active = sec === activeSection;
+          return (
+            <button key={sec} onClick={() => { setSection(sec); setParam(''); setVariant(''); }} style={{
+              fontSize:'0.44rem', letterSpacing:'0.6px', fontFamily:'inherit', padding:'3px 8px',
+              borderRadius:3, cursor:'pointer',
+              border:`1px solid ${active ? t.lbl : t.panelBorder}`,
+              backgroundColor: active ? 'rgba(128,160,192,0.12)' : 'transparent',
+              color: active ? t.lbl : t.lblMuted, fontWeight: active ? 700 : 400,
+            }}>{sec}</button>
+          );
+        })}
+      </div>
+
+      <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', fontSize:'0.44rem' }}>
+        <label style={{ display:'flex', gap:5, alignItems:'center', color:t.lblMuted }}>
+          Parameter
+          <select value={activeParam} onChange={e => { setParam(e.target.value); setVariant(''); }}
+            style={{ ...sel, maxWidth:420 }}>
+            {params.map(p => (
+              <option key={p.param} value={p.param}>
+                {p.param}{plain(p.label) ? ` — ${plain(p.label)}` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label style={{ display:'flex', gap:5, alignItems:'center', color:t.lblMuted }}>
+          Variant
+          <select value={useVariant} onChange={e => setVariant(e.target.value)}
+            disabled={!variants.length} style={{ ...sel, maxWidth:320,
+              opacity: variants.length ? 1 : 0.6, cursor: variants.length ? 'pointer' : 'default' }}>
+            <option value="">Base — {baseName(meta?.defaultFile)}</option>
+            {variants.map(f => {
+              const who = usedBy(f);
+              return <option key={f} value={f}>
+                {baseName(f)}{who.length ? ` — ${who.join(', ')}` : ''}
+              </option>;
+            })}
+          </select>
+        </label>
+      </div>
+
+      <RawDataTable
+        key={url} t={t} url={url} filename={filename}
+        subtitle={[`epm/input/${activeFolder}/${file}`, meta?.unit && `Unit: ${meta.unit}`]
+          .filter(Boolean).join('  ·  ')}
+        missingMsg={`config.csv declares ${file}, but this folder does not ship it.`}
+        lines={inputLines({ filename, param: activeParam, meta,
+          regionName: region?.name, branch, dataFolder: activeFolder, url })}
+      />
+    </div>
+  );
+}
+
 function AboutTab({ region, t, epmData, epmLoading, activeFolder }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2573,8 +2695,8 @@ export default function RegionPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 14, flexWrap: 'wrap' }}>
-          {['Overview', 'Demand', 'Supply', 'Resources', 'Trade', 'Scenarios', 'About'].map(tab => {
-            const key    = tab.toLowerCase();
+          {[['Overview','overview'], ['Demand','demand'], ['Supply','supply'], ['Resources','resources'],
+            ['Trade','trade'], ['Scenarios','scenarios'], ['Raw data','raw'], ['About','about']].map(([tab, key]) => {
             const active = activeTab === key;
             return (
               <button key={tab} onClick={() => setActiveTab(key)} style={{
@@ -2620,6 +2742,11 @@ export default function RegionPage() {
         {activeTab === 'trade' && (
           <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} region={region}
             scnMeta={scnMeta} varOverrides={varOverrides} setVariant={setVariant} setEpmYear={setEpmYear} />
+        )}
+        {activeTab === 'raw' && (
+          !region.epm ? <NotAvailable t={t} /> :
+          scnMeta === undefined ? <LoadingBox t={t} /> :
+          <RawInputsTab t={t} region={region} scnMeta={scnMeta} activeFolder={activeFolder} />
         )}
         {activeTab === 'about' && (
           <AboutTab region={region} t={t} epmData={epmData} epmLoading={epmLoading}

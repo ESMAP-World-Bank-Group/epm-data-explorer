@@ -80,6 +80,69 @@ export async function fetchRunList(branch, outputDir) {
   return (items || []).filter(i => i.type === 'dir').map(i => i.name);
 }
 
+/** The result CSVs a merged publish writes. This is a last resort, not a listing:
+ *  a run is free to write more (older runs write ~55 files) or fewer, so every
+ *  name here is probed before it is offered. */
+const MERGED_RESULT_FILES = [
+  'pCapexInvestmentMerged.csv', 'pCostsMerged.csv', 'pDispatchComplete.csv',
+  'pHourlyPrice.csv', 'pNetPresentCostSystemMerged.csv', 'pPlantMerged.csv',
+  'pSettings.csv', 'pSummary.csv', 'pTechFuelMerged.csv',
+  'pTransmissionMerged.csv', 'pYearlyZoneMerged.csv',
+];
+
+/** Which of the fallback names this run actually wrote. A HEAD that the host
+ *  refuses to answer is not evidence of a missing file, so it keeps the name --
+ *  better a picker entry that turns out empty than a file silently hidden. */
+async function probeResultFiles(branch, outputDir, simRun, scenario) {
+  const hits = await Promise.all(MERGED_RESULT_FILES.map(async (name) => {
+    try {
+      const res = await fetch(resultCsvUrl(branch, simRun, scenario, name, outputDir), { method: 'HEAD' });
+      return res.ok ? name : null;
+    } catch { return name; }
+  }));
+  return hits.filter(Boolean).sort();
+}
+
+/** The result CSVs one run/scenario holds, most trustworthy source first:
+ *
+ *    1. manifest.json's `files` map -- written by the publish script from the
+ *       very list of files it uploaded, so it cannot drift from what is there.
+ *    2. the GitHub Contents API, for branches served from the repo.
+ *    3. probing the merged catalogue, for an R2 branch whose manifest predates
+ *       the `files` map (it carries `runs` alone).
+ *
+ *  Returns [] only when the run genuinely exposes nothing.
+ */
+export async function fetchOutputFileList(branch, outputDir, simRun, scenario) {
+  if (!branch || !outputDir || !simRun || !scenario) return [];
+  if (R2_BRANCHES.has(branch)) {
+    try {
+      const res = await fetch(`${R2_BASE}/${branch}/${outputDir}/manifest.json`);
+      if (res.ok) {
+        const named = (await res.json())?.files?.[simRun]?.[scenario];
+        if (Array.isArray(named) && named.length) return [...named].sort();
+      }
+    } catch { /* fall through to probing */ }
+    return probeResultFiles(branch, outputDir, simRun, scenario);
+  }
+  const items = await fetchGitHubDir(branch, `${outputDir}/${simRun}/${scenario}/output_csv`);
+  if (items) {
+    return items.filter(i => i.type === 'file' && /\.csv$/i.test(i.name)).map(i => i.name).sort();
+  }
+  return probeResultFiles(branch, outputDir, simRun, scenario);
+}
+
+/** Byte size the host reports for a URL, or null when it will not say.
+ *  Used to keep a 121 MB dispatch file from being opened by accident. */
+export async function fetchFileSize(url) {
+  try {
+    const res = await fetch(url, { method: 'HEAD' });
+    if (!res.ok) return null;
+    const n = parseInt(res.headers.get('content-length') || '', 10);
+    return Number.isFinite(n) ? n : null;
+  } catch { return null; }
+}
+
 /** Fetch a result CSV: {outputDir}/{simRun}/{scenario}/output_csv/{filename} */
 export async function fetchResultCSV(branch, simRun, scenario, filename, outputDir = 'epm/output') {
   const url = resultCsvUrl(branch, simRun, scenario, filename, outputDir);

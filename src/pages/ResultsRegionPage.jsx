@@ -27,6 +27,7 @@ import { source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
 import { priceDotEl } from '../utils/priceDot';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
+import RawOutputsTab from '../components/RawOutputsTab';
 import { externalZoneSet } from '../utils/zoneClass';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -768,8 +769,8 @@ export default function ResultsRegionPage() {
   const csvUrl = (scen, file) => resultCsvUrl(region.epm?.branch, simRun, scen, file, outputDir);
   const dlLines = (scen, file) => resultLines({ filename:file, regionName:region.name, branch:region.epm?.branch, simRun, scenario:scen, url:csvUrl(scen,file) });
   const DlRow = ({files}) => simRun&&files[0][0]?<div style={{marginTop:14,paddingTop:10,borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:'0.38rem',color:t.lblMuted}}>↓</span>{files.map(([sc,f])=><DownloadBtn key={f} url={csvUrl(sc,f)} filename={f} lines={dlLines(sc,f)} t={t}/>)}</div>:null;
-  const TABS = ['overview','snapshot','evolution','dispatch','trade','plants','summary'];
-  const TAB_LABELS = { overview:'Overview', snapshot:'Snapshot', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants', summary:'Summary' };
+  const TABS = ['overview','snapshot','evolution','dispatch','trade','plants','summary','raw'];
+  const TAB_LABELS = { overview:'Overview', snapshot:'Snapshot', evolution:'Evolution', dispatch:'Dispatch', trade:'Trade', plants:'Plants', summary:'Summary', raw:'Raw data' };
 
   // ── Overview mix ────────────────────────────────────────────────────────────
   const buildOverviewMix = () => {
@@ -1316,7 +1317,8 @@ export default function ResultsRegionPage() {
         </div>
 
         {loadingData && <div style={{ padding:'24px 0', textAlign:'center', color:t.lblMuted, fontSize:'0.6rem' }}>Loading results…</div>}
-        {!loadingData&&!hasData&&simRun&&<div style={{ padding:'24px 0', textAlign:'center', color:t.lblMuted, fontSize:'0.6rem' }}>No data for this run.</div>}
+        {/* The raw tab reads the files itself, so it still has something to show when the chart pipeline found nothing. */}
+        {!loadingData&&!hasData&&simRun&&activeTab!=='raw'&&<div style={{ padding:'24px 0', textAlign:'center', color:t.lblMuted, fontSize:'0.6rem' }}>No data for this run.</div>}
 
         {/* ════ OVERVIEW ════ */}
         {hasData&&activeTab==='overview'&&(
@@ -1808,6 +1810,11 @@ export default function ResultsRegionPage() {
             </div>
           );
         })()}
+
+        {activeTab==='raw'&&(
+          <RawOutputsTab t={t} regionName={region.name} branch={region.epm?.branch}
+            outputDir={outputDir} simRun={simRun} scenarioList={scenarioList} />
+        )}
 
       </div>
     </div>
