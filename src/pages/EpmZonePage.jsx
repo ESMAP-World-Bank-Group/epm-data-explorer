@@ -19,6 +19,7 @@ import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { source, layer } from '../utils/mapSource';
+import { usePromotedEpmData } from '../utils/usePromotedZones';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -135,7 +136,13 @@ export default function EpmZonePage() {
 
   // ── Core state ──────────────────────────────────────────────────────────────
   const [region,       setRegion]       = useState(null);
-  const [epmData,      setEpmData]      = useState(null);
+  const [epmDataRaw,      setEpmData]      = useState(null);
+
+  // Zones this region asked to be shown as external, moved across the line before any
+  // of the code below sees them (utils/zoneClass). For every other region this hands
+  // the raw object straight back.
+  const epmData = usePromotedEpmData(region, epmDataRaw);
+
   const [loading,      setLoading]      = useState(false);
   const [activeTab,    setActiveTab]    = useState('overview');
   const [activeFolder, setActiveFolder] = useState(null);

@@ -27,6 +27,7 @@ import { zoneCentroidMap } from '../utils/centroids';
 import { priceDotEl } from '../utils/priceDot';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 import { externalZoneSet } from '../utils/zoneClass';
+import { usePromotedZones } from '../utils/usePromotedZones';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -83,12 +84,12 @@ export default function ResultsCountryPage() {
   const ovScenarioRef = useRef(null); const hoursDataRef = useRef({});
 
   const [region,       setRegion]       = useState(null);
-  const [zcmapRows,    setZcmapRows]    = useState([]);
-  const [zonesGJ,      setZonesGJ]      = useState(null);
+  const [zcmapRowsRaw, setZcmapRows]    = useState([]);
+  const [zonesGJRaw,   setZonesGJ]      = useState(null);
   const [linestringGJ, setLinestringGJ] = useState(null);
-  const [zonesExtGJ,   setZonesExtGJ]   = useState(null);
+  const [zonesExtGJRaw,setZonesExtGJ]   = useState(null);
   const [offgridGJ,    setOffgridGJ]    = useState(null);
-  const [extNtc,       setExtNtc]       = useState([]);
+  const [extNtcRaw,    setExtNtc]       = useState([]);
   const [tradePrice,   setTradePrice]   = useState({});   // border price paid on imports
   const [tradePriceExp,setTradePriceExp]= useState({});   // border price received on exports
   const [showExtZones, setShowExtZones] = useState(true);
@@ -100,13 +101,21 @@ export default function ResultsCountryPage() {
   const [outputDir,    setOutputDir]    = useState('epm/output');
   const [simRun,       setSimRun]       = useState(null);
   const [scenarioList, setScenarioList] = useState([]);
-  const [resultsData,  setResultsData]  = useState({});
+  const [resultsDataRaw, setResultsData] = useState({});
   const [loadingRuns,  setLoadingRuns]  = useState(false);
   // Set once the run list has settled, so the map knows which run to draw.
   const [runsResolved, setRunsResolved] = useState(false);
   const [loadingData,  setLoadingData]  = useState(false);
   const [loadingDisp,  setLoadingDisp]  = useState(false);
   const dispLoadedRef  = useRef(new Set());
+
+  // Zones this region asked to be shown as external, moved across the line before any
+  // of the code below sees them (utils/zoneClass). For every other region this hands
+  // the raw state straight back.
+  const { zcmapRows, zonesGJ, zonesExtGJ, extNtc, resultsData } =
+    usePromotedZones(region, { zcmapRows: zcmapRowsRaw, zonesGJ: zonesGJRaw,
+      zonesExtGJ: zonesExtGJRaw, extNtc: extNtcRaw, resultsData: resultsDataRaw });
+
   const [activeTab,    setActiveTab]    = useState('overview');
   const [refYear,      setRefYear]      = useState(null);
   const [ovScenario,   setOvScenario]   = useState(null);

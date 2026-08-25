@@ -250,12 +250,20 @@ const at = (tx, a, b, attr, y) => tx?.[a]?.[b]?.[attr]?.[y];
 
 /** What crossed each external corridor in `year`, as line features for `ext-flows`.
  *
- *  EPM publishes external exchange two ways and they are not equally good.
- *  pInterchangeExternalImports / …Exports are the real thing: two directions, GWh, one
- *  row per corridor. pNetImport carries a single net figure and is the only one that
- *  currently reaches output_csv, so it is the fallback — and a lossy one, since a
- *  corridor that imports and exports in different seasons collapses to one number.
- *  A feature says which of the two it came from, and the popup says so too.
+ *  EPM publishes exchange three ways and they are not equally good.
+ *  pInterchangeExternalImports / …Exports are the real thing for a genuine neighbour:
+ *  two directions, GWh, one row per corridor. pInterchange is the same thing for a
+ *  corridor the model solved internally, which is what a promoted zone's is (see
+ *  utils/zoneClass) — also two directions, also GWh. pNetImport carries a single net
+ *  figure and is the only one that currently reaches output_csv for real neighbours, so
+ *  it is the fallback — and a lossy one, since a corridor that imports and exports in
+ *  different seasons collapses to one number.
+ *
+ *  The two directional sources are summed rather than chosen between. A real neighbour
+ *  has no pInterchange and a promoted zone has no external symbols, so on either alone
+ *  the sum is that one source; where a promoted corridor has been folded onto a real
+ *  border with `as`, both are present and both crossed those wires. A feature says
+ *  whether it came from a directional source at all, and the popup says so too.
  *
  *  `zones` restricts the internal end, for the country and single-zone maps. */
 export function buildExtFlowFeatures({ tx, extNtc, zoneCentroids, extNodeCoords, year, zones = null }) {
@@ -287,10 +295,19 @@ export function buildExtFlowFeatures({ tx, extNtc, zoneCentroids, extNodeCoords,
     const from = zoneCentroids[z], to = extNodeCoords[zext];
     if (!from || !to) continue;
 
-    const impRaw = at(tx, zext, z, 'InterchangeExternalImports', y) ?? at(tx, z, zext, 'InterchangeExternalImports', y);
-    const expRaw = at(tx, z, zext, 'InterchangeExternalExports', y) ?? at(tx, zext, z, 'InterchangeExternalExports', y);
-    const directional = impRaw != null || expRaw != null;
-    const imp = impRaw || 0, exp = expRaw || 0;
+    // Imports are what reached z, exports what left it, whichever symbol carries them.
+    // pInterchange(a, b) is the flow from a to b, so the import leg is the zext -> z row.
+    // The two external orientations are alternatives — GAMS writes the symbol one way
+    // round and output_treatment normalises it, so only one of them ever answers — and
+    // are read with ?? rather than added. The pInterchange leg is a different symbol
+    // describing different wires, so it adds.
+    const impExt = at(tx, zext, z, 'InterchangeExternalImports', y) ?? at(tx, z, zext, 'InterchangeExternalImports', y);
+    const expExt = at(tx, z, zext, 'InterchangeExternalExports', y) ?? at(tx, zext, z, 'InterchangeExternalExports', y);
+    const impInt = at(tx, zext, z, 'Interchange', y);
+    const expInt = at(tx, z, zext, 'Interchange', y);
+    const directional = [impExt, expExt, impInt, expInt].some(v => v != null);
+    const imp = (impExt || 0) + (impInt || 0);
+    const exp = (expExt || 0) + (expInt || 0);
 
     let net, vol;
     if (directional) { net = imp - exp; vol = Math.abs(imp) + Math.abs(exp); }

@@ -20,6 +20,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
+import { usePromotedZones } from '../utils/usePromotedZones';
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 function fmt(n,d=0){if(n==null||isNaN(n))return'—';return n.toLocaleString('en-US',{maximumFractionDigits:d});}
@@ -44,12 +45,12 @@ export default function ResultsZonePage() {
   const hoursDataRef = useRef({});
 
   const [region,       setRegion]       = useState(null);
-  const [zcmapRows,    setZcmapRows]    = useState([]);
-  const [zonesGJ,      setZonesGJ]      = useState(null);
+  const [zcmapRowsRaw, setZcmapRows]    = useState([]);
+  const [zonesGJRaw,   setZonesGJ]      = useState(null);
   const [linestringGJ, setLinestringGJ] = useState(null);
-  const [zonesExtGJ,   setZonesExtGJ]   = useState(null);
+  const [zonesExtGJRaw,setZonesExtGJ]   = useState(null);
   const [offgridGJ,    setOffgridGJ]    = useState(null);
-  const [extNtc,       setExtNtc]       = useState([]);
+  const [extNtcRaw,    setExtNtc]       = useState([]);
   const [showExtZones, setShowExtZones] = useState(true);
   const showExtRef     = useRef(true);
   const [hoursData,    setHoursData]    = useState({});
@@ -59,13 +60,28 @@ export default function ResultsZonePage() {
   const [outputDir,    setOutputDir]    = useState('epm/output');
   const [simRun,       setSimRun]       = useState(null);
   const [scenarioList, setScenarioList] = useState([]);
-  const [resultsData,  setResultsData]  = useState({});
+  const [resultsDataRaw, setResultsData] = useState({});
   const [loadingRuns,  setLoadingRuns]  = useState(false);
   // Set once the run list has settled, so the map knows which run to draw.
   const [runsResolved, setRunsResolved] = useState(false);
   const [loadingData,  setLoadingData]  = useState(false);
   const [loadingDisp,  setLoadingDisp]  = useState(false);
   const dispLoadedRef  = useRef(new Set());
+
+  // Zones this region asked to be shown as external, moved across the line before any
+  // of the code below sees them (utils/zoneClass). For every other region this hands
+  // the raw state straight back.
+  const { extPlan, zcmapRows, zonesGJ, zonesExtGJ, extNtc, resultsData } =
+    usePromotedZones(region, { zcmapRows: zcmapRowsRaw, zonesGJ: zonesGJRaw,
+      zonesExtGJ: zonesExtGJRaw, extNtc: extNtcRaw, resultsData: resultsDataRaw });
+
+  // A promoted zone has no zone page: it is no longer one of the region's own, and the
+  // page would render without a country, without a mix and without totals. Nothing
+  // links here any more, so this only catches a bookmark or a hand-typed URL.
+  useEffect(() => {
+    if (extPlan.isExternal(zoneIdDecoded)) navigate(`/region/${regionId}/results`, { replace: true });
+  }, [extPlan, zoneIdDecoded, regionId, navigate]);
+
   const [activeTab,    setActiveTab]    = useState('overview');
   const [refYear,      setRefYear]      = useState(null);
   const [scenario,     setScenario]     = useState(null);
@@ -121,6 +137,7 @@ export default function ResultsZonePage() {
   },[activeTab,scenario,refYear,simRun,region,outputDir,resultsData]); // eslint-disable-line
 
   const countryName = zcmapRows.find(r=>r.z===zoneIdDecoded)?.c||'';
+  const zoneSet = useMemo(()=>new Set(zcmapRows.map(r=>r.z)),[zcmapRows]);
   const allYears = useMemo(()=>{const f=Object.values(resultsData)[0];return f?resultYears(f.techFuel):[];},[resultsData]);
   const hasData = Object.keys(resultsData).length>0;
   const totalDays = useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
@@ -349,12 +366,14 @@ export default function ResultsZonePage() {
               <div style={{display:'grid',gridTemplateColumns:'1fr 80px 70px 60px',padding:'4px 10px',backgroundColor:hexA(t.panelBorder,0.4),fontSize:'0.42rem',color:t.lblMuted,fontWeight:600,borderBottom:`1px solid ${t.panelBorder}`}}>
                 <span>Neighbor</span><span style={{textAlign:'center'}}>→ GWh</span><span style={{textAlign:'center'}}>← GWh</span><span style={{textAlign:'right'}}>Util%</span>
               </div>
-              {connections.map(c=><div key={c.neighbor} onClick={()=>navigate(`/region/${regionId}/results/zone/${encodeURIComponent(c.neighbor)}`)} style={{display:'grid',gridTemplateColumns:'1fr 80px 70px 60px',padding:'6px 10px',borderTop:`1px solid ${t.panelBorder}`,fontSize:'0.52rem',alignItems:'center',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.backgroundColor=hexA('#1a5fa8',0.06)} onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}>
-                <span style={{color:t.lbl,fontWeight:500}}>{c.neighbor}</span>
+              {connections.map(c=>{const own=zoneSet.has(c.neighbor);return <div key={c.neighbor} onClick={own?()=>navigate(`/region/${regionId}/results/zone/${encodeURIComponent(c.neighbor)}`):undefined} style={{display:'grid',gridTemplateColumns:'1fr 80px 70px 60px',padding:'6px 10px',borderTop:`1px solid ${t.panelBorder}`,fontSize:'0.52rem',alignItems:'center',cursor:own?'pointer':'default'}} onMouseEnter={own?e=>e.currentTarget.style.backgroundColor=hexA('#1a5fa8',0.06):undefined} onMouseLeave={own?e=>e.currentTarget.style.backgroundColor='transparent':undefined}>
+                {/* A neighbour outside the region has no zone page to open: it is named
+                    and measured here, but not a link. */}
+                <span style={{color:own?t.lbl:t.lblMuted,fontWeight:500}}>{c.neighbor}{own?'':' ·ext'}</span>
                 <span style={{textAlign:'center',color:c.fwd>0?t.lbl:t.lblMuted}}>{c.fwd>0?fmt(c.fwd,0):'—'}</span>
                 <span style={{textAlign:'center',color:c.rev>0?t.lbl:t.lblMuted}}>{c.rev>0?fmt(c.rev,0):'—'}</span>
                 <span style={{textAlign:'right',color:t.muted,fontSize:'0.46rem'}}>{c.util>0?(c.util*100).toFixed(0)+'%':'—'}</span>
-              </div>)}
+              </div>;})}
             </div>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No NTC data for this zone.</div>}
           </div>
         )}

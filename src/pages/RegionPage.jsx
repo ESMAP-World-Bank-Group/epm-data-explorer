@@ -28,6 +28,7 @@ import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
 import { source } from '../utils/mapSource';
+import { usePromotedEpmData } from '../utils/usePromotedZones';
 
 // chart.js via CDN — no npm dep
 function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey, onClickYear }) {
@@ -1882,7 +1883,13 @@ export default function RegionPage() {
   const [resourceSection, setResourceSection] = useState('vre');
   const [basemap,         setBasemap]         = useState('minimal');
   const [satLabels,       setSatLabels]       = useState(false);
-  const [epmData,         setEpmData]         = useState(null);
+  const [epmDataRaw,         setEpmData]         = useState(null);
+
+  // Zones this region asked to be shown as external, moved across the line before any
+  // of the code below sees them (utils/zoneClass). For every other region this hands
+  // the raw object straight back.
+  const epmData = usePromotedEpmData(region, epmDataRaw);
+
   const [epmLoading,      setEpmLoading]      = useState(false);
   const [scnMeta,         setScnMeta]         = useState(undefined);
   const [varOverrides,    setVarOverrides]    = useState({});
