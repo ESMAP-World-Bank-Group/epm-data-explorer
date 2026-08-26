@@ -26,7 +26,7 @@ import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
 import { priceDotEl } from '../utils/priceDot';
-import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
+import { fetchScenarioConfig, resolveFile, overridesFor } from '../utils/epmScenarios';
 import RawOutputsTab from '../components/RawOutputsTab';
 import { externalZoneSet } from '../utils/zoneClass';
 import { usePromotedZones } from '../utils/usePromotedZones';
@@ -279,13 +279,16 @@ export default function ResultsRegionPage() {
   // config.csv is asked where each of those lives, because the border prices are
   // scenario variants: the folder holds pTradePrice_eu_central.csv and five siblings,
   // and pTradePrice.csv, the name a guess would pick, is a stale leftover.
+  // scenarios.csv is asked which of them the selected scenario swaps, because the
+  // capacities are variants too: LC_BSSC is the only run where the Georgia-Romania
+  // cable has any MW at all, and reading the base file drew it against a zero limit.
   useEffect(() => {
     if (!region?.epm) return;
     const { branch, dataFolder, scenariosFile, configFile } = region.epm;
     let stale = false;
     (async () => {
       const cfg = await fetchScenarioConfig(branch, dataFolder, { scenariosFile, configFile }).catch(() => null);
-      const rf = (p, fallback) => resolveFile(cfg, null, p, fallback);
+      const rf = (p, fallback) => resolveFile(cfg, overridesFor(cfg, ovScenario), p, fallback);
       const [zc, hr, zExt, extRaw, offGJ, tpIn, tpOut] = await Promise.all([
         fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
         fetchEpmCSV(branch, dataFolder, rf('pHours', 'pHours.csv')),
@@ -303,7 +306,7 @@ export default function ResultsRegionPage() {
       setTradePriceExp(tpOut ? processTradePrice(tpOut) : {});
     })();
     return () => { stale = true; };
-  }, [region]);
+  }, [region, ovScenario]);
 
   // The zone layers belong to the run, not to the branch: a run publishes the
   // zoning it solved. Wait for the run list to settle so the right one is asked

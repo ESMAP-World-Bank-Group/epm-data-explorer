@@ -137,3 +137,19 @@ export async function fetchScenarioConfig(branch, dataFolder, opts = {}) {
 export function resolveFile(scnMeta, overrides, param, fallback) {
   return overrides?.[param] || scnMeta?.paramMeta?.[param]?.defaultFile || fallback;
 }
+
+/** The { param: file } overrides one scenario declares, ready for resolveFile.
+ *
+ *  A results page knows which scenario it is showing and must read that scenario's
+ *  inputs: LC_BSSC runs on pExtTransferLimit_bssc.csv, where the Georgia-Romania cable
+ *  is 1 300 MW, while the base file leaves it at zero. Reading the base file draws the
+ *  cable against no capacity at all. A scenario the matrix does not name — `baseline`
+ *  is the run's word for "config.csv as it stands" — has no overrides, which is right. */
+export function overridesFor(scnMeta, scenario) {
+  if (!scnMeta || !scenario) return null;
+  const out = {};
+  for (const [param, byScenario] of Object.entries(scnMeta.overridesByParam || {})) {
+    if (byScenario[scenario]) out[param] = byScenario[scenario];
+  }
+  return out;
+}

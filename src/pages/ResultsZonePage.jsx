@@ -10,6 +10,7 @@ import {
   processHours, processTimeSlices, processTransmissionResults, processPlants, processExtNTC,
   resultYears,
 } from '../utils/epmFetch';
+import { fetchScenarioConfig, resolveFile, overridesFor } from '../utils/epmScenarios';
 import { buildDispatchSeries } from '../utils/dispatchSeries';
 import { techColor, hexA, cssFillFor } from '../utils/chartColors';
 import {
@@ -97,7 +98,16 @@ export default function ResultsZonePage() {
   useEffect(()=>{hoursDataRef.current=hoursData;},[hoursData]);
 
   useEffect(()=>{track('results_view',{type:'zone',region:regionId,zone:zoneIdDecoded});fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,zoneIdDecoded]);
-  useEffect(()=>{if(!region?.epm)return;const{branch,dataFolder}=region.epm;Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchEpmCSV(branch,dataFolder,'pHours.csv'),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,'trade/pExtTransferLimit.csv'),fetchZonesOffgridGeoJSON(branch,dataFolder)]).then(([zc,hr,zExt,extRaw,offGJ])=>{setZcmapRows(zc||[]);if(hr){setHoursData(processHours(hr));setSlices(processTimeSlices(hr));}setZonesExtGJ(zExt||null);setExtNtc(extRaw?processExtNTC(extRaw):[]);setOffgridGJ(offGJ||null);});},[region]);
+  // The border capacities belong to the scenario, not to the folder: LC_BSSC is the run
+  // where Georgia-Romania exists at all. config.csv says where the base files live and
+  // scenarios.csv which ones this scenario swaps, so both are asked before fetching.
+  useEffect(()=>{if(!region?.epm)return;const{branch,dataFolder,scenariosFile,configFile}=region.epm;let stale=false;(async()=>{
+    const cfg=await fetchScenarioConfig(branch,dataFolder,{scenariosFile,configFile}).catch(()=>null);
+    const rf=(p,fallback)=>resolveFile(cfg,overridesFor(cfg,scenario),p,fallback);
+    const[zc,hr,zExt,extRaw,offGJ]=await Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchEpmCSV(branch,dataFolder,rf('pHours','pHours.csv')),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,rf('pExtTransferLimit','trade/pExtTransferLimit.csv')),fetchZonesOffgridGeoJSON(branch,dataFolder)]);
+    if(stale)return;
+    setZcmapRows(zc||[]);if(hr){setHoursData(processHours(hr));setSlices(processTimeSlices(hr));}setZonesExtGJ(zExt||null);setExtNtc(extRaw?processExtNTC(extRaw):[]);setOffgridGJ(offGJ||null);
+  })();return()=>{stale=true;};},[region,scenario]);
 
   // The zone layers belong to the run, not to the branch: a run publishes the
   // zoning it solved. Wait for the run list to settle so the right one is asked
