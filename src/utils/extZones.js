@@ -272,10 +272,17 @@ export function buildExtFlowFeatures({ tx, extNtc, zoneCentroids, extNodeCoords,
 
   const capYrs = extNtc?.length ? Object.keys(extNtc[0].years).sort() : [];
   const capYr = pickYear(capYrs, y);
+  // Per direction, because the limits are: Trakia takes 334 MW from Bulgaria and sends
+  // 200 MW back, so one denominator cannot serve both legs. `any` is the max of the two,
+  // kept for the "does this corridor exist at all" test below.
   const capBy = {};
   for (const r of extNtc || []) {
     const k = `${r.z}||${r.zext}`;
-    capBy[k] = Math.max(capBy[k] || 0, r.years[capYr] || 0);
+    const c = (capBy[k] ||= { any: 0, in: 0, out: 0 });
+    const any = r.years?.[capYr] || 0;
+    c.any = Math.max(c.any, any);
+    c.in  = Math.max(c.in,  r.capIn?.[capYr]  ?? any);
+    c.out = Math.max(c.out, r.capOut?.[capYr] ?? any);
   }
 
   // Every corridor that has either a declared capacity or a published flow: a line that
@@ -318,16 +325,31 @@ export function buildExtFlowFeatures({ tx, extNtc, zoneCentroids, extNodeCoords,
       vol = Math.abs(net);
     }
 
-    const cap = capBy[`${z}||${zext}`] || 0;
-    if (!vol && !cap) continue;
-    const util = cap > 0 ? Math.min(1, (vol * 1e3) / (cap * HOURS_PER_YEAR)) : 0;
+    const caps = capBy[`${z}||${zext}`] || { any: 0, in: 0, out: 0 };
+    const { in: capIn, out: capOut } = caps;
+    if (!vol && !caps.any) continue;
+
+    // Each leg against its own limit, the way EPM's own pInterconUtilizationExternal*
+    // are built. Summing both legs over a single limit — what this used to do — mixed a
+    // two-direction numerator with a one-direction denominator and read a saturated
+    // export corridor as half loaded.
+    const lf = (gwh, mw) => (mw > 0 ? Math.min(1, (Math.abs(gwh) * 1e3) / (mw * HOURS_PER_YEAR)) : 0);
+    const utilImp = lf(directional ? imp : Math.max(net, 0), capIn);
+    const utilExp = lf(directional ? exp : Math.max(-net, 0), capOut);
 
     // The arrow follows the net: coordinates run from the zone out to the neighbour,
-    // reversed when the zone is a net importer.
+    // reversed when the zone is a net importer. The colour follows the arrow, so what the
+    // line shows and what its shade means are the same direction. With no net either way,
+    // the busier leg wins rather than silently picking one.
+    const importing = net > 0;
+    const util = net === 0 ? Math.max(utilImp, utilExp) : (importing ? utilImp : utilExp);
+    const cap = net === 0 ? caps.any : (importing ? capIn : capOut);
+
     features.push({
       type: 'Feature',
-      properties: { z, zext, imp, exp, net, vol, cap, util, yr: y, capYr, directional },
-      geometry: { type: 'LineString', coordinates: net > 0 ? [to, from] : [from, to] },
+      properties: { z, zext, imp, exp, net, vol, cap, capIn, capOut, util, utilImp, utilExp,
+                    utilDir: net === 0 ? '' : (importing ? 'import' : 'export'), yr: y, capYr, directional },
+      geometry: { type: 'LineString', coordinates: importing ? [to, from] : [from, to] },
     });
   }
   return features;
@@ -354,9 +376,21 @@ export function bindExtFlowHandlers(map, popup) {
       const dir = p.net > 0 ? 'net import' : p.net < 0 ? 'net export' : 'no exchange';
       body = row('Net exchange', `${gwh(Math.abs(p.net))} <span style="opacity:.6;font-weight:400">${dir}</span>`);
     }
+    const mw = v => `${Math.round(v).toLocaleString()} MW`;
     if (p.cap > 0) {
-      body += row('Capacity', `${Math.round(p.cap).toLocaleString()} MW`);
-      body += row('Utilisation', `${(p.util * 100).toFixed(0)}%`);
+      // Both limits when they differ, so the utilisation below is checkable from the popup.
+      body += row('Capacity', p.capIn !== p.capOut && p.capIn > 0 && p.capOut > 0
+        ? `${mw(p.capIn)} in · ${mw(p.capOut)} out` : mw(p.cap));
+      // The shown figure is the leg the arrow points along, which is the one the colour
+      // reads. The other leg follows in the muted style when it is not negligible, so a
+      // corridor busy both ways cannot be mistaken for a quiet one.
+      const pct = v => `${(v * 100).toFixed(0)}%`;
+      const other = p.utilDir === 'import' ? p.utilExp : p.utilImp;
+      const otherDir = p.utilDir === 'import' ? 'export' : 'import';
+      const tail = p.utilDir && other >= 0.05
+        ? ` <span style="opacity:.55;font-weight:400">· ${pct(other)} ${otherDir}</span>` : '';
+      const dir = p.utilDir ? ` <span style="opacity:.6;font-weight:400">${p.utilDir}</span>` : '';
+      body += row('Utilisation', `${pct(p.util)}${dir}${tail}`);
     }
     popup.setLngLat(e.lngLat)
       .setHTML(`<b>${p.z} ↔ ${p.zext}</b> <span style="opacity:.55">· external, ${p.yr}</span><br>${body}`)

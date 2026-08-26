@@ -580,7 +580,24 @@ export function processDemandData(rows, hoursRows) {
   ]);
 }
 
-/** Returns { z, zext, years: { '2024': maxMW, ... } }[] — max NTC over directions/quarters */
+const EXT_DIR_RE = /^\s*(import|export)\s*$/i;
+
+/** Which direction a pExtTransferLimit row states, or null if the file has no such column.
+ *  The column is unnamed in the CSV EPM writes (`z,zext,q,,2024,…`), so it is found by its
+ *  contents rather than by a header: no zone or quarter is ever called Import or Export. */
+function extRowDir(r) {
+  for (const v of Object.values(r)) {
+    if (EXT_DIR_RE.test(v || '')) return v.trim().toLowerCase() === 'import' ? 'in' : 'out';
+  }
+  return null;
+}
+
+/** Returns { z, zext, years, capIn, capOut }[], each a { '2024': MW, … } map, maxed over
+ *  quarters. The limits are directional in EPM — Trakia takes 334 MW from Bulgaria and
+ *  sends 200 MW back — so keeping only their max, as `years` does, understates how loaded
+ *  the smaller direction is. `years` stays the max for the input map, which draws one line
+ *  per corridor; capIn / capOut are what a utilisation must be measured against.
+ *  A file with no direction column puts its single limit on both. */
 export function processExtNTC(rows) {
   if (!rows?.length) return [];
   const yearCols = Object.keys(rows[0]).filter(k => /^\d{4}$/.test(k));
@@ -590,10 +607,14 @@ export function processExtNTC(rows) {
     const zext = r.zext || '';
     if (!z || !zext) continue;
     const key = `${z}||${zext}`;
-    if (!pairs[key]) pairs[key] = { z, zext, years: {} };
+    if (!pairs[key]) pairs[key] = { z, zext, years: {}, capIn: {}, capOut: {} };
+    const p = pairs[key];
+    const dir = extRowDir(r);
     for (const y of yearCols) {
       const v = parseFloat(r[y]) || 0;
-      pairs[key].years[y] = Math.max(pairs[key].years[y] || 0, v);
+      p.years[y] = Math.max(p.years[y] || 0, v);
+      if (dir !== 'out') p.capIn[y]  = Math.max(p.capIn[y]  || 0, v);
+      if (dir !== 'in')  p.capOut[y] = Math.max(p.capOut[y] || 0, v);
     }
   }
   return Object.values(pairs);
