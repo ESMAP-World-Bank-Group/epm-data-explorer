@@ -131,7 +131,7 @@ export default function Navbar() {
     }}>
 
       {/* Left: logo + breadcrumb */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, minWidth: 0 }}>
         <Link to="/" style={{
           fontSize: '0.7rem', fontWeight: 700, letterSpacing: '2px',
           color: t.muted, textTransform: 'uppercase',
@@ -157,24 +157,32 @@ export default function Navbar() {
         </span>
         {crumb && (
           <>
-            <span style={{ color: t.panelBorder, fontSize: '0.75rem' }}>›</span>
-            <span style={{ fontSize: '0.75rem', color: t.lbl }}>{crumb}</span>
+            <span style={{ color: t.panelBorder, fontSize: '0.75rem', flexShrink: 0 }}>›</span>
+            {/* Bounded, so a deep breadcrumb truncates instead of eating the hint's room
+                or pushing the controls past the edge of the bar. */}
+            <span title={crumb} style={{
+              fontSize: '0.75rem', color: t.lbl, maxWidth: '26vw',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>{crumb}</span>
           </>
         )}
       </div>
 
-      {/* Center: hint */}
-      <div style={{ flex: 1, textAlign: 'center', pointerEvents: 'none' }}>
+      {/* Center: hint. Truncation rules live in index.css (.nav-hint), because they
+          need media queries: the second clause goes before the first, and both go
+          before the bar is allowed to wrap. */}
+      <div className="nav-hint">
         <span style={{
           fontStyle: 'italic', fontSize: '0.6rem', letterSpacing: '0.25px',
           color: t.navHint,
         }}>
-          Click a region or country to explore &nbsp;·&nbsp; use Inputs / Results to switch views
+          Click a region or country to explore
+          <span className="nav-hint-more">&nbsp;·&nbsp; use Inputs / Results to switch views</span>
         </span>
       </div>
 
       {/* Right: theme toggle | EPM Suite | Data Sources | Contact */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
 
         {/* Inputs / Results toggle */}
         {isRegionCtx && (

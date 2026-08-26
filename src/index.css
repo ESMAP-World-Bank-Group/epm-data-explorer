@@ -64,3 +64,20 @@ a { text-decoration: none; color: inherit; }
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 input[type=number] { -moz-appearance: textfield; }
+
+/* ── Navbar hint ─────────────────────────────────────────────────────────────
+   The bar is a fixed 46px, so the hint must never wrap: it is the one piece of
+   text there that is optional. It gives up its second clause first, then itself,
+   rather than pushing the breadcrumb or growing the bar to two lines. */
+.nav-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  padding: 0 10px;
+}
+@media (max-width: 1180px) { .nav-hint-more { display: none; } }
+@media (max-width: 860px)  { .nav-hint      { display: none; } }
