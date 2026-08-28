@@ -65,19 +65,26 @@ export async function resolveOutputDir(branch) {
   return hasRuns ? 'epm/output_view' : 'epm/output';
 }
 
-/** List result run folder names in a branch. Returns string[] (unsorted).
- *  R2 branches read a manifest.json (public R2 can't list directories);
- *  GitHub branches list the output dir via the Contents API. */
+/** List result run folder names in a branch. Returns string[] (unsorted), or null
+ *  when the listing could not be read at all.
+ *
+ *  R2 branches read a manifest.json (public R2 can't list directories); GitHub
+ *  branches list the output dir via the Contents API. The null is the point: a host
+ *  a network refuses to reach and a branch with nothing published look identical
+ *  from here, and telling a user to publish results that are already published sends
+ *  them the wrong way. Callers distinguish the two in what they put on screen. */
 export async function fetchRunList(branch, outputDir) {
   if (R2_BRANCHES.has(branch)) {
     try {
       const res = await fetch(`${R2_BASE}/${branch}/${outputDir}/manifest.json`);
       if (res.ok) { const j = await res.json(); return Array.isArray(j.runs) ? j.runs : []; }
-    } catch { /* fall through */ }
-    return [];
+      if (res.status === 404) return [];   // answered, and there is nothing there
+    } catch { /* blocked, offline, DNS: not an answer */ }
+    return null;
   }
   const items = await fetchGitHubDir(branch, outputDir);
-  return (items || []).filter(i => i.type === 'dir').map(i => i.name);
+  if (!items) return null;
+  return items.filter(i => i.type === 'dir').map(i => i.name);
 }
 
 /** The result CSVs a merged publish writes. This is a last resort, not a listing:

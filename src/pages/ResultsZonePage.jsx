@@ -63,6 +63,7 @@ export default function ResultsZonePage() {
   const [scenarioList, setScenarioList] = useState([]);
   const [resultsDataRaw, setResultsData] = useState({});
   const [loadingRuns,  setLoadingRuns]  = useState(false);
+  const [runsUnreachable, setRunsUnreachable] = useState(false);
   // Set once the run list has settled, so the map knows which run to draw.
   const [runsResolved, setRunsResolved] = useState(false);
   const [loadingData,  setLoadingData]  = useState(false);
@@ -119,7 +120,7 @@ export default function ResultsZonePage() {
     Promise.all([fetchZonesGeoJSON(branch,dataFolder,null,run),fetchLinestringGeoJSON(branch,dataFolder,null,run)])
       .then(([zGJ,lGJ])=>{setZonesGJ(zGJ);setLinestringGJ(lGJ);});
   },[region,outputDir,simRun,runsResolved]);
-  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const{branch,outputDir:fixedDir,simRuns:fixedRuns}=region.epm;if(fixedDir){setOutputDir(fixedDir);const runs=(fixedRuns||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);setLoadingRuns(false);setRunsResolved(true);}else{resolveOutputDir(branch).then(dir=>{setOutputDir(dir);return fetchRunList(branch,dir);}).then(names=>{const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});}},[region]);
+  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const{branch,outputDir:fixedDir,simRuns:fixedRuns}=region.epm;if(fixedDir){setOutputDir(fixedDir);const runs=(fixedRuns||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);setLoadingRuns(false);setRunsResolved(true);}else{resolveOutputDir(branch).then(dir=>{setOutputDir(dir);return fetchRunList(branch,dir);}).then(names=>{setRunsUnreachable(names===null);const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});}},[region]);
   useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length)setScenario(s[0]);});},[region,simRun,outputDir]);
   useEffect(()=>{
     if(!region?.epm||!simRun||!scenarioList.length)return;
@@ -319,7 +320,7 @@ export default function ResultsZonePage() {
         {/* Run selector */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,padding:'7px 10px',border:`1px solid ${t.panelBorder}`,borderRadius:6,backgroundColor:hexA(t.panelBorder,0.12)}}>
           <span style={{fontSize:'0.5rem',color:t.lblMuted,flexShrink:0}}>Run</span>
-          {loadingRuns?<span style={{fontSize:'0.5rem',color:t.lblMuted}}>Loading…</span>:runList.length>0?<select value={simRun||''} onChange={e=>setSimRun(e.target.value)} style={{...selectStyle,flex:1}}>{runList.map(r=><option key={r} value={r}>{r}</option>)}</select>:<span style={{fontSize:'0.5rem',color:t.lblMuted}}>No results</span>}
+          {loadingRuns?<span style={{fontSize:'0.5rem',color:t.lblMuted}}>Loading…</span>:runList.length>0?<select value={simRun||''} onChange={e=>setSimRun(e.target.value)} style={{...selectStyle,flex:1}}>{runList.map(r=><option key={r} value={r}>{r}</option>)}</select>:<span style={{fontSize:'0.5rem',color:t.lblMuted}} title={runsUnreachable?'The results are published; this network or browser is blocking the data host':undefined}>{runsUnreachable?'Data host unreachable':'No results'}</span>}
           <select value={scenario||''} onChange={e=>setScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
           <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
         </div>

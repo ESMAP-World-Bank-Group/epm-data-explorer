@@ -103,6 +103,7 @@ export default function ResultsCountryPage() {
   const [scenarioList, setScenarioList] = useState([]);
   const [resultsDataRaw, setResultsData] = useState({});
   const [loadingRuns,  setLoadingRuns]  = useState(false);
+  const [runsUnreachable, setRunsUnreachable] = useState(false);
   // Set once the run list has settled, so the map knows which run to draw.
   const [runsResolved, setRunsResolved] = useState(false);
   const [loadingData,  setLoadingData]  = useState(false);
@@ -200,7 +201,7 @@ export default function ResultsCountryPage() {
       .then(([zGJ,lGJ])=>{setZonesGJ(zGJ);setLinestringGJ(lGJ);});
   },[region,outputDir,simRun,runsResolved]);
 
-  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const b=region.epm.branch;resolveOutputDir(b).then(dir=>{setOutputDir(dir);return fetchRunList(b,dir);}).then(names=>{const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});},[region]);
+  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const b=region.epm.branch;resolveOutputDir(b).then(dir=>{setOutputDir(dir);return fetchRunList(b,dir);}).then(names=>{setRunsUnreachable(names===null);const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});},[region]);
   useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(defaultScenarios(s));setCmpRef(base);setCmpScenarios(defaultScenarios(s.filter(x=>x!==base)));setTrScenarios(defaultScenarios(s));setSnapScenarios(defaultScenarios(s));}});},[region,simRun,outputDir]);
 
   useEffect(()=>{
@@ -687,7 +688,7 @@ export default function ResultsCountryPage() {
         {/* Run selector */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,padding:'7px 10px',border:`1px solid ${t.panelBorder}`,borderRadius:6,backgroundColor:hexA(t.panelBorder,0.12)}}>
           <span style={{fontSize:'0.5rem',color:t.lblMuted,flexShrink:0}}>Run</span>
-          {loadingRuns?<span style={{fontSize:'0.5rem',color:t.lblMuted}}>Loading…</span>:runList.length>0?<select value={simRun||''} onChange={e=>setSimRun(e.target.value)} style={{...selectStyle,flex:1}}>{runList.map(r=><option key={r} value={r}>{r}</option>)}</select>:<span style={{fontSize:'0.5rem',color:t.lblMuted}}>No results</span>}
+          {loadingRuns?<span style={{fontSize:'0.5rem',color:t.lblMuted}}>Loading…</span>:runList.length>0?<select value={simRun||''} onChange={e=>setSimRun(e.target.value)} style={{...selectStyle,flex:1}}>{runList.map(r=><option key={r} value={r}>{r}</option>)}</select>:<span style={{fontSize:'0.5rem',color:t.lblMuted}} title={runsUnreachable?'The results are published; this network or browser is blocking the data host':undefined}>{runsUnreachable?'Data host unreachable':'No results'}</span>}
         </div>
         {/* Tabs */}
         <div style={{display:'flex',gap:0,marginBottom:16,borderBottom:`1px solid ${t.panelBorder}`}}>

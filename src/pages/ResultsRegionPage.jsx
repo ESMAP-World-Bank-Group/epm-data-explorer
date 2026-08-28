@@ -202,6 +202,7 @@ export default function ResultsRegionPage() {
   const [scenarioList, setScenarioList] = useState([]);
   const [resultsDataRaw, setResultsData] = useState({});
   const [loadingRuns,  setLoadingRuns]  = useState(false);
+  const [runsUnreachable, setRunsUnreachable] = useState(false);
   // Set once the run list has settled, so the map knows which run to draw.
   const [runsResolved, setRunsResolved] = useState(false);
   const [loadingData,  setLoadingData]  = useState(false);
@@ -334,6 +335,7 @@ export default function ResultsRegionPage() {
       setLoadingRuns(false); setRunsResolved(true);
     } else {
       resolveOutputDir(branch).then(dir => { setOutputDir(dir); return fetchRunList(branch, dir); }).then(names => {
+        setRunsUnreachable(names === null);
         const runs = (names||[]).slice().sort().reverse();
         setRunList(runs); if (runs.length) setSimRun(runs[0]);
       }).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});
@@ -1318,7 +1320,9 @@ export default function ResultsRegionPage() {
           <span style={{ fontSize:'0.5rem', color:t.lblMuted, flexShrink:0 }}>Run</span>
           {loadingRuns ? <span style={{ fontSize:'0.5rem', color:t.lblMuted }}>Loading…</span>
             : runList.length>0 ? <select value={simRun||''} onChange={e=>setSimRun(e.target.value)} style={{ ...selectStyle, flex:1 }}>{runList.map(r=><option key={r} value={r}>{r}</option>)}</select>
-            : <span style={{ fontSize:'0.5rem', color:t.lblMuted }}>No results — push output CSVs to epm/output/</span>}
+            : <span style={{ fontSize:'0.5rem', color:t.lblMuted }}>{runsUnreachable
+                ? 'Data host unreachable — the results are published; this network or browser is blocking them'
+                : 'No results — push output CSVs to epm/output/'}</span>}
         </div>
 
         {/* Tabs */}
