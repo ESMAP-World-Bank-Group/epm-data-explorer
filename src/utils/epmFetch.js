@@ -3,7 +3,12 @@
 // For "private" branches, it is served from the R2 bucket (private store):
 // just add the branch name to R2_BRANCHES.
 const GITHUB_RAW  = 'https://raw.githubusercontent.com/ESMAP-World-Bank-Group/EPM';
-const R2_BASE     = 'https://pub-fbe9fb64480745d48ed524b3803b349d.r2.dev';
+// Served through the app's own origin, not straight from the bucket: the bucket's
+// public hostname is a *.r2.dev one, and corporate proxies block that whole domain --
+// which showed up as a colleague seeing no inputs and no results on the one region
+// whose data lives there, while every GitHub-backed region worked. /r2 is rewritten
+// to the bucket by vercel.json in production and by the dev proxy in vite.config.js.
+const R2_BASE     = '/r2';
 const R2_BRANCHES = new Set(['blacksea_2026']);   // branches whose data lives in R2
 function rawBase(branch) { return R2_BRANCHES.has(branch) ? R2_BASE : GITHUB_RAW; }
 
@@ -11,7 +16,12 @@ function rawBase(branch) { return R2_BRANCHES.has(branch) ? R2_BASE : GITHUB_RAW
  *  `path` is relative to the repo root, e.g. 'epm/input/data_x/supply/pGenDataInput.csv'.
  *  Use this for download links too: hardcoding the GitHub raw host makes R2 branches
  *  serve GitHub's "404: Not Found" body as the file's contents. */
-export function rawFileUrl(branch, path) { return `${rawBase(branch)}/${branch}/${path}`; }
+export function rawFileUrl(branch, path) {
+  const u = `${rawBase(branch)}/${branch}/${path}`;
+  // Absolute, because this one is shown to people and pasted elsewhere: a bare /r2/...
+  // is a working link in the page and a dead string anywhere else.
+  return u[0] === '/' && typeof location !== 'undefined' ? location.origin + u : u;
+}
 
 /** Public URL of a result CSV: {outputDir}/{simRun}/{scenario}/output_csv/{filename} */
 export function resultCsvUrl(branch, simRun, scenario, filename, outputDir = 'epm/output') {
