@@ -31,6 +31,8 @@ import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, reg
 import { source } from '../utils/mapSource';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
+import MapDownload from '../components/MapDownload';
+import { ttl } from '../utils/chartTitle';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 
 // chart.js via CDN — no npm dep
@@ -236,7 +238,7 @@ function EpmOverviewTab({ t, epmData, region, epmYear, setEpmYear }) {
       {/* Donut + KPI rows */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         <div style={{ flexShrink: 0, width: 100, textAlign: 'center' }}>
-          <CJChart type="doughnut" height={100}
+          <CJChart name={ttl('Capacity mix by fuel (MW)')} type="doughnut" height={100}
             data={{ labels: fuelData.map(d => d.fuel), datasets: [{ data: fuelData.map(d => d.mw),
               backgroundColor: fuelData.map(d => EPM_FUEL_COLORS[d.fuel] || '#aaa'),
               borderWidth: 1.5, borderColor: t.panel, hoverOffset: 3 }] }}
@@ -302,7 +304,7 @@ function EpmOverviewTab({ t, epmData, region, epmYear, setEpmYear }) {
           </div>
           <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
             <div style={{ flex:1, minWidth:0 }}>
-              <CJChart type="bar" height={Math.min(mixLabels.length * 22 + 24, 280)}
+              <CJChart name={ttl('Capacity mix (MW)',mixView==='country'?'by country':'by zone')} type="bar" height={Math.min(mixLabels.length * 22 + 24, 280)}
                 data={{
                   labels: mixLabels,
                   datasets: allFuels.map(fuel => ({
@@ -499,7 +501,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
         <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
         <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
           <div style={{ flex:1, minWidth:0 }}>
-            <CJChart type="bar" height={Math.min(fuelChartData.length * 22 + 24, 260)}
+            <CJChart name={ttl('Capacity by fuel (MW)')} type="bar" height={Math.min(fuelChartData.length * 22 + 24, 260)}
               cacheKey={`supply-fuel|${[...visStatuses].sort().join(',')}|${[...hiddenFuels].sort().join(',')}`}
               data={{ labels: fuelChartData.map(d => d.fuel), datasets: [
                 { label:'Existing',  data:fuelChartData.map(d=>d.ex), backgroundColor:fuelChartData.map(d=>EPM_FUEL_COLORS[d.fuel]||EPM_FUEL_COLORS.other), borderWidth:0, barThickness:12, stack:'a' },
@@ -535,7 +537,7 @@ function EpmSupplyTab({ t, epmData, region, scnMeta, varOverrides, setVariant })
               </span>
             )}
           </SectionTitle>
-          <CJChart type="bar" height={Math.min(ctryData.length * 24 + 24, 260)}
+          <CJChart name={ttl('Capacity by country (MW)',selectedCountries.size?[...selectedCountries].join(', '):null)} type="bar" height={Math.min(ctryData.length * 24 + 24, 260)}
             cacheKey={`supply-country|${[...visStatuses].sort().join(',')}|${[...hiddenFuels].sort().join(',')}|${[...selectedCountries].sort().join(',')}`}
             plugins={[ytClickPlugin]}
             data={{
@@ -934,7 +936,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverrid
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1 }}>
-            <CJChart type="bar" height={180} data={forecastData}
+            <CJChart name={ttl('Demand forecast (GWh)',segMode==='zone'?'by zone':segMode==='country'?'by country':'aggregate')} type="bar" height={180} data={forecastData}
               cacheKey={`forecast|${segMode}|${[...hidden].sort().join(',')}`}
               options={{ ...cjDefaults(t),
                 scales: {
@@ -1006,7 +1008,7 @@ function DemandTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverrid
         {profileResult.chartData.datasets.length > 0 ? (
           <div style={{ display:'flex', gap:8 }}>
             <div style={{ flex:1 }}>
-              <CJChart type="line"
+              <CJChart name={ttl('Load profile (MW)',profileMode==='full'?'Full year':ttl(season,daytype==='avg'?'average day':daytype))} type="line"
                 height={profileMode==='full' ? 205 : 160}
                 data={profileResult.chartData}
                 plugins={profileResult.plugin ? [profileResult.plugin] : []}
@@ -1312,7 +1314,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
                 return vd.chartData.datasets.length > 0 ? (
                   <div style={{ display:'flex', gap:8 }}>
                     <div style={{ flex:1 }}>
-                      <CJChart type="line"
+                      <CJChart name={ttl('VRE profile',vreTech,vreProfileMode==='full'?'Full year':ttl(vreSeason,vreDay==='avg'?'average day':vreDay))} type="line"
                         height={vreProfileMode==='full' ? 205 : 160}
                         data={vd.chartData}
                         plugins={vd.plugin ? [vd.plugin] : []}
@@ -1376,7 +1378,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
           </div>
           {(() => { const ad=buildAvailData(); return ad.datasets.length>0 ? (
             <>
-              <CJChart type="bar" height={160} data={ad}
+              <CJChart name={ttl('Seasonal availability (%)',availZone==='all'?'All zones':availZone)} type="bar" height={160} data={ad}
                 options={{ ...cjDefaults(t), scales:{
                   x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}}},
                   y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Availability factor',color:t.muted,font:{size:8}}},
@@ -1409,7 +1411,7 @@ function ResourcesTab({ t, epmData, epmLoading, hasEpm, scnMeta, varOverrides, s
           </div>
           {(() => { const fd=buildFPData(); return fd.datasets.length>0 ? (
             <>
-              <CJChart type="line" height={170} data={fd}
+              <CJChart name={ttl('Fuel prices',fpCountries?fpCountries.join(', '):'All countries')} type="line" height={170} data={fd}
                 options={{ ...cjDefaults(t), scales:{
                   x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:8}},
                   y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'USD/MBtu',color:t.muted,font:{size:8}}},
@@ -1512,7 +1514,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverride
         </div>
         <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
           <div style={{ flex:1, minWidth:0 }}>
-            <CJChart type={chartType} height={200}
+            <CJChart name={ttl('NTC evolution (MW)',`top ${topN} corridors`)} type={chartType} height={200}
               cacheKey={`ntc-ev|${chartType}|${[...ntcHidden].sort().join(',')}`}
               data={{ labels:ntcYears, datasets:topCorridors
                 .filter(r=>!ntcHidden.has(`${r.z} ↔ ${r.z2}`))
@@ -1567,7 +1569,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverride
           </select>
         </div>
         {(()=>{const visCor=corridors.filter(r=>!ntcHidden.has(r.label));return(
-          <CJChart type="bar" height={Math.min(visCor.length*22+24,260)}
+          <CJChart name={ttl('NTC by corridor (MW)',refYr)} type="bar" height={Math.min(visCor.length*22+24,260)}
             cacheKey={`ntc-yr|${refYr}|${[...ntcHidden].sort().join(',')}`}
             data={{ labels:visCor.map(r=>r.label),
               datasets:[{data:visCor.map(r=>r.mw),
@@ -2096,7 +2098,7 @@ export default function RegionPage() {
       container: containerRef.current,
       style: mapStyle(theme),
       center: [0, 20], zoom: 2, minZoom: 1, maxZoom: 14,
-      attributionControl: false,
+      preserveDrawingBuffer: true, attributionControl: false,
     });
     mapRef.current = map;
 
@@ -2566,6 +2568,7 @@ export default function RegionPage() {
         <div style={{ position: 'relative', flex: 1 }}>
           <div ref={containerRef}
             style={{ width: '100%', height: 'calc(100vh - 46px)', backgroundColor: t.bg }} />
+            <MapDownload mapRef={mapRef} t={t} name={()=>ttl(`${region?.name||'Region'} map`,epmYear)}/>
 
           {/* Basemap controls */}
           <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, display: 'flex', gap: 4, alignItems: 'center' }}>

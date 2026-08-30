@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
+import MapDownload from '../components/MapDownload';
+import { ttl } from '../utils/chartTitle';
 import { useTheme } from '../App';
 import { getT, mapStyle, swapBasemap, toggleSatLabels, FUEL_COLORS, VOLTAGE_BRACKETS, plantRadiusExpr, lcRadiusExpr } from '../constants';
 import LayerPanel from '../components/LayerPanel';
@@ -136,7 +138,7 @@ export default function CountryPage() {
       style: mapStyle(theme),
       center: [0, 20], zoom: 2,
       minZoom: 1, maxZoom: 16,
-      attributionControl: false,
+      preserveDrawingBuffer: true, attributionControl: false,
     });
     mapRef.current = map;
 
@@ -791,6 +793,7 @@ export default function CountryPage() {
 
       <div style={{ flex: 1, position: 'relative', height: 'calc(100vh - 46px)' }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0, backgroundColor: t.bg }} />
+        <MapDownload mapRef={mapRef} t={t} name={()=>ttl(`${info?.country?.name||iso} map`)}/>
 
         {/* ── Floating zone selector ── */}
         {zonesIndex !== null && (

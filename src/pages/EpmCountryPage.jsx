@@ -21,6 +21,8 @@ import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, rai
 import { source } from '../utils/mapSource';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
+import MapDownload from '../components/MapDownload';
+import { ttl } from '../utils/chartTitle';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -411,7 +413,7 @@ export default function EpmCountryPage() {
       style: mapStyle(theme),
       center: [lons.length ? lons.reduce((a,b)=>a+b,0)/lons.length : 20,
                lats.length ? lats.reduce((a,b)=>a+b,0)/lats.length : 0],
-      zoom: 4, minZoom: 1, maxZoom: 14, attributionControl: false,
+      zoom: 4, minZoom: 1, maxZoom: 14, preserveDrawingBuffer: true, attributionControl: false,
     });
     mapRef.current = map;
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10,
@@ -982,6 +984,7 @@ export default function EpmCountryPage() {
       {/* Map */}
       <div style={{ position:'relative', flex:1 }}>
         <div ref={containerRef} style={{ width:'100%', height:'100%', backgroundColor:t.bg }} />
+        <MapDownload mapRef={mapRef} t={t} name={()=>ttl(`${countryNameDecoded} map`,epmYear)}/>
         <div style={{ position:'absolute', top:10, left:10, zIndex:10, display:'flex', gap:4, alignItems:'center',
           fontSize:'0.52rem', color:t.text, backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`,
           borderRadius:5, padding:'4px 10px', boxShadow:'0 1px 4px rgba(0,0,0,.18)' }}>
@@ -1093,7 +1096,7 @@ export default function EpmCountryPage() {
             <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
               {/* Donut */}
               <div style={{ flexShrink:0, width:108, textAlign:'center' }}>
-                <CJChart type="doughnut" height={108}
+                <CJChart name={ttl('Capacity mix by fuel (MW)',selZone==='all'?countryNameDecoded:selZone,epmYear)} type="doughnut" height={108}
                   data={{ labels: Object.keys(fuelAgg), datasets:[{
                     data: Object.values(fuelAgg).map(v=>Math.round(v)),
                     backgroundColor: Object.keys(fuelAgg).map(f=>EPM_FUEL_COLORS[f]||'#aaa'),
@@ -1142,7 +1145,7 @@ export default function EpmCountryPage() {
                 <>
                   <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <CJChart type="bar" height={Math.min(mixHeight, 260)}
+                      <CJChart name={ttl('Capacity mix (MW)',mixView==='country'?'by country':'by zone',selZone==='all'?countryNameDecoded:selZone,epmYear)} type="bar" height={Math.min(mixHeight, 260)}
                         data={mixData}
                         options={{ ...cjDefaults(t), indexAxis:'y',
                           scales: {
@@ -1239,7 +1242,7 @@ export default function EpmCountryPage() {
               {countryDemand.length > 0 ? (
                 <div style={{ display:'flex', gap:8 }}>
                   <div style={{ flex:1 }}>
-                    <CJChart type="bar" height={170} data={buildForecastData()}
+                    <CJChart name={ttl('Demand forecast (GWh)',demandSeg==='zone'?'by zone':demandSeg==='country'?'by country':'aggregate',selZone==='all'?countryNameDecoded:selZone)} type="bar" height={170} data={buildForecastData()}
                       cacheKey={`forecast|${demandSeg}|${[...demandHidden].sort().join(',')}`}
                       options={{ ...cjDefaults(t),
                         scales: {
@@ -1299,7 +1302,7 @@ export default function EpmCountryPage() {
                 return pd.chartData.datasets.length > 0 ? (
                   <div style={{ display:'flex', gap:8 }}>
                     <div style={{ flex:1 }}>
-                      <CJChart type="line"
+                      <CJChart name={ttl('Load profile (MW)',selZone==='all'?countryNameDecoded:selZone,demandProfileMode==='full'?'Full year':ttl(demandSeason,demandDay==='avg'?'average day':demandDay))} type="line"
                         height={demandProfileMode==='full'?205:160}
                         data={pd.chartData}
                         plugins={pd.plugin?[pd.plugin]:[]}
@@ -1354,7 +1357,7 @@ export default function EpmCountryPage() {
                   <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
                   <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <CJChart type="bar" height={Math.min(fd.length*22+24,200)}
+                      <CJChart name={ttl('Capacity by fuel (MW)',selZone==='all'?countryNameDecoded:selZone)} type="bar" height={Math.min(fd.length*22+24,200)}
                         data={{ labels:fd.map(d=>d.fuel), datasets:[
                           { label:'Existing', data:fd.map(d=>d.ex), backgroundColor:fd.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'), borderWidth:0, barThickness:12, stack:'a' },
                           { label:'Committed', data:fd.map(d=>d.co), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.55)), borderWidth:0, barThickness:12, stack:'a' },
@@ -1548,7 +1551,7 @@ export default function EpmCountryPage() {
                       return vd.chartData.datasets.length > 0 ? (
                         <div style={{ display:'flex', gap:8 }}>
                           <div style={{ flex:1 }}>
-                            <CJChart type="line"
+                            <CJChart name={ttl('VRE profile',vreTech,selZone==='all'?countryNameDecoded:selZone,vreProfileMode==='full'?'Full year':ttl(vreSeason,vreDay==='avg'?'average day':vreDay))} type="line"
                               height={vreProfileMode==='full'?205:160}
                               data={vd.chartData}
                               plugins={vd.plugin?[vd.plugin]:[]}
@@ -1605,7 +1608,7 @@ export default function EpmCountryPage() {
                   const ad = buildAvailData();
                   return ad.datasets.length > 0 ? (
                     <>
-                      <CJChart type="bar" height={160} data={ad}
+                      <CJChart name={ttl('Seasonal availability (%)',availZone==='all'?`${countryNameDecoded} (all zones)`:availZone)} type="bar" height={160} data={ad}
                         options={{ ...cjDefaults(t),
                           scales: {
                             x: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:9}} },
@@ -1655,7 +1658,7 @@ export default function EpmCountryPage() {
                     <>
                       <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <CJChart type="line" height={170} data={fd}
+                          <CJChart name={ttl('Fuel prices',fpCountries?fpCountries.join(', '):countryNameDecoded)} type="line" height={170} data={fd}
                             options={{ ...cjDefaults(t),
                               scales: {
                                 x: { grid:{color:t.panelBorder}, ticks:{color:t.muted,font:{size:8},maxTicksLimit:8} },
@@ -1732,7 +1735,7 @@ export default function EpmCountryPage() {
               return (
                 <div style={{ marginTop:4 }}>
                   <SectionTitle t={t}>This country's corridors (MW)</SectionTitle>
-                  <CJChart type="bar" height={Math.min(countryCorrData.length*22+30, 200)}
+                  <CJChart name={ttl('Corridor capacity (MW)',countryNameDecoded,epmYear)} type="bar" height={Math.min(countryCorrData.length*22+30, 200)}
                     data={{ labels: countryCorrData.map(c=>`${c.z}↔${c.z2}`),
                       datasets:[{ data:countryCorrData.map(c=>Math.max(c.mwFwd,c.mwRev)),
                         backgroundColor:hexA('#f0b030',0.75), borderWidth:0, barThickness:12 }] }}

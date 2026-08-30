@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
+import MapDownload from '../components/MapDownload';
+import { ttl } from '../utils/chartTitle';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
@@ -53,7 +55,7 @@ export default function WorldPage() {
       zoom: 2.2,
       minZoom: 1.5,
       maxZoom: 9,
-      attributionControl: false,
+      preserveDrawingBuffer: true, attributionControl: false,
     });
     mapRef.current = map;
 
@@ -169,6 +171,7 @@ export default function WorldPage() {
   return (
     <div style={{ height: 'calc(100vh - 46px)', position: 'relative', backgroundColor: t.bg }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <MapDownload mapRef={mapRef} t={t} name={()=>ttl('World map')}/>
 
       {/* Disambiguation popover */}
       {disambig && (

@@ -33,7 +33,9 @@ import {
   processNpvInput, processNpvSystem, buildNpv, aggregateNpv, npvDelta, visibleComps,
 } from '../utils/npv';
 import CJChart from '../components/CJChart';
+import MapDownload from '../components/MapDownload';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
+import { ttl, scenList } from '../utils/chartTitle';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -327,7 +329,7 @@ export default function ResultsCountryPage() {
     const cCoords=countryZoneIds.flatMap(z=>zoneCentroids[z]?[zoneCentroids[z]]:[]);
     const lons=cCoords.map(c=>c[0]),lats=cCoords.map(c=>c[1]);
     const bounds=lons.length?[[Math.min(...lons)-1.5,Math.min(...lats)-1.5],[Math.max(...lons)+1.5,Math.max(...lats)+1.5]]:null;
-    const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center:[lons.length?lons.reduce((a,b)=>a+b,0)/lons.length:20,lats.length?lats.reduce((a,b)=>a+b,0)/lats.length:0],zoom:4,minZoom:1,maxZoom:14,attributionControl:false});
+    const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center:[lons.length?lons.reduce((a,b)=>a+b,0)/lons.length:20,lats.length?lats.reduce((a,b)=>a+b,0)/lats.length:0],zoom:4,minZoom:1,maxZoom:14,preserveDrawingBuffer: true, attributionControl:false});
     mapRef.current=map;
     const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
     const ntcClickPopup=new maplibregl.Popup({closeButton:true,closeOnClick:true,offset:10,className:`popup-${theme}`});
@@ -676,6 +678,7 @@ export default function ResultsCountryPage() {
     >
       <div style={{position:'relative',flex:1}}>
         <div ref={containerRef} style={{width:'100%',height:'100%',backgroundColor:t.bg}}/>
+        <MapDownload mapRef={mapRef} t={t} name={()=>ttl(`${countryDecoded} map`,refYear)}/>
         <div style={{position:'absolute',top:10,left:10,zIndex:10,display:'flex',gap:4,alignItems:'center',fontSize:'0.52rem',color:t.text,backgroundColor:t.panel,border:`1px solid ${t.panelBorder}`,borderRadius:5,padding:'4px 10px',boxShadow:'0 1px 4px rgba(0,0,0,.18)'}}>
           <Link to="/" style={{color:t.lblMuted,textDecoration:'none'}}>World</Link><span style={{color:t.lblMuted}}>›</span>
           <Link to={`/region/${regionId}/results`} style={{color:t.lblMuted,textDecoration:'none'}}>{region.name} · Results</Link>
@@ -759,14 +762,14 @@ export default function ResultsCountryPage() {
               <SectionTitle t={t}>Capacity mix by zone (MW)</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bar" height={Math.min(mixData.labels.length*22+24,260)} cacheKey={`mix-c|${ovScenario}|${refYear}|${theme}|${[...hiddenMap['mix-c']||[]].join(',')}`} data={mixData} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}/>
+                  <CJChart name={ttl('Capacity mix (MW)',selZone==='all'?countryDecoded:selZone,ovScenario,refYear)} type="bar" height={Math.min(mixData.labels.length*22+24,260)} cacheKey={`mix-c|${ovScenario}|${refYear}|${theme}|${[...hiddenMap['mix-c']||[]].join(',')}`} data={mixData} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}/>
                 </div>
                 {makeLegend('mix-c',allTechfuels.filter(tf=>mixData.datasets.some(d=>d.label===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
               </div>
             </div>}
             {Object.keys(zoneAvgPrices).length>0&&<div>
               <SectionTitle t={t}>Avg marginal price by zone ($/MWh)</SectionTitle>
-              <CJChart type="bar" height={Math.min(allZones.filter(z=>zoneAvgPrices[z]).length*22+24,200)} cacheKey={`pz-c|${ovScenario}|${refYear}|${theme}`}
+              <CJChart name={ttl('Average marginal price by zone ($/MWh)',selZone==='all'?countryDecoded:selZone,ovScenario,refYear)} type="bar" height={Math.min(allZones.filter(z=>zoneAvgPrices[z]).length*22+24,200)} cacheKey={`pz-c|${ovScenario}|${refYear}|${theme}`}
                 data={{labels:allZones.filter(z=>zoneAvgPrices[z]),datasets:[
                   {label:'Range',data:allZones.filter(z=>zoneAvgPrices[z]).map(z=>{const r=zonePriceRange[z];return r?[+r.min.toFixed(1),+r.max.toFixed(1)]:[+zoneAvgPrices[z].toFixed(1),+zoneAvgPrices[z].toFixed(1)];}),backgroundColor:allZones.filter(z=>zoneAvgPrices[z]).map(z=>priceBarColor((zoneAvgPrices[z]-minP)/rngP).replace('rgb(','rgba(').replace(')',',0.18)')),borderWidth:0,barThickness:10},
                   {type:'scatter',label:'Avg',data:allZones.filter(z=>zoneAvgPrices[z]).map(z=>({x:+zoneAvgPrices[z].toFixed(1),y:z})),pointStyle:'line',rotation:90,radius:6,borderWidth:2.5,borderColor:allZones.filter(z=>zoneAvgPrices[z]).map(z=>priceBarColor((zoneAvgPrices[z]-minP)/rngP))},
@@ -791,7 +794,7 @@ export default function ResultsCountryPage() {
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]))}/>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bar" height={220}
+                  <CJChart name={ttl(snapData.ind?.label||'Snapshot',selZone==='all'?countryDecoded:selZone,refYear,scenList(snapScenarios))} type="bar" height={220}
                     cacheKey={`snap-c|${snapIndicator}|${refYear}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-c-tf']||[]].join(',')}`}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[snapData.netPlugin,sp].filter(Boolean);})()}
                     data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>{if(snapData.ind?.source==='trade')return!isHidden('snap-c-trade-p',d._partner||'');const lbl=d.label.includes(' — ')?d.label.split(' — ')[1]:d.label;return!isHidden('snap-c-tf',lbl);})}}
@@ -812,7 +815,7 @@ export default function ResultsCountryPage() {
                 {snapDeltaData&&snapDeltaData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="bar" height={180}
+                      <CJChart name={ttl(`Δ ${snapDeltaData.ind?.label||'Snapshot'} vs ${cmpRef}`,selZone==='all'?countryDecoded:selZone,refYear,scenList(cmpScenarios))} type="bar" height={180}
                         cacheKey={`snap-c-d|${snapIndicator}|${refYear}|${theme}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${[...hiddenMap['snap-c-tf']||[]].join(',')}`}
                         plugins={snapDeltaData.netPlugin?[snapDeltaData.netPlugin]:[]}
                         data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>{if(snapDeltaData.ind?.source==='trade')return!isHidden('snap-c-trade-p',d._partner||'');const lbl=d.label.includes(' — ')?d.label.split(' — ')[1]:d.label;return!isHidden('snap-c-tf',lbl);})}}
@@ -843,7 +846,7 @@ export default function ResultsCountryPage() {
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]))}/>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={200} cacheKey={`ev-c|${evIndicator}|${theme}|${[...evScenarios].sort().join(',')}|${[...hiddenMap['ev-c']||[]].join(',')}`}
+                  <CJChart name={ttl(activeInd.label,selZone==='all'?countryDecoded:selZone,scenList(evScenarios))} type={activeInd.source==='yearlyZone'?'line':'bar'} height={200} cacheKey={`ev-c|${evIndicator}|${theme}|${[...evScenarios].sort().join(',')}|${[...hiddenMap['ev-c']||[]].join(',')}`}
                     data={{...evData,datasets:evData.datasets.filter(d=>{if(activeInd.source==='techFuel')return!isHidden('ev-c',tfLabel(d));if(activeInd.source==='costs')return!isHidden('ev-cost',tfLabel(d));if(activeInd.source==='trade')return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');return true;})}}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return sp?[sp]:[];})()}
                     options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10,padding:16}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}/>
@@ -863,7 +866,7 @@ export default function ResultsCountryPage() {
                 {cmpEvData&&cmpEvData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="bar" height={190}
+                      <CJChart name={ttl(`Δ ${activeInd.label} vs ${cmpRef}`,selZone==='all'?countryDecoded:selZone,scenList(cmpScenarios))} type="bar" height={190}
                         cacheKey={`cmp-ev-c|${evIndicator}|${theme}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${[...hiddenMap['ev-c']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
                         data={{...cmpEvData,datasets:cmpEvData.datasets.filter(d=>{if(activeInd.source==='techFuel')return!isHidden('ev-c',tfLabel(d));if(activeInd.source==='costs')return!isHidden('ev-cost',tfLabel(d));if(activeInd.source==='trade')return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');return true;})}}
                         options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
@@ -901,7 +904,7 @@ export default function ResultsCountryPage() {
             {dispResult.chartData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bar" height={dispResult.grouped?210:165}
+                  <CJChart name={ttl('Hourly generation (MW)',activeDispZone==='__all__'?`${countryDecoded} (all zones)`:activeDispZone,dispScenario,refYear,dispMode==='full'?'Full year':ttl(dispSeason,dispDay!=='all'?`day ${dispDay}`:null))} type="bar" height={dispResult.grouped?210:165}
                     data={{...dispResult.chartData,datasets:dispResult.chartData.datasets.filter(d=>!isHidden('disp-c-tf',d.label))}}
                     plugins={dispResult.plugin?[dispResult.plugin]:[]}
                     cacheKey={`disp-c|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-c-tf']||[]].join(',')}`}
@@ -919,7 +922,7 @@ export default function ResultsCountryPage() {
                 {cmpRef&&cmpRef!==dispScenario&&dispDeltaResult.chartData.datasets.length>0?<>
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="bar" height={dispDeltaResult.grouped?180:130}
+                      <CJChart name={ttl('Δ hourly generation (MW)',`${dispScenario} vs ${cmpRef}`,activeDispZone==='__all__'?`${countryDecoded} (all zones)`:activeDispZone,refYear,dispMode==='full'?'Full year':ttl(dispSeason,dispDay!=='all'?`day ${dispDay}`:null))} type="bar" height={dispDeltaResult.grouped?180:130}
                         data={{...dispDeltaResult.chartData,datasets:dispDeltaResult.chartData.datasets.filter(d=>!isHidden('disp-c-tf',d.label))}}
                         plugins={dispDeltaResult.plugin?[dispDeltaResult.plugin]:[]}
                         cacheKey={`disp-c-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-c-tf']||[]].join(',')}`}
@@ -954,7 +957,7 @@ export default function ResultsCountryPage() {
               </div>
               <div style={{display:'flex',gap:8}}>
                 <div style={{flex:1}}>
-                  <CJChart type="bar" height={180} cacheKey={`trev-c|${[...trScenarios].sort().join(',')}|${trEvMetric}|${theme}|${[...hiddenMap['trev-c']||[]].join(',')}`} data={{labels:tradeEvData.labels,datasets:tradeEvData.datasets.filter(d=>!isHidden('trev-c',d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))}}
+                  <CJChart name={ttl(`Trade by corridor (${tradeEvData?.unit||'GWh'})`,countryDecoded,scenList(trScenarios))} type="bar" height={180} cacheKey={`trev-c|${[...trScenarios].sort().join(',')}|${trEvMetric}|${theme}|${[...hiddenMap['trev-c']||[]].join(',')}`} data={{labels:tradeEvData.labels,datasets:tradeEvData.datasets.filter(d=>!isHidden('trev-c',d.label.includes(' — ')?d.label.split(' — ')[1]:d.label))}}
                     options={{...cjDefaults(t),scales:{x:{stacked:trEvMetric!=='utilization',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},y:{stacked:trEvMetric!=='utilization',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:unit,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)} ${unit}`}}}}}/>
                 </div>
                 <div style={{width:80,flexShrink:0,display:'flex',flexDirection:'column',gap:2,paddingTop:4,maxHeight:180,overflowY:'auto'}}>
@@ -976,7 +979,7 @@ export default function ResultsCountryPage() {
                 {tradeCmpDeltaData&&tradeCmpDeltaData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="bar" height={200}
+                      <CJChart name={ttl(`Δ trade by corridor (${tradeEvData?.unit||'GWh'}) vs ${cmpRef}`,countryDecoded,scenList(cmpScenarios))} type="bar" height={200}
                         cacheKey={`trev-c-d|${[...trScenarios].sort().join(',')}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}|${theme}|${[...hiddenMap['trev-c']||[]].join(',')}`}
                         data={{labels:tradeCmpDeltaData.labels,datasets:tradeCmpDeltaData.datasets}}
                         options={{...cjDefaults(t),scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:`Δ${tradeCmpDeltaData.unit||'GWh'}`,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()}`}}}}}
@@ -992,7 +995,7 @@ export default function ResultsCountryPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:6}}>
                 <SectionTitle t={t}>External trade with neighbours — {extTradeData.scen}</SectionTitle>
                 <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:-2}}>Aggregate value of exchanges with external (non-modelled) zones. EPM reports totals, not per-neighbour flows.</div>
-                <CJChart type="bar" height={190}
+                <CJChart name={ttl('External trade with neighbours',countryDecoded,extTradeData.scen)} type="bar" height={190}
                   cacheKey={`exttr-c|${extTradeData.scen}|${theme}`}
                   data={{labels:allYears,datasets:[
                     {label:'Import costs: $m',data:extTradeData.imp,backgroundColor:hexA('#E05252',0.8),borderWidth:0,order:3},
@@ -1020,12 +1023,12 @@ export default function ResultsCountryPage() {
               <select value={plTopN} onChange={e=>setPlTopN(+e.target.value)} style={selectStyle}>{[10,15,20,30].map(n=><option key={n} value={n}>Top {n}</option>)}</select>
               {allZones.length>1&&<select value={plZone} onChange={e=>setPlZone(e.target.value)} style={selectStyle}><option value="all">All zones</option>{allZones.map(z=><option key={z} value={z}>{z}</option>)}</select>}
             </div>
-            {plantsData.length>0?<><SectionTitle t={t}>Top {plTopN} plants</SectionTitle><CJChart type="bar" height={Math.min(plantsData.length*18+24,250)} cacheKey={`pl-c|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}`} data={{labels:plantsData.map(p=>p.g),datasets:[{data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.8)),borderWidth:0,barThickness:12}]}} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}/></>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data.</div>}
+            {plantsData.length>0?<><SectionTitle t={t}>Top {plTopN} plants</SectionTitle><CJChart name={ttl(`Top ${plTopN} plants`,plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim(),plZone!=='all'?plZone:countryDecoded,plScenario,refYear)} type="bar" height={Math.min(plantsData.length*18+24,250)} cacheKey={`pl-c|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}`} data={{labels:plantsData.map(p=>p.g),datasets:[{data:plantsData.map(p=>+p.value.toFixed(2)),backgroundColor:plantsData.map(p=>hexA(techColor(p.techfuel),0.8)),borderWidth:0,barThickness:12}]}} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}/></>:<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>No plant data.</div>}
             {lcoeData&&lcoeData.datasets.length>0&&<>
               <SectionTitle t={t}>Annual LCOE vs Utilization — bubble size = capacity</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bubble" height={230} cacheKey={`lcoe-c|${plScenario}|${refYear}|${theme}|${[...hiddenMap['lcoe-c']||[]].join(',')}`}
+                  <CJChart name={ttl('Annual LCOE vs utilization',plZone!=='all'?plZone:countryDecoded,plScenario,refYear)} type="bubble" height={230} cacheKey={`lcoe-c|${plScenario}|${refYear}|${theme}|${[...hiddenMap['lcoe-c']||[]].join(',')}`}
                     data={{...lcoeData,datasets:lcoeData.datasets.filter(ds=>!isHidden('lcoe-c',ds.label))}}
                     options={{...cjDefaults(t),plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return[`${d._plant||ctx.dataset.label}`,`LCOE: ${d.y} $/MWh · Util: ${d.x.toFixed(0)}%`,d._cap?`Cap: ${fmt(d._cap)} MW`:''].filter(Boolean);}}}},scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:9}},min:0,max:105},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:9}},min:0}}}}/>
                 </div>
@@ -1228,7 +1231,7 @@ export default function ResultsCountryPage() {
                     <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                       {byZ&&nCols.length>1&&<ScenarioKey t={t} scenarios={nCols}/>}
                       <div style={{flex:1,minWidth:0}}>
-                        <CJChart type="bar" height={240}
+                        <CJChart name={ttl(`Benefit vs ${ref} (bn$)`,countryDecoded,byZ?'by zone':'by scenario',scenList(nCols))} type="bar" height={240}
                           cacheKey={`npv-c|${ref}|${npvSplit}|${theme}|${nCols.join(',')}|${visZones.join(',')}|${[...hiddenMap['npv-comp-c']||[]].join(',')}`}
                           plugins={[buildNetDotPlugin(npvChart.net),byZ?makeScenPlugin(nCols,t.muted):null].filter(Boolean)}
                           data={{labels:npvChart.labels,datasets:npvChart.datasets.filter(d=>!isHidden('npv-comp-c',tfLabel(d)))}}

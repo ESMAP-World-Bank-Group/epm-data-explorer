@@ -37,7 +37,9 @@ import RawOutputsTab from '../components/RawOutputsTab';
 import { externalZoneSet } from '../utils/zoneClass';
 import { usePromotedZones } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
+import MapDownload from '../components/MapDownload';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
+import { ttl, scenList } from '../utils/chartTitle';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -480,7 +482,7 @@ export default function ResultsRegionPage() {
     const map = new maplibregl.Map({
       container:containerRef.current, style:mapStyle(theme),
       center:[lons.length?lons.reduce((a,b)=>a+b,0)/lons.length:20, lats.length?lats.reduce((a,b)=>a+b,0)/lats.length:0],
-      zoom:4, minZoom:1, maxZoom:14, attributionControl:false,
+      zoom:4, minZoom:1, maxZoom:14, preserveDrawingBuffer: true, attributionControl:false,
     });
     mapRef.current = map;
     const popup = new maplibregl.Popup({ closeButton:false, closeOnClick:false, offset:10, className:`popup-${theme}` });
@@ -1316,6 +1318,7 @@ export default function ResultsRegionPage() {
       {/* Map */}
       <div style={{ position:'relative', flex:1 }}>
         <div ref={containerRef} style={{ width:'100%', height:'100%', backgroundColor:t.bg }} />
+        <MapDownload mapRef={mapRef} t={t} name={()=>ttl(`${region.name} map`,refYear)}/>
         {/* Breadcrumb */}
         <div style={{ position:'absolute', top:10, left:10, zIndex:10, display:'flex', gap:4, alignItems:'center', fontSize:'0.52rem', color:t.text, backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`, borderRadius:5, padding:'4px 10px', boxShadow:'0 1px 4px rgba(0,0,0,.18)' }}>
           <Link to="/" style={{ color:t.lblMuted, textDecoration:'none' }}>World</Link>
@@ -1443,7 +1446,7 @@ export default function ResultsRegionPage() {
               <SectionTitle t={t} right={<div style={{display:'flex',gap:3}}><Pill active={ovMixMode==='zone'} onClick={()=>setOvMixMode('zone')}>Zone</Pill><Pill active={ovMixMode==='country'} onClick={()=>setOvMixMode('country')}>Country</Pill></div>}>Capacity mix (MW)</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}|${theme}|${[...hiddenMap['ov-mix']||[]].join(',')}`} data={{...overviewMix,datasets:overviewMix.datasets.filter(d=>!isHidden('ov-mix',d.label))}}
+                  <CJChart name={ttl('Capacity mix (MW)',ovMixMode==='zone'?'by zone':'by country',ovScenario,refYear)} type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}|${theme}|${[...hiddenMap['ov-mix']||[]].join(',')}`} data={{...overviewMix,datasets:overviewMix.datasets.filter(d=>!isHidden('ov-mix',d.label))}}
                     options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}
                   />
                 </div>
@@ -1456,7 +1459,7 @@ export default function ResultsRegionPage() {
               const rng=maxPrice-minPrice||1;
               return <div>
                 <SectionTitle t={t}>Average marginal price by zone (USD/MWh)</SectionTitle>
-                <CJChart type="bar" height={Math.min(zones.length*22+24,220)} cacheKey={`pz|${ovScenario}|${refYear}|${theme}`}
+                <CJChart name={ttl('Average marginal price by zone ($/MWh)',ovScenario,refYear)} type="bar" height={Math.min(zones.length*22+24,220)} cacheKey={`pz|${ovScenario}|${refYear}|${theme}`}
                   data={{labels:zones,datasets:[
                     {label:'Range',data:zones.map(z=>{const r=zonePriceRange[z];return r?[+r.min.toFixed(1),+r.max.toFixed(1)]:[+zoneAvgPrices[z].toFixed(1),+zoneAvgPrices[z].toFixed(1)];}),backgroundColor:zones.map(z=>priceBarColor((zoneAvgPrices[z]-minPrice)/rng).replace('rgb(','rgba(').replace(')',',0.18)')),borderWidth:0,barThickness:10},
                     {type:'scatter',label:'Avg',data:zones.map(z=>({x:+zoneAvgPrices[z].toFixed(1),y:z})),pointStyle:'line',rotation:90,radius:6,borderWidth:2.5,borderColor:zones.map(z=>priceBarColor((zoneAvgPrices[z]-minPrice)/rng))},
@@ -1493,7 +1496,7 @@ export default function ResultsRegionPage() {
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]))}/>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bar" height={220}
+                  <CJChart name={ttl(snapData.ind?.label||'Snapshot',refYear,snapView==='country'?'by country':'by zone',snapCountry!=='all'?snapCountry:null,scenList(snapScenarios))} type="bar" height={220}
                     cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[snapData.netPlugin,sp].filter(Boolean);})()}
                     data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>{if(snapData.ind?.source==='trade')return!isHidden('snap-trade-p',d._partner||'');return!isHidden('snap-tf',tfLabel(d));})}}
@@ -1526,7 +1529,7 @@ export default function ResultsRegionPage() {
                 {snapDeltaData&&snapDeltaData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="bar" height={180}
+                      <CJChart name={ttl(`Δ ${snapDeltaData.ind?.label||'Snapshot'} vs ${cmpRef}`,refYear,snapView==='country'?'by country':'by zone',snapCountry!=='all'?snapCountry:null,scenList(cmpScenarios))} type="bar" height={180}
                         cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${theme}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
                         plugins={snapDeltaData.netPlugin?[snapDeltaData.netPlugin]:[]}
                         data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>{if(snapDeltaData.ind?.source==='trade')return!isHidden('snap-trade-p',d._partner||'');return!isHidden('snap-tf',tfLabel(d));})}}
@@ -1561,7 +1564,7 @@ export default function ResultsRegionPage() {
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]))}/>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type={activeInd.source==='yearlyZone'?'line':'bar'} height={220}
+                  <CJChart name={ttl(activeInd.label,evCountry!=='all'?evCountry:'All countries',scenList(evScenarios))} type={activeInd.source==='yearlyZone'?'line':'bar'} height={220}
                     cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}|${theme}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
                     data={{...evolutionData,datasets:evolutionData.datasets.filter(d=>{
                       if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
@@ -1592,7 +1595,7 @@ export default function ResultsRegionPage() {
                 return cmpEvData&&cmpEvData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="bar" height={190}
+                      <CJChart name={ttl(`Δ ${activeInd.label} vs ${cmpRef}`,evCountry!=='all'?evCountry:'All countries',scenList(cmpScenarios))} type="bar" height={190}
                         cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}|${theme}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
                         data={{...cmpEvData,datasets:cmpEvData.datasets.filter(d=>{
                           if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
@@ -1639,7 +1642,7 @@ export default function ResultsRegionPage() {
             {dispResult.chartData.datasets.length>0?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bar" height={dispResult.grouped?255:195}
+                  <CJChart name={ttl('Hourly generation (MW)',activeDispZone==='__all__'?'All zones':activeDispZone,dispScenario,refYear,dispMode==='full'?'Full year':ttl(dispSeason,dispDay!=='all'?`day ${dispDay}`:null))} type="bar" height={dispResult.grouped?255:195}
                     data={{...dispResult.chartData,datasets:dispResult.chartData.datasets.filter(d=>!isHidden('disp-tf',d.label))}}
                     plugins={dispResult.plugin?[dispResult.plugin]:[]}
                     cacheKey={`disp|${dispScenario}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
@@ -1666,7 +1669,7 @@ export default function ResultsRegionPage() {
                   <SectionTitle t={t}>Δ {dispScenario} − {cmpRef} (MW)</SectionTitle>
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart type="bar" height={dispDeltaResult.grouped?215:155}
+                      <CJChart name={ttl('Δ hourly generation (MW)',`${dispScenario} vs ${cmpRef}`,activeDispZone==='__all__'?'All zones':activeDispZone,refYear,dispMode==='full'?'Full year':ttl(dispSeason,dispDay!=='all'?`day ${dispDay}`:null))} type="bar" height={dispDeltaResult.grouped?215:155}
                         data={{...dispDeltaResult.chartData,datasets:dispDeltaResult.chartData.datasets.filter(d=>!isHidden('disp-tf',d.label))}}
                         plugins={dispDeltaResult.plugin?[dispDeltaResult.plugin]:[]}
                         cacheKey={`disp-d|${dispScenario}|${cmpRef}|${activeDispZone}|${refYear}|${dispMode}|${dispSeason}|${dispDay}|${theme}|${[...hiddenMap['disp-tf']||[]].join(',')}`}
@@ -1712,7 +1715,7 @@ export default function ResultsRegionPage() {
                 </div>
                 <div style={{ display:'flex', gap:8 }}>
                   <div style={{ flex:1 }}>
-                    <CJChart type="bar" height={200}
+                    <CJChart name={ttl(`Trade by corridor (${tradeEvData.unit||'GWh'})`,scenList(trScenarios))} type="bar" height={200}
                       cacheKey={`trev|${[...trScenarios].sort().join(',')}|${trEvMetric}|${theme}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
                       data={{ labels:tradeEvData.labels, datasets:tradeEvData.datasets.filter(d=>!isHidden('trade-ev',tfLabel(d))) }}
                       options={{...cjDefaults(t),scales:{
@@ -1749,7 +1752,7 @@ export default function ResultsRegionPage() {
                   <ScenarioPicker t={t} label="Compare" all={scenarioList} exclude={[cmpRef]} selected={cmpScenarios} onChange={setCmpScenarios}/>
                 </div>
                 {tradeCmpDeltaData&&tradeCmpDeltaData.datasets.length>0?
-                  <CJChart type="bar" height={200}
+                  <CJChart name={ttl(`Δ trade by corridor (${tradeEvData.unit||'GWh'}) vs ${cmpRef}`,scenList(cmpScenarios))} type="bar" height={200}
                     cacheKey={`trev-d|${[...trScenarios].sort().join(',')}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${trEvMetric}|${theme}|${[...hiddenMap['trade-ev']||[]].join(',')}`}
                     data={{labels:tradeCmpDeltaData.labels,datasets:tradeCmpDeltaData.datasets}}
                     options={{...cjDefaults(t),scales:{
@@ -1765,7 +1768,7 @@ export default function ResultsRegionPage() {
               <div style={{borderTop:`1px solid ${hexA(t.panelBorder,0.4)}`,paddingTop:10,marginTop:2,display:'flex',flexDirection:'column',gap:6}}>
                 <SectionTitle t={t}>External trade with neighbours — {extTradeData.scen}</SectionTitle>
                 <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:-2}}>Aggregate value of exchanges with external (non-modelled) zones. EPM reports totals, not per-neighbour flows.</div>
-                <CJChart type="bar" height={190}
+                <CJChart name={ttl('External trade with neighbours',extTradeData.scen,`${allYears[0]}–${allYears[allYears.length-1]}`)} type="bar" height={190}
                   cacheKey={`exttr|${extTradeData.scen}|${theme}`}
                   data={{labels:allYears,datasets:[
                     {label:'Import costs: $m',data:extTradeData.imp,backgroundColor:hexA('#E05252',0.8),borderWidth:0,order:3},
@@ -1802,7 +1805,7 @@ export default function ResultsRegionPage() {
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   {(()=>{const pd=plantsData.filter(p=>!isHidden('plants-tf',p.techfuel));return(
-                    <CJChart type="bar" height={Math.min(pd.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}|${[...hiddenMap['plants-tf']||[]].join(',')}`}
+                    <CJChart name={ttl(`Top ${plTopN} plants`,plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim(),plScenario,refYear,plZone!=='all'?plZone:null)} type="bar" height={Math.min(pd.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}|${[...hiddenMap['plants-tf']||[]].join(',')}`}
                       data={{labels:pd.map(p=>p.g),datasets:[{label:plScenario,data:pd.map(p=>+p.value.toFixed(2)),backgroundColor:pd.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
                       options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}
                     />
@@ -1816,7 +1819,7 @@ export default function ResultsRegionPage() {
               <SectionTitle t={t}>Annual LCOE vs Utilization — bubble size = capacity</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart type="bubble" height={250} cacheKey={`lcoe|${plScenario}|${refYear}|${theme}|${[...hiddenMap['lcoe-tf']||[]].join(',')}`}
+                  <CJChart name={ttl('Annual LCOE vs utilization',plScenario,refYear,plZone!=='all'?plZone:null)} type="bubble" height={250} cacheKey={`lcoe|${plScenario}|${refYear}|${theme}|${[...hiddenMap['lcoe-tf']||[]].join(',')}`}
                     data={{...lcoeData,datasets:lcoeData.datasets.filter(ds=>!isHidden('lcoe-tf',ds.label))}}
                     options={{...cjDefaults(t),plugins:{...cjDefaults(t).plugins,
                       tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return[`${d._plant||ctx.dataset.label}`,`LCOE: ${d.y} $/MWh  ·  Util: ${d.x.toFixed(0)}%`,d._cap?`Cap: ${fmt(d._cap)} MW`:''].filter(Boolean);}}}},
@@ -2019,7 +2022,7 @@ export default function ResultsRegionPage() {
                     <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                       {byCty&&nCols.length>1&&<ScenarioKey t={t} scenarios={nCols}/>}
                       <div style={{flex:1,minWidth:0}}>
-                        <CJChart type="bar" height={240}
+                        <CJChart name={ttl(`Benefit vs ${ref} (bn$)`,byCty?'by country':'by scenario',scenList(nCols))} type="bar" height={240}
                           cacheKey={`npv|${ref}|${npvSplit}|${theme}|${nCols.join(',')}|${[...hiddenMap['npv-comp']||[]].join(',')}`}
                           plugins={[buildNetDotPlugin(npvChart.net),byCty?makeScenPlugin(nCols,t.muted):null].filter(Boolean)}
                           data={{labels:npvChart.labels,datasets:npvChart.datasets.filter(d=>!isHidden('npv-comp',tfLabel(d)))}}

@@ -21,6 +21,8 @@ import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, rai
 import { source, layer } from '../utils/mapSource';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
+import MapDownload from '../components/MapDownload';
+import { ttl } from '../utils/chartTitle';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -329,7 +331,7 @@ export default function EpmZonePage() {
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: mapStyle(theme),
-      center, zoom: 5, minZoom: 1, maxZoom: 14, attributionControl: false,
+      center, zoom: 5, minZoom: 1, maxZoom: 14, preserveDrawingBuffer: true, attributionControl: false,
     });
     mapRef.current = map;
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10,
@@ -575,6 +577,7 @@ export default function EpmZonePage() {
       {/* Map */}
       <div style={{ position:'relative', flex:1 }}>
         <div ref={containerRef} style={{ width:'100%', height:'100%', backgroundColor:t.bg }} />
+        <MapDownload mapRef={mapRef} t={t} name={()=>ttl(`${zoneIdDecoded} map`,epmYear)}/>
         <div style={{ position:'absolute', top:10, left:10, zIndex:10, display:'flex', gap:4, alignItems:'center',
           fontSize:'0.52rem', color:t.text, backgroundColor:t.panel, border:`1px solid ${t.panelBorder}`,
           borderRadius:5, padding:'4px 10px', boxShadow:'0 1px 4px rgba(0,0,0,.18)' }}>
@@ -657,7 +660,7 @@ export default function EpmZonePage() {
             {/* KPIs + donut */}
             <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
               <div style={{ flexShrink:0, width:100, textAlign:'center' }}>
-                <CJChart type="doughnut" height={100}
+                <CJChart name={ttl('Capacity mix by fuel (MW)',zoneIdDecoded,epmYear)} type="doughnut" height={100}
                   data={{ labels:Object.keys(fuelAgg), datasets:[{
                     data:Object.values(fuelAgg).map(v=>Math.round(v)),
                     backgroundColor:Object.keys(fuelAgg).map(f=>EPM_FUEL_COLORS[f]||'#aaa'),
@@ -712,7 +715,7 @@ export default function EpmZonePage() {
                 <SectionTitle t={t}>Existing capacity by fuel (MW)</SectionTitle>
                 <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <CJChart type="bar" height={Math.min(fuelData.length*22+24,200)}
+                    <CJChart name={ttl('Existing capacity by fuel (MW)',zoneIdDecoded)} type="bar" height={Math.min(fuelData.length*22+24,200)}
                       data={{ labels:fuelData.map(d=>d.fuel), datasets:[{
                         data:fuelData.map(d=>d.mw), backgroundColor:fuelData.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'),
                         borderWidth:0, barThickness:12 }] }}
@@ -756,7 +759,7 @@ export default function EpmZonePage() {
                 return (
                   <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <CJChart type="bar" height={175}
+                      <CJChart name={ttl('Demand forecast',zoneIdDecoded)} type="bar" height={175}
                         data={{ labels:allYears, datasets:[
                           { type:'bar', label:'Energy (GWh)', yAxisID:'yL',
                             data:allYears.map(y=>Math.round(eby[y]||0)),
@@ -854,7 +857,7 @@ export default function EpmZonePage() {
                     )}
                   </div>
                   {pd && pd.chartData.datasets.length > 0 ? (
-                    <CJChart type="line"
+                    <CJChart name={ttl('Load profile (MW)',zoneIdDecoded,demandProfileMode==='full'?'Full year':ttl(demandSeason,demandDay==='avg'?'average day':demandDay))} type="line"
                       height={demandProfileMode==='full'?200:150}
                       data={pd.chartData}
                       plugins={pd.plugin?[pd.plugin]:[]}
@@ -890,7 +893,7 @@ export default function EpmZonePage() {
                   <SectionTitle t={t}>Capacity by fuel (MW)</SectionTitle>
                   <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <CJChart type="bar" height={Math.min(fd.length*22+24,200)}
+                      <CJChart name={ttl('Capacity by fuel (MW)',zoneIdDecoded)} type="bar" height={Math.min(fd.length*22+24,200)}
                         data={{ labels:fd.map(d=>d.fuel), datasets:[
                           { label:'Existing', data:fd.map(d=>d.ex), backgroundColor:fd.map(d=>EPM_FUEL_COLORS[d.fuel]||'#aaa'), borderWidth:0, barThickness:12, stack:'a' },
                           { label:'Committed', data:fd.map(d=>d.co), backgroundColor:fd.map(d=>hexA(EPM_FUEL_COLORS[d.fuel]||'#aaa',0.55)), borderWidth:0, barThickness:12, stack:'a' },
@@ -1096,7 +1099,7 @@ export default function EpmZonePage() {
                         )}
                       </div>
                       {vd && vd.chartData.datasets.length > 0 ? (
-                        <CJChart type="line"
+                        <CJChart name={ttl('VRE profile',vreTech,zoneIdDecoded,vreProfileMode==='full'?'Full year':ttl(vreSeason,vreDay==='avg'?'average day':vreDay))} type="line"
                           height={vreProfileMode==='full'?200:150}
                           data={vd.chartData}
                           plugins={vd.plugin?[vd.plugin]:[]}
@@ -1127,7 +1130,7 @@ export default function EpmZonePage() {
                     <>
                       <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <CJChart type="bar" height={160}
+                          <CJChart name={ttl('Seasonal availability (%)',zoneIdDecoded)} type="bar" height={160}
                             data={{ labels:qCols,
                               datasets:keys.map((k,i)=>({
                                 label: zoneAv[k].fuel&&zoneAv[k].fuel!==''?zoneAv[k].fuel:zoneAv[k].tech||k,
@@ -1182,7 +1185,7 @@ export default function EpmZonePage() {
                     <>
                       <div style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <CJChart type="line" height={160} data={fd}
+                          <CJChart name={ttl('Fuel prices',fpCountries?fpCountries.join(', '):zoneIdDecoded)} type="line" height={160} data={fd}
                             options={{ ...cjDefaults(t),
                               scales:{
                                 x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxTicksLimit:8}},
@@ -1239,7 +1242,7 @@ export default function EpmZonePage() {
                     </div>
                   ))}
                 </div>
-                <CJChart type="bar" height={Math.min(connections.length*22+30,200)}
+                <CJChart name={ttl('Corridor capacity (MW)',zoneIdDecoded,epmYear)} type="bar" height={Math.min(connections.length*22+30,200)}
                   data={{ labels:connections.map(c=>c.neighbor),
                     datasets:[{ data:connections.map(c=>c.mw),
                       backgroundColor:hexA('#f0b030',0.75), borderWidth:0, barThickness:12 }] }}
