@@ -21,6 +21,7 @@ import {
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
+import { physicalStats } from '../utils/summaryStats';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
@@ -640,20 +641,7 @@ export default function ResultsCountryPage() {
     if(!allSc.length||!allYears.length)return null;
     const ref=summaryRef||allSc[0];
     const lastY=allYears[allYears.length-1];
-    const RE=new Set(['Solar','PV','CSP','RPV','OnshoreWind','Onshore Wind','OffshoreWind','Offshore Wind','Reservoir','ReservoirHydro','ROR','PSH','Biomass','Geothermal']);
-    const compute=scen=>{
-      const sd=resultsData[scen];if(!sd)return{};
-      const yZS=key=>visZones.reduce((s,z)=>{for(const y of allYears)s+=(sd.yearlyZone[z]?.[key]?.[y]||0);return s;},0);
-      const yZL=key=>visZones.reduce((s,z)=>s+(sd.yearlyZone[z]?.[key]?.[lastY]||0),0);
-      let cT=0,cR=0,gT=0,gR=0;
-      for(const z of visZones){
-        for(const[tf,v]of Object.entries(sd.techFuel[z]?.CapacityTechFuel?.[lastY]||{})){cT+=v;if(RE.has(tf))cR+=v;}
-        for(const[tf,v]of Object.entries(sd.techFuel[z]?.GenerationTechFuel?.[lastY]||{})){gT+=v;if(RE.has(tf))gR+=v;}
-      }
-      const cc={};let ct=0;
-      for(const cat of MAIN_COST_CATS){let v=0;for(const z of visZones)for(const y of allYears)v+=(sd.costs[z]?.[cat]?.[y]||0);cc[cat]=v;ct+=v;}
-      return{demCumul:yZS('DemandEnergyZone')/1000,demLast:yZL('DemandEnergyZone')/1000,cT:cT/1000,cR:cR/1000,cRsh:cT>0?(cR/cT)*100:null,gRsh:gT>0?(gR/gT)*100:null,niCumul:yZS('NetImport')/1000,niLast:yZL('NetImport')/1000,costTotal:ct,...cc};
-    };
+    const compute=scen=>physicalStats(resultsData[scen],visZones,allYears,lastY,MAIN_COST_CATS);
     const data=Object.fromEntries(allSc.map(s=>[s,compute(s)]));
     return{allSc,ref,nonRef:allSc.filter(s=>s!==ref),data,lastY};
   };
@@ -1089,6 +1077,9 @@ export default function ResultsCountryPage() {
             net:[{si:0,data:nCols.map(s=>+(netOf(s)/1000).toFixed(3)),color:t.lbl}],
           };
           const npvNotes = [
+            hasNpv&&nCols.length
+              ? `Every component is a discounted cost, so a difference is ${ref} minus the scenario: positive means the scenario spends less on that line, which is a benefit.`
+              : null,
             hasNpv
               ? `Discounted on the model's own year factors. The totals are ${countryDecoded}'s share of the system NPV — a share the model never reports on its own, so each scenario's whole decomposition is checked against the model's NPV before its slice is drawn.`
               : null,
@@ -1105,14 +1096,25 @@ export default function ResultsCountryPage() {
             {sec:`DEMAND  ·  ${allYears[0]}–${lastY}`},
             {k:'demCumul',l:'Cumulative demand',u:'TWh',d:1},
             {k:'demLast',l:`Last year (${lastY})`,u:'TWh/yr',d:1},
+            {k:'peak',l:`Peak demand (${lastY})`,u:'GW',d:1},
             {sec:`CAPACITY  ·  ${lastY}`},
             {k:'cT',l:'Total installed',u:'GW',d:1},
             {k:'cR',l:'Renewables',u:'GW',d:1,ind:true},
             {k:'cRsh',l:'RE capacity share',u:'%',d:1,pct:true,ind:true,gP:true},
             ...(hasGen?[{k:'gRsh',l:'RE generation share',u:'%',d:1,pct:true,ind:true,gP:true}]:[]),
+            {k:'resMargin',l:'Reserve margin over peak',u:'%',d:0,pct:true,ind:true},
             {sec:`TRADE  ·  ${allYears[0]}–${lastY}`},
             {k:'niCumul',l:'Net import (cumul.)',u:'TWh',d:1,sgn:true},
             {k:'niLast',l:`Net import (${lastY})`,u:'TWh/yr',d:1,sgn:true},
+            {sec:`EMISSIONS  ·  ${allYears[0]}–${lastY}`},
+            {k:'co2Cumul',l:'CO₂ (cumulative)',u:'Mt',d:0,raw:true,gP:false},
+            {k:'co2Last',l:`CO₂ (${lastY})`,u:'Mt/yr',d:1,ind:true,gP:false},
+            {k:'co2Int',l:`Intensity (${lastY})`,u:'kg/MWh',d:0,ind:true,gP:false},
+            {sec:`RELIABILITY  ·  ${allYears[0]}–${lastY}`},
+            {k:'unmet',l:'Unserved energy',u:'GWh',d:0,raw:true,gP:false},
+            {k:'surplus',l:'Surplus generation',u:'GWh',d:0,raw:true,gP:false},
+            {sec:'AVERAGE COST OF SUPPLY  ·  undiscounted'},
+            {k:'costPerMWh',l:'Cost per MWh served',u:'$/MWh',d:1,gP:false},
             // Costs belong to the NPV tables above whenever the run carries the discounted
             // block. Without one, this undiscounted sum is all the page can say about cost.
             ...(hasNpv?[]:[
@@ -1125,7 +1127,10 @@ export default function ResultsCountryPage() {
             if(v==null||isNaN(v))return'—';
             const s=force||r.sgn;const a=Math.abs(v);
             const p=s?(v>=0?'+':'-'):(v<0?'-':'');
-            const str=r.pct?`${a.toFixed(r.d)}%`:a>=10000?`${Math.round(a/1000).toLocaleString()}k`:a>=1000?`${(a/1000).toFixed(1)}k`:a.toFixed(r.d);
+            // `raw` keeps the digits that matter: 2,398 vs 2,449 Mt says something, "2.4k" twice does not.
+            const str=r.pct?`${a.toFixed(r.d)}%`
+              :r.raw?a.toLocaleString(undefined,{minimumFractionDigits:r.d,maximumFractionDigits:r.d})
+              :a>=10000?`${Math.round(a/1000).toLocaleString()}k`:a>=1000?`${(a/1000).toFixed(1)}k`:a.toFixed(r.d);
             return p+str;
           };
           const dBg=(dv,gP)=>{if(dv==null||gP==null||dv===0)return'transparent';const good=gP===true?dv>0:dv<0;return good?'rgba(52,199,89,0.15)':'rgba(255,59,48,0.13)';};
@@ -1161,7 +1166,7 @@ export default function ResultsCountryPage() {
             <table style={{borderCollapse:'collapse',width:'100%'}}>
               <thead><tr>
                 <th style={{...hs,textAlign:'left',minWidth:130}}/>
-                {cols.map(s=><th key={s} style={hs}>{delta?`Δ ${s}`:s}</th>)}
+                {cols.map(s=><th key={s} style={hs}>{delta?`${ref} − ${s}`:s}</th>)}
                 <th style={{...hs,width:34}}>M$</th>
               </tr></thead>
               <tbody>
@@ -1174,7 +1179,7 @@ export default function ResultsCountryPage() {
                   <td/>
                 </tr>)}
                 <tr>
-                  <td style={{...ls,fontWeight:700,color:t.lbl}}>{delta?'Net difference':`Net present cost · ${countryDecoded}`}</td>
+                  <td style={{...ls,fontWeight:700,color:t.lbl}}>{delta?'Net benefit (avoided cost)':`Net present cost · ${countryDecoded}`}</td>
                   {cols.map(s=>{const v=npvVal(s,'__total',delta);
                     return<td key={s} style={{...cs,fontWeight:700,color:t.lbl,backgroundColor:delta?dBg(v,true):'transparent'}}>{fmt(v,0)}</td>;})}
                   <td/>
@@ -1209,18 +1214,19 @@ export default function ResultsCountryPage() {
                   {nCols.map(s=>{
                     const n=npvCountry[s],d=netOf(s),good=d>0;
                     const col=good?'#34C759':'#FF3B30';
-                    return<div key={s} style={{flex:'1 1 148px',minWidth:148,padding:'8px 10px',borderRadius:4,border:`1px solid ${t.panelBorder}`,backgroundColor:hexA(col,0.06)}}>
+                    return<div key={s} style={{flex:'1 1 132px',minWidth:132,padding:'7px 9px',borderRadius:4,border:`1px solid ${t.panelBorder}`,backgroundColor:hexA(col,0.06)}}>
                       <div style={{fontSize:'0.44rem',letterSpacing:'1px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s}</div>
-                      <div style={{fontSize:'1.05rem',fontWeight:700,color:col,lineHeight:1.3}}>{bn(d)}
-                        <span style={{fontSize:'0.48rem',fontWeight:400,color:t.muted,marginLeft:3}}>bn$ NPV</span></div>
-                      <div style={{fontSize:'0.42rem',color:t.lblMuted}}>{fmt(n.total,0)} vs {fmt(nRef.total,0)} M$</div>
+                      <div style={{fontSize:'0.78rem',fontWeight:700,color:col,lineHeight:1.25}}>{bn(d)}
+                        <span style={{fontSize:'0.42rem',fontWeight:400,color:t.muted,marginLeft:3}}>bn$</span></div>
+                      <div style={{fontSize:'0.44rem',fontWeight:600,color:col}}>{d>0?'+':''}{fmt(d,0)} M$ benefit</div>
+                      <div style={{fontSize:'0.4rem',color:t.lblMuted}}>cost NPV {fmt(nRef.total,0)} − {fmt(n.total,0)}</div>
                       {!n.hasCapex&&<div style={{fontSize:'0.4rem',color:'#FF9500',marginTop:2}}>⚠ capex missing</div>}
                     </div>;
                   })}
                 </div>}
 
                 <div>
-                  <SectionTitle t={t}>{`NPV difference vs ${ref}  ·  positive = saving for ${countryDecoded}  ·  bn$`}</SectionTitle>
+                  <SectionTitle t={t}>{`Benefit for ${countryDecoded} vs ${ref}  ·  avoided cost NPV = ${ref} − scenario  ·  bn$`}</SectionTitle>
                   {npvChart&&npvChart.datasets.length?
                     <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                       {byZ&&nCols.length>1&&<ScenarioKey t={t} scenarios={nCols}/>}
@@ -1235,7 +1241,7 @@ export default function ResultsCountryPage() {
                           },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw} bn$`}}}}}
                         />
                         <div style={{fontSize:'0.4rem',color:t.lblMuted,marginTop:3,display:'flex',alignItems:'center',gap:4}}>
-                          <span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',backgroundColor:t.lbl}}/>net difference
+                          <span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',backgroundColor:t.lbl}}/>net benefit
                         </div>
                       </div>
                       {makeLegend('npv-comp-c',comps.map(c=>({label:c.label,color:c.color})))}
@@ -1243,12 +1249,12 @@ export default function ResultsCountryPage() {
                   :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Pick at least one scenario to compare against {ref}.</div>}
                 </div>
 
-                <SectionTitle t={t}>Net present cost by component</SectionTitle>
-                {mkNpvTbl([ref,...nCols],false)}
                 {nCols.length>0&&<>
-                  <SectionTitle t={t}>{`Δ vs ${ref}  ·  positive = saving`}</SectionTitle>
+                  <SectionTitle t={t}>{`Benefit by component  ·  ${ref} − scenario  ·  positive = the scenario costs less`}</SectionTitle>
                   {mkNpvTbl(nCols,true)}
                 </>}
+                <SectionTitle t={t}>Net present cost by component  ·  levels, not benefits</SectionTitle>
+                {mkNpvTbl([ref,...nCols],false)}
               </>:<div style={{fontSize:'0.5rem',color:t.lblMuted,lineHeight:1.6}}>
                 {npvCountry[ref]
                   ?`The decomposition of ${ref} does not add back to the model's own NPV, so it cannot serve as a reference. Pick another one.`
@@ -1262,7 +1268,7 @@ export default function ResultsCountryPage() {
               <SectionTitle t={t}>Physical indicators</SectionTitle>
               {mkTbl(allSc,false)}
               {nonRef.length>0&&<>
-                <SectionTitle t={t}>{`Δ vs ${ref}`}</SectionTitle>
+                <SectionTitle t={t}>{`Δ vs ${ref}  ·  scenario − ${ref}`}</SectionTitle>
                 {mkTbl(nonRef,true)}
               </>}
             </div>
