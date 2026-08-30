@@ -39,12 +39,14 @@ function buildAxes(docs, scenarios) {
 
   // Axis values carry spaces, so the cell key joins on a character they cannot hold.
   const cells = {};                                  // `rowVal\u0000colVal` -> [scenario]
+  const pos = {};                                    // scenario -> its cell, for the cross-hair
   const seenRow = new Set(), seenCol = new Set();
   for (const s of scenarios) {
     const dm = docs?.docFor(s)?.dimensions;
     const rv = dm?.[row.key], cv = dm?.[col.key];
     if (!rv || !cv) continue;
     seenRow.add(rv); seenCol.add(cv);
+    pos[s] = { rv, cv };
     (cells[`${rv}\u0000${cv}`] ||= []).push(s);
   }
   if (!Object.keys(cells).length) return null;
@@ -60,14 +62,18 @@ function buildAxes(docs, scenarios) {
   };
 
   const rowGroups = axis(row, seenRow), colGroups = axis(col, seenCol);
+  const colNotes = col.notes || {};
   const cols = colGroups.flatMap(g => {
     const suf = commonSuffix(g.values);
-    return g.values.map((v, i) => ({ value: v, label: suf ? v.slice(0, v.length - suf.length - 1) || v : v, first: i === 0 }));
+    return g.values.map((v, i) => ({ value: v, note: colNotes[v] || '',
+      label: suf ? v.slice(0, v.length - suf.length - 1) || v : v, first: i === 0 }));
   });
   const placed = new Set(Object.values(cells).flat());
   return {
     rowLabel: row.label, colLabel: col.label, rowGroups, colGroups, cols,
+    rowNotes: row.notes || {},
     at: (rv, cv) => cells[`${rv}\u0000${cv}`] || [],
+    posOf: s => pos[s] || null,
     unplaced: scenarios.filter(s => !placed.has(s)),
   };
 }
@@ -196,6 +202,10 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
     ? Math.max(...list.map(s => Math.abs(benOf(s)?.net || 0)), 0)
     : 0;
 
+  // Which row and column the open card sits in, so both headers can say so.
+  const selAt = grid && sel ? axes.posOf(sel) : null;
+  const selRow = selAt?.rv, selCol = selAt?.cv;
+
   const th = { fontSize: '0.4rem', color: t.lblMuted, fontWeight: 600, padding: '3px 5px',
     textAlign: 'center', whiteSpace: 'nowrap' };
   const cellStyle = (ben, on, firstOfGroup) => {
@@ -212,13 +222,19 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
   const cellBtn = (scen, ben) => {
     const d = docs?.docFor(scen);
     const v = ben?.net;
+    // A scenario with no counterfactual declared is one: it is what its column is read
+    // against, so the cell says so rather than showing a blank where a benefit would be.
+    const isRef = !d?.counterfactual;
+    const val = v != null ? `${v > 0 ? '+' : '−'}${(Math.abs(v) / 1000).toFixed(2)}`
+      : isRef ? 'ref' : '—';
     return (
       <button key={scen} type="button" onClick={() => setSel(sel === scen ? null : scen)}
         title={`${d?.title || scen} — ${scen}${v != null ? ` · ${v > 0 ? '+' : ''}${(v / 1000).toFixed(2)} bn$ vs ${ben.ref}` : ''}`}
         style={{ display: 'block', width: '100%', border: 'none', background: 'none', cursor: 'pointer',
-          font: 'inherit', padding: '4px 6px', color: v == null ? t.lblMuted : t.lbl,
-          fontSize: v == null ? '0.5rem' : '0.44rem', fontWeight: v == null ? 400 : 700, whiteSpace: 'nowrap' }}>
-        {v == null ? '•' : `${v > 0 ? '+' : '−'}${(Math.abs(v) / 1000).toFixed(2)}`}
+          font: 'inherit', padding: '4px 7px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: '0.36rem', color: t.lblMuted, fontWeight: 400 }}>{scen}</div>
+        <div style={{ fontSize: v != null ? '0.5rem' : '0.42rem', fontWeight: v != null ? 700 : 400,
+          color: v != null ? t.lbl : t.lblMuted, marginTop: 1 }}>{val}</div>
       </button>
     );
   };
@@ -266,8 +282,11 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
               <tr>
                 <th style={{ ...th, textAlign: 'left', letterSpacing: '1px', textTransform: 'uppercase' }}>{axes.rowLabel}</th>
                 {axes.cols.map(c => (
-                  <th key={c.value} style={{ ...th, borderLeft: c.first ? `2px solid ${t.panelBorder}` : 'none', color: t.muted }}>
-                    {c.label}
+                  <th key={c.value} style={{ ...th, borderLeft: c.first ? `2px solid ${t.panelBorder}` : 'none',
+                    color: selCol === c.value ? t.lbl : t.muted, verticalAlign: 'bottom' }}>
+                    <div style={{ fontSize: '0.48rem', fontWeight: 700 }}>{c.label}</div>
+                    {c.note && <div style={{ fontSize: '0.38rem', fontWeight: 400, color: t.lblMuted,
+                      whiteSpace: 'normal', maxWidth: 150, margin: '2px auto 0', lineHeight: 1.4 }}>{c.note}</div>}
                   </th>
                 ))}
               </tr>
@@ -282,8 +301,12 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
                   </tr>
                   {g.values.map(rv => (
                     <tr key={rv}>
-                      <td style={{ fontSize: '0.46rem', color: t.lbl, padding: '3px 10px 3px 6px',
-                        borderTop: `1px solid ${t.panelBorder}`, whiteSpace: 'nowrap' }}>{rv}</td>
+                      <td style={{ padding: '4px 12px 4px 6px', borderTop: `1px solid ${t.panelBorder}`,
+                        backgroundColor: selRow === rv ? hexA(t.panelBorder, 0.35) : 'transparent' }}>
+                        <div style={{ fontSize: '0.48rem', fontWeight: 700, color: t.lbl, whiteSpace: 'nowrap' }}>{rv}</div>
+                        {axes.rowNotes[rv] && <div style={{ fontSize: '0.38rem', color: t.lblMuted,
+                          maxWidth: 230, lineHeight: 1.45, marginTop: 1 }}>{axes.rowNotes[rv]}</div>}
+                      </td>
                       {axes.cols.map(c => {
                         const here = axes.at(rv, c.value);
                         const on = here.includes(sel);
@@ -303,8 +326,10 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
 
         <div style={{ fontSize: '0.4rem', color: t.lblMuted, lineHeight: 1.6 }}>
           {scale > 0
-            ? <>Cell = net benefit in bn$ against the scenario’s own counterfactual, shaded by size. Click one to read what it is. Empty = not run.</>
-            : <>• = the run solved this combination. Click one to read what it is. Empty = not run.</>}
+            ? <>Each cell holds the scenario name and its net benefit in bn$ against its own counterfactual, shaded by size.
+              {' '}<b>ref</b> = the counterfactual itself; <b>—</b> = solved, but its cost decomposition does not reconcile
+              {' '}with the model NPV, so no benefit is shown. Click a cell to read what the scenario changes. Empty = not run.</>
+            : <>Each cell holds a scenario the run solved. Click one to read what it changes. Empty = not run.</>}
           {axes.unplaced.length > 0 && <>
             {' '}Off the matrix (no declared axes): {axes.unplaced.map((s, i) => (
               <span key={s}>{i ? ', ' : ''}

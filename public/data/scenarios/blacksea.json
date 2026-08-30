@@ -13,7 +13,25 @@
         { "label": "Combined",           "values": ["Every project", "Regional lines optional"] },
         { "label": "Optimised expansion","values": ["Turkish grid free", "Borders free", "Whole grid free"] },
         { "label": "Other sensitivities","values": ["Turkish gas flat"] }
-      ]
+      ],
+      "notes": {
+        "No trade at all": "every zone on its own, no exchange at all",
+        "Existing corridors": "today's capacity, nothing built",
+        "Existing corridors reinforced": "Turkiye-EU corridors +2 040 MW from 2027, 816 M$",
+        "BSSC phase 1": "Black Sea Submarine Cable: GE-RO 1 300 MW, 2031, 3 500 M$",
+        "BSSC phases 1+2": "GECO, the same corridor at 5 200 MW, 14 000 M$",
+        "EWTC": "East-West corridor: 2 x 775 MW to Bulgaria and Greece, 500 M$",
+        "Trans-Caspian": "AZ-KZ 1 000 MW across the Caspian, 2035, 2 000 M$",
+        "BSTN line": "Turkiye-Georgia 350 MW, 2032, 850 M$",
+        "Zangezur line": "Nakhchivan-Turkiye 1 000 MW, 2032, 1 450 M$",
+        "CTN line": "Georgia-Armenia 350 MW, 2029, 850 M$",
+        "Every project": "all of the above committed, 16 500 M$ of capex",
+        "Regional lines optional": "the three regional lines offered, not committed",
+        "Turkish grid free": "internal Turkish corridors open to candidates",
+        "Borders free": "regional borders open to candidates",
+        "Whole grid free": "both free-expansion sets; a benchmark, not a plan",
+        "Turkish gas flat": "Turkish gas flat at 10 $/MMBtu, now the study default"
+      }
     },
     {
       "key": "price",
@@ -22,7 +40,19 @@
       "groups": [
         { "label": "EU price path", "values": ["Very low", "Low", "Central", "High", "Crisis"] },
         { "label": "with CBAM",     "values": ["Very low + CBAM", "Low + CBAM", "Central + CBAM", "High + CBAM", "Crisis + CBAM"] }
-      ]
+      ],
+      "notes": {
+        "Very low": "EU border price on the very-low path",
+        "Low": "on the low path",
+        "Central": "on the central path",
+        "High": "on the high path",
+        "Crisis": "a repeat of the 2022 kind of shock",
+        "Very low + CBAM": "very-low imports, CBAM on exports",
+        "Low + CBAM": "low imports, CBAM on exports",
+        "Central + CBAM": "central imports, CBAM on exports",
+        "High + CBAM": "high imports, CBAM on exports",
+        "Crisis + CBAM": "crisis imports, CBAM on exports"
+      }
     }
   ],
   "scenarios": {
