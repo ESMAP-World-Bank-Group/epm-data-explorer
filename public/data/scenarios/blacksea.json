@@ -3,8 +3,27 @@
   "updated": "2026-08-30",
   "intro": "Two things move across the study: which interconnectors get built, and what the EU pays for power at the border. A scenario is one choice on each axis, so a project scenario must be read against the counterfactual that shares its price path — not against the central baseline.",
   "dimensions": [
-    { "key": "grid",  "label": "Grid" },
-    { "key": "price", "label": "EU price path" }
+    {
+      "key": "grid",
+      "label": "Grid",
+      "axis": "row",
+      "groups": [
+        { "label": "Counterfactual",     "values": ["No trade at all", "Existing corridors"] },
+        { "label": "Single projects",    "values": ["Existing corridors reinforced", "BSSC phase 1", "BSSC phases 1+2", "EWTC", "Trans-Caspian", "BSTN line", "Zangezur line", "CTN line"] },
+        { "label": "Combined",           "values": ["Every project", "Regional lines optional"] },
+        { "label": "Optimised expansion","values": ["Turkish grid free", "Borders free", "Whole grid free"] },
+        { "label": "Other sensitivities","values": ["Turkish gas flat"] }
+      ]
+    },
+    {
+      "key": "price",
+      "label": "EU price path",
+      "axis": "col",
+      "groups": [
+        { "label": "EU price path", "values": ["Very low", "Low", "Central", "High", "Crisis"] },
+        { "label": "with CBAM",     "values": ["Very low + CBAM", "Low + CBAM", "Central + CBAM", "High + CBAM", "Crisis + CBAM"] }
+      ]
+    }
   ],
   "scenarios": {
     "LC_Baseline": {
@@ -61,19 +80,19 @@
     },
     "LC_BSTN": {
       "title": "BSTN — EastAna–Georgia",
-      "dimensions": { "grid": "One regional line committed", "price": "Central" },
+      "dimensions": { "grid": "BSTN line", "price": "Central" },
       "summary": "The Turkiye–Georgia line committed: 350 MW from 2032, 850 M$. External capacity unchanged.",
       "counterfactual": "LC_Baseline"
     },
     "LC_Zangezur": {
       "title": "Zangezur — Nakhchivan–EastAna",
-      "dimensions": { "grid": "One regional line committed", "price": "Central" },
+      "dimensions": { "grid": "Zangezur line", "price": "Central" },
       "summary": "The Nakhchivan–Turkiye line committed: 1 000 MW from 2032, 1 450 M$.",
       "counterfactual": "LC_Baseline"
     },
     "LC_CTN": {
       "title": "CTN — Georgia–Armenia",
-      "dimensions": { "grid": "One regional line committed", "price": "Central" },
+      "dimensions": { "grid": "CTN line", "price": "Central" },
       "summary": "The Georgia–Armenia line committed: 350 MW from 2029, 850 M$.",
       "counterfactual": "LC_Baseline"
     },
@@ -109,7 +128,7 @@
     },
     "LC_TRGasFlat": {
       "title": "Turkish gas flat",
-      "dimensions": { "grid": "Existing corridors", "price": "Central" },
+      "dimensions": { "grid": "Turkish gas flat", "price": "Central" },
       "summary": "Turkish gas at a flat 10 $/MMBtu. That path became the study default on 2026-08-25, so this scenario now reproduces the baseline and is kept only for provenance.",
       "counterfactual": "LC_Baseline"
     },

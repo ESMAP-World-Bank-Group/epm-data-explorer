@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { baseName } from '../utils/epmScenarios';
 
 function hexA(hex, a) {
@@ -7,18 +7,163 @@ function hexA(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+const GOOD = '#34C759', BAD = '#FF3B30';
+
+/** Longest common trailing word-suffix of a group's values, so a column head can drop what
+ *  its group header already says ("Very low + CBAM" under "with CBAM" reads "Very low"). */
+function commonSuffix(values) {
+  if (values.length < 2) return '';
+  let suf = '';
+  const parts = values.map(v => v.split(' '));
+  const n = Math.min(...parts.map(p => p.length));
+  for (let i = 1; i < n; i++) {
+    const tail = parts.map(p => p.slice(p.length - i).join(' '));
+    if (tail.every(x => x === tail[0])) suf = tail[0]; else break;
+  }
+  return suf;
+}
+
+/**
+ * The two axes a schematic view needs, or null when the study has none.
+ *
+ * A region's doc file declares them (`dimensions`, each with ordered `groups`); the run
+ * decides which of their values are real. Values no scenario uses are dropped, so the
+ * matrix stays as small as the run actually is, and a study that declares no dimensions —
+ * which is most of them — simply gets no matrix and falls back to the list.
+ */
+function buildAxes(docs, scenarios) {
+  const dims = docs?.dimensions || [];
+  const row = dims.find(d => d.axis === 'row') || dims[0];
+  const col = dims.find(d => d.axis === 'col') || dims[1];
+  if (!row || !col || row.key === col.key) return null;
+
+  // Axis values carry spaces, so the cell key joins on a character they cannot hold.
+  const cells = {};                                  // `rowVal\u0000colVal` -> [scenario]
+  const seenRow = new Set(), seenCol = new Set();
+  for (const s of scenarios) {
+    const dm = docs?.docFor(s)?.dimensions;
+    const rv = dm?.[row.key], cv = dm?.[col.key];
+    if (!rv || !cv) continue;
+    seenRow.add(rv); seenCol.add(cv);
+    (cells[`${rv}\u0000${cv}`] ||= []).push(s);
+  }
+  if (!Object.keys(cells).length) return null;
+
+  // Declared order wins; anything the doc forgot to declare is appended rather than lost.
+  const axis = (dim, seen) => {
+    const groups = (dim.groups?.length ? dim.groups : [{ label: dim.label, values: [] }])
+      .map(g => ({ label: g.label, values: (g.values || []).filter(v => seen.has(v)) }));
+    const declared = new Set(groups.flatMap(g => g.values));
+    const rest = [...seen].filter(v => !declared.has(v));
+    if (rest.length) groups.push({ label: groups.length > 1 ? 'Other' : dim.label, values: rest });
+    return groups.filter(g => g.values.length);
+  };
+
+  const rowGroups = axis(row, seenRow), colGroups = axis(col, seenCol);
+  const cols = colGroups.flatMap(g => {
+    const suf = commonSuffix(g.values);
+    return g.values.map((v, i) => ({ value: v, label: suf ? v.slice(0, v.length - suf.length - 1) || v : v, first: i === 0 }));
+  });
+  const placed = new Set(Object.values(cells).flat());
+  return {
+    rowLabel: row.label, colLabel: col.label, rowGroups, colGroups, cols,
+    at: (rv, cv) => cells[`${rv}\u0000${cv}`] || [],
+    unplaced: scenarios.filter(s => !placed.has(s)),
+  };
+}
+
+/** One scenario, written out: what it is, then the inputs it swaps. */
+function ScenarioCard({ t, scen, docs, diff, ben, dense }) {
+  const d = docs?.docFor(scen) || null;
+  const good = ben && ben.net > 0;
+  const chip = (label, value) => (
+    <span key={label} style={{ fontSize: '0.4rem', color: t.lblMuted, border: `1px solid ${t.panelBorder}`,
+      borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+      {label}: <b style={{ color: t.muted, fontWeight: 600 }}>{value}</b>
+    </span>
+  );
+  return (
+    <div style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 6, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+        padding: '6px 10px', backgroundColor: hexA(t.panelBorder, 0.35) }}>
+        <span style={{ fontSize: '0.55rem', fontWeight: 700, color: t.lbl }}>
+          {d?.title || scen}
+          {d?.title && <span style={{ fontSize: '0.42rem', fontWeight: 400, color: t.lblMuted, marginLeft: 6 }}>{scen}</span>}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {ben && (
+            <span style={{ fontSize: '0.44rem', color: good ? GOOD : BAD, fontWeight: 700 }}>
+              {good ? '+' : '-'}{(Math.abs(ben.net) / 1000).toFixed(2)} bn$
+              <span style={{ color: t.lblMuted, fontWeight: 400 }}> vs {ben.ref}</span>
+            </span>
+          )}
+          <span style={{ fontSize: '0.42rem', color: t.lblMuted }}>
+            {diff.length ? `${diff.length} variant${diff.length !== 1 ? 's' : ''}` : 'base only'}
+          </span>
+        </span>
+      </div>
+
+      {d && (
+        <div style={{ padding: '7px 10px', borderBottom: `1px solid ${t.panelBorder}` }}>
+          <div style={{ fontSize: '0.48rem', color: t.muted, lineHeight: 1.6 }}>{d.summary}</div>
+          {(d.detail || []).map((p, i) => (
+            <div key={i} style={{ fontSize: '0.44rem', color: t.lblMuted, lineHeight: 1.6, marginTop: 4 }}>{p}</div>
+          ))}
+          {d.dimensions && (
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+              {(docs?.dimensions?.length
+                ? docs.dimensions.filter(x => d.dimensions[x.key]).map(x => [x.label, d.dimensions[x.key]])
+                : Object.entries(d.dimensions)
+              ).map(([label, value]) => chip(label, value))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {diff.length === 0 ? (
+        <div style={{ padding: '6px 10px', fontSize: '0.46rem', color: t.lblMuted, fontStyle: 'italic' }}>
+          Identical to the base case.
+        </div>
+      ) : (
+        <div style={{ padding: '4px 0', maxHeight: dense ? 220 : undefined, overflowY: dense ? 'auto' : undefined }}>
+          {diff.map(x => (
+            <div key={x.paramName} style={{ display: 'grid', gridTemplateColumns: '70px 1fr',
+              gap: 8, padding: '3px 10px', fontSize: '0.44rem', alignItems: 'baseline' }}>
+              <span style={{ color: t.lblMuted }}>{x.section || '—'}</span>
+              <span>
+                <span style={{ color: t.lbl, fontWeight: 600 }}>{x.paramName}</span>
+                <span style={{ color: '#E8A33D', marginLeft: 5 }}>△ {baseName(x.file)}</span>
+                {x.defaultFile && <span style={{ color: t.lblMuted, marginLeft: 5 }}>(default: {baseName(x.defaultFile)})</span>}
+                {x.label && <div style={{ color: t.lblMuted, fontSize: '0.4rem', marginTop: 1 }}>{x.label}</div>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Recap of the scenarios defined in scenarios.csv: each scenario + the inputs it
 // overrides vs the base case (the systematic diff). Self-contained (own search box),
 // shared by the region / country / zone EPM input views and by the results pages.
 //
+// A study of any size is a matrix, not a list: Black Sea runs 34 scenarios that are one
+// choice of grid crossed with one choice of EU price path, and stacking 34 cards hides
+// both the crossing and the holes in it. When the region's doc file declares its axes the
+// tab draws that matrix and opens one card on click; otherwise it lists, as it always did.
+//
 // Three things are optional, and the tab degrades one at a time rather than all at once:
 //   scnMeta  -- the variant diff. Absent for a folder with only a base case.
 //   docs     -- the written explanation (utils/scenarioDocs). Absent for a region that
-//               has no prose file yet, which is most of them.
+//               has no prose file yet, which is most of them. No docs, no matrix.
 //   benefitOf-- net NPV difference against the scenario's own counterfactual, which only
-//               a results page can compute. Absent on the inputs pages.
+//               a results page can compute. Absent on the inputs pages, where the matrix
+//               shows which scenarios exist rather than what they are worth.
 export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
   const [scnFilter, setScnFilter] = useState('');
+  const [view, setView] = useState('matrix');
+  const [sel, setSel] = useState(null);
 
   // The run's own list wins when there is one: it says what was actually solved, where
   // scenarios.csv says only what could be.
@@ -41,13 +186,42 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
 
   const hay = s => `${s} ${docs?.docFor(s)?.title || ''} ${docs?.docFor(s)?.summary || ''}`.toLowerCase();
   const list = all.filter(s => hay(s).includes(scnFilter.toLowerCase()));
+  const diffOf = s => scnMeta?.diffByScenario?.[s] || [];
+  const benOf  = s => benefitOf?.(s) || null;
 
-  const chip = (label, value) => (
-    <span key={label} style={{ fontSize: '0.4rem', color: t.lblMuted, border: `1px solid ${t.panelBorder}`,
-      borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
-      {label}: <b style={{ color: t.muted, fontWeight: 600 }}>{value}</b>
-    </span>
-  );
+  // The filter narrows the matrix itself, not just a list under it.
+  const axes = buildAxes(docs, list);
+  const grid = axes && view === 'matrix';
+  const scale = grid
+    ? Math.max(...list.map(s => Math.abs(benOf(s)?.net || 0)), 0)
+    : 0;
+
+  const th = { fontSize: '0.4rem', color: t.lblMuted, fontWeight: 600, padding: '3px 5px',
+    textAlign: 'center', whiteSpace: 'nowrap' };
+  const cellStyle = (ben, on, firstOfGroup) => {
+    const v = ben?.net;
+    const col = v == null ? null : v > 0 ? GOOD : BAD;
+    return {
+      padding: 0, textAlign: 'center', borderTop: `1px solid ${t.panelBorder}`,
+      borderLeft: firstOfGroup ? `2px solid ${t.panelBorder}` : `1px solid ${hexA(t.panelBorder, 0.5)}`,
+      backgroundColor: col && scale ? hexA(col, Math.min(0.55, (Math.abs(v) / scale) * 0.55)) : 'transparent',
+      outline: on ? `2px solid ${t.lbl}` : 'none', outlineOffset: -2,
+    };
+  };
+
+  const cellBtn = (scen, ben) => {
+    const d = docs?.docFor(scen);
+    const v = ben?.net;
+    return (
+      <button key={scen} type="button" onClick={() => setSel(sel === scen ? null : scen)}
+        title={`${d?.title || scen} — ${scen}${v != null ? ` · ${v > 0 ? '+' : ''}${(v / 1000).toFixed(2)} bn$ vs ${ben.ref}` : ''}`}
+        style={{ display: 'block', width: '100%', border: 'none', background: 'none', cursor: 'pointer',
+          font: 'inherit', padding: '4px 6px', color: v == null ? t.lblMuted : t.lbl,
+          fontSize: v == null ? '0.5rem' : '0.44rem', fontWeight: v == null ? 400 : 700, whiteSpace: 'nowrap' }}>
+        {v == null ? '•' : `${v > 0 ? '+' : '−'}${(Math.abs(v) / 1000).toFixed(2)}`}
+      </button>
+    );
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -55,80 +229,103 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
         {docs?.intro && <div style={{ marginBottom: 6 }}>{docs.intro}</div>}
         <b>{all.length}</b> scenario{all.length !== 1 ? 's' : ''}
         {scnMeta?.scenariosFile && <> in <code>{scnMeta.scenariosFile}</code></>}.
-        {' '}Each card shows the inputs a scenario <b>changes from the base case</b>
-        {' '}(a △ variant file); everything else uses the default.
+        {' '}{grid
+          ? <>Read a project across its own row for the price sensitivity, and against the top of its own column for the benefit — a scenario is only comparable to the counterfactual that shares its price path.</>
+          : <>Each card shows the inputs a scenario <b>changes from the base case</b> (a △ variant file); everything else uses the default.</>}
       </div>
-      <input value={scnFilter} onChange={e => setScnFilter(e.target.value)}
-        placeholder="Filter scenarios…"
-        style={{ fontSize: '0.5rem', fontFamily: 'inherit', padding: '4px 8px', borderRadius: 4,
-          border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.muted, width: '100%' }} />
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input value={scnFilter} onChange={e => { setScnFilter(e.target.value); setSel(null); }}
+          placeholder="Filter scenarios…"
+          style={{ fontSize: '0.5rem', fontFamily: 'inherit', padding: '4px 8px', borderRadius: 4,
+            border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.muted, flex: 1 }} />
+        {axes && ['matrix', 'list'].map(v => (
+          <button key={v} type="button" onClick={() => setView(v)}
+            style={{ fontSize: '0.42rem', fontFamily: 'inherit', textTransform: 'uppercase', letterSpacing: '1px',
+              padding: '4px 9px', borderRadius: 4, cursor: 'pointer', fontWeight: 700,
+              border: `1px solid ${view === v ? t.lbl : t.panelBorder}`,
+              backgroundColor: view === v ? hexA(t.panelBorder, 0.5) : 'transparent',
+              color: view === v ? t.lbl : t.lblMuted }}>{v}</button>
+        ))}
+      </div>
+
       {list.length === 0 && <div style={{ color: t.lblMuted, fontSize: '0.5rem' }}>No scenario matches “{scnFilter}”.</div>}
-      {list.map(s => {
-        const diff = scnMeta?.diffByScenario?.[s] || [];
-        const d    = docs?.docFor(s) || null;
-        const ben  = benefitOf?.(s) || null;
-        const good = ben && ben.net > 0;
-        return (
-          <div key={s} style={{ border: `1px solid ${t.panelBorder}`, borderRadius: 6, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
-              padding: '6px 10px', backgroundColor: hexA(t.panelBorder, 0.35) }}>
-              <span style={{ fontSize: '0.55rem', fontWeight: 700, color: t.lbl }}>
-                {d?.title || s}
-                {d?.title && <span style={{ fontSize: '0.42rem', fontWeight: 400, color: t.lblMuted, marginLeft: 6 }}>{s}</span>}
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                {ben && (
-                  <span style={{ fontSize: '0.44rem', color: good ? '#34C759' : '#FF3B30', fontWeight: 700 }}>
-                    {good ? '+' : '-'}{(Math.abs(ben.net) / 1000).toFixed(2)} bn$
-                    <span style={{ color: t.lblMuted, fontWeight: 400 }}> vs {ben.ref}</span>
-                  </span>
-                )}
-                <span style={{ fontSize: '0.42rem', color: t.lblMuted }}>
-                  {diff.length ? `${diff.length} variant${diff.length !== 1 ? 's' : ''}` : 'base only'}
-                </span>
-              </span>
-            </div>
 
-            {d && (
-              <div style={{ padding: '7px 10px', borderBottom: `1px solid ${t.panelBorder}` }}>
-                <div style={{ fontSize: '0.48rem', color: t.muted, lineHeight: 1.6 }}>{d.summary}</div>
-                {(d.detail || []).map((p, i) => (
-                  <div key={i} style={{ fontSize: '0.44rem', color: t.lblMuted, lineHeight: 1.6, marginTop: 4 }}>{p}</div>
+      {grid && <>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: 'left' }} />
+                {axes.colGroups.map(g => (
+                  <th key={g.label} colSpan={g.values.length}
+                    style={{ ...th, borderLeft: `2px solid ${t.panelBorder}`, borderBottom: `1px solid ${t.panelBorder}`,
+                      letterSpacing: '1px', textTransform: 'uppercase', color: t.muted }}>{g.label}</th>
                 ))}
-                {d.dimensions && (
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
-                    {(docs?.dimensions?.length
-                      ? docs.dimensions.filter(x => d.dimensions[x.key]).map(x => [x.label, d.dimensions[x.key]])
-                      : Object.entries(d.dimensions)
-                    ).map(([label, value]) => chip(label, value))}
-                  </div>
-                )}
-              </div>
-            )}
+              </tr>
+              <tr>
+                <th style={{ ...th, textAlign: 'left', letterSpacing: '1px', textTransform: 'uppercase' }}>{axes.rowLabel}</th>
+                {axes.cols.map(c => (
+                  <th key={c.value} style={{ ...th, borderLeft: c.first ? `2px solid ${t.panelBorder}` : 'none', color: t.muted }}>
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {axes.rowGroups.map(g => (
+                <Fragment key={g.label}>
+                  <tr>
+                    <td colSpan={axes.cols.length + 1}
+                      style={{ fontSize: '0.4rem', color: t.lblMuted, letterSpacing: '1px', textTransform: 'uppercase',
+                        fontWeight: 700, padding: '6px 6px 2px', borderTop: `1px solid ${t.panelBorder}` }}>{g.label}</td>
+                  </tr>
+                  {g.values.map(rv => (
+                    <tr key={rv}>
+                      <td style={{ fontSize: '0.46rem', color: t.lbl, padding: '3px 10px 3px 6px',
+                        borderTop: `1px solid ${t.panelBorder}`, whiteSpace: 'nowrap' }}>{rv}</td>
+                      {axes.cols.map(c => {
+                        const here = axes.at(rv, c.value);
+                        const on = here.includes(sel);
+                        return (
+                          <td key={c.value} style={cellStyle(here.length === 1 ? benOf(here[0]) : null, on, c.first)}>
+                            {here.map(s => cellBtn(s, benOf(s)))}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-            {diff.length === 0 ? (
-              <div style={{ padding: '6px 10px', fontSize: '0.46rem', color: t.lblMuted, fontStyle: 'italic' }}>
-                Identical to the base case.
-              </div>
-            ) : (
-              <div style={{ padding: '4px 0' }}>
-                {diff.map(x => (
-                  <div key={x.paramName} style={{ display: 'grid', gridTemplateColumns: '70px 1fr',
-                    gap: 8, padding: '3px 10px', fontSize: '0.44rem', alignItems: 'baseline' }}>
-                    <span style={{ color: t.lblMuted }}>{x.section || '—'}</span>
-                    <span>
-                      <span style={{ color: t.lbl, fontWeight: 600 }}>{x.paramName}</span>
-                      <span style={{ color: '#E8A33D', marginLeft: 5 }}>△ {baseName(x.file)}</span>
-                      {x.defaultFile && <span style={{ color: t.lblMuted, marginLeft: 5 }}>(default: {baseName(x.defaultFile)})</span>}
-                      {x.label && <div style={{ color: t.lblMuted, fontSize: '0.4rem', marginTop: 1 }}>{x.label}</div>}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
+        <div style={{ fontSize: '0.4rem', color: t.lblMuted, lineHeight: 1.6 }}>
+          {scale > 0
+            ? <>Cell = net benefit in bn$ against the scenario’s own counterfactual, shaded by size. Click one to read what it is. Empty = not run.</>
+            : <>• = the run solved this combination. Click one to read what it is. Empty = not run.</>}
+          {axes.unplaced.length > 0 && <>
+            {' '}Off the matrix (no declared axes): {axes.unplaced.map((s, i) => (
+              <span key={s}>{i ? ', ' : ''}
+                <button type="button" onClick={() => setSel(sel === s ? null : s)}
+                  style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: t.muted,
+                    textDecoration: 'underline', cursor: 'pointer' }}>{s}</button>
+              </span>
+            ))}.
+          </>}
+        </div>
+
+        {sel
+          ? <ScenarioCard t={t} scen={sel} docs={docs} diff={diffOf(sel)} ben={benOf(sel)} dense />
+          : <div style={{ fontSize: '0.46rem', color: t.lblMuted, fontStyle: 'italic' }}>
+              Pick a cell to read what that scenario changes.
+            </div>}
+      </>}
+
+      {!grid && list.map(s => (
+        <ScenarioCard key={s} t={t} scen={s} docs={docs} diff={diffOf(s)} ben={benOf(s)} />
+      ))}
     </div>
   );
 }
