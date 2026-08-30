@@ -84,6 +84,13 @@ function viewWindow({ slices, sources, seasons, days, daySel }) {
 /** Draws what Chart.js cannot: the demand and price lines crisply on top of the stack
  *  (they carry order:1, so they are painted before it and end up underneath), and on a
  *  grouped axis the season and day-type separators with each block's share of the year. */
+/** Whether the dataset an overlay line doubles is still on the chart. The pages drop
+ *  a hidden series from `data.datasets` outright, and Chart.js can hide one in place. */
+function lineVisible(chart, label) {
+  if (!label) return true;
+  return chart.data.datasets.some((d, i) => d.label === label && chart.isDatasetVisible(i));
+}
+
 function overlay({ ax, seasons, days, grouped, isDark, hoursData, totalDays, lines }) {
   const drawn = lines.filter(([data]) => data && data.some(v => v != null));
   if (!drawn.length && !grouped) return null;
@@ -92,9 +99,19 @@ function overlay({ ax, seasons, days, grouped, isDark, hoursData, totalDays, lin
     afterDatasetsDraw(chart) {
       const { ctx, chartArea, scales } = chart;
       if (!chartArea) return;
-      for (const [data, yKey, color, width] of drawn) {
-        if (!scales[yKey]) continue;
-        ctx.save(); ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash([]);
+      // Chart.js clips its own datasets to the plot. This hand-drawn pass has to clip
+      // itself, or a point outside the current range is painted over the axes and on
+      // into the panel around them.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(chartArea.left, chartArea.top,
+        chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+      ctx.clip();
+      for (const [data, yKey, color, width, label] of drawn) {
+        // A series taken off the legend leaves the scale with it, so what is left of
+        // that scale no longer describes these points. Hidden means not drawn.
+        if (!scales[yKey] || !lineVisible(chart, label)) continue;
+        ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash([]);
         let moved = false;
         data.forEach((v, i) => {
           if (v == null) { moved = false; return; }
@@ -102,8 +119,9 @@ function overlay({ ax, seasons, days, grouped, isDark, hoursData, totalDays, lin
           if (moved) ctx.lineTo(x, y); else ctx.moveTo(x, y);
           moved = true;
         });
-        ctx.stroke(); ctx.restore();
+        ctx.stroke();
       }
+      ctx.restore();
     },
     afterDraw(chart) {
       const { ctx, chartArea, scales } = chart;
@@ -172,7 +190,8 @@ export function buildDispatchSeries({ slices, zDisp, price, seasons, days, daySe
   return {
     chartData: { labels: w.labels, datasets }, xTicks: w.xTicks, grouped: w.grouped,
     plugin: overlay({ ax: w.ax, seasons, days: w.shown, grouped: w.grouped, isDark, hoursData, totalDays,
-      lines: [[demandLine, 'y', DEMAND_OVERLAY, 1.5], [priceLine, 'yR', mcColor, 1]] }),
+      lines: [[demandLine, 'y', DEMAND_OVERLAY, 1.5, 'Demand'],
+              [priceLine, 'yR', mcColor, 1, 'Marginal cost']] }),
   };
 }
 
@@ -201,7 +220,7 @@ export function buildDispatchDeltaSeries({ slices, zA, zB, priceA, priceB, seaso
   return {
     chartData: { labels: w.labels, datasets }, xTicks: w.xTicks, grouped: w.grouped,
     plugin: overlay({ ax: w.ax, seasons, days: w.shown, grouped: w.grouped, isDark, hoursData, totalDays,
-      lines: [[dPrice, 'yR', mcColor, 1]] }),
+      lines: [[dPrice, 'yR', mcColor, 1, 'Marginal cost']] }),
   };
 }
 
