@@ -83,6 +83,8 @@ const INDICATORS=[
   {key:'CapexInvestmentComponent',label:'CAPEX (m USD)',source:'yearlyZone',unit:'m USD'},
   {key:'GenCostsPerMWh',label:'Gen Cost (USD/MWh)',source:'yearlyZone',unit:'USD/MWh'},
   {key:'DemandEnergyZone',label:'Demand (GWh)',source:'yearlyZone',unit:'GWh'},
+  // See ResultsRegionPage for why EmissionsIntensityZone is not exposed alongside this one.
+  {key:'EmissionsZone',label:'Emissions (Mt CO2)',source:'yearlyZone',unit:'Mt CO2'},
   {key:'Trade',label:'Trade (GWh)',source:'trade',unit:'GWh'},
 ];
 

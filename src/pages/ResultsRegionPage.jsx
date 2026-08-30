@@ -84,6 +84,11 @@ const INDICATORS = [
   { key:'Costs',                        label:'Costs total (m USD)',       source:'yearlyZone', unit:'m USD' },
   { key:'CapexInvestmentComponent',     label:'CAPEX (m USD)',             source:'yearlyZone', unit:'m USD' },
   { key:'GenCostsPerMWh',               label:'Gen Cost (USD/MWh)',        source:'yearlyZone', unit:'USD/MWh' },
+  // EmissionsIntensityZone sits next to this one in pYearlyZoneMerged and is deliberately
+  // left out: the model writes values around 1e-7 where the zone's own emissions and demand
+  // give ~96 tCO2/GWh, and the treated CSV rounds them to zero. An intensity would have to
+  // be derived from EmissionsZone and DemandEnergyZone rather than read.
+  { key:'EmissionsZone',                label:'Emissions (Mt CO2)',        source:'yearlyZone', unit:'Mt CO2' },
   { key:'Trade',                         label:'Trade (GWh)',               source:'trade',      unit:'GWh' },
 ];
 
