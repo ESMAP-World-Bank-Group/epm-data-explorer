@@ -32,6 +32,8 @@ import { usePromotedZones } from '../utils/usePromotedZones';
 import {
   processNpvInput, processNpvSystem, buildNpv, aggregateNpv, npvDelta, visibleComps,
 } from '../utils/npv';
+import CJChart from '../components/CJChart';
+import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -67,12 +69,6 @@ const INDICATORS=[
   {key:'Trade',label:'Trade (GWh)',source:'trade',unit:'GWh'},
 ];
 
-function CJChart({type,data,options,height,plugins:ep,cacheKey}){
-  const ref=useRef(null);const chart=useRef(null);
-  const sig=JSON.stringify({type,labels:data.labels,ck:cacheKey,ds:data.datasets?.map(d=>({l:d.label,n:d.data?.length,t:d.type}))});
-  useEffect(()=>{const CJ=window.Chart;if(!CJ||!ref.current)return;chart.current?.destroy();chart.current=new CJ(ref.current,{type,data,options,plugins:ep||[]});return()=>{chart.current?.destroy();chart.current=null;};},[sig]); // eslint-disable-line
-  return <div style={{height,width:'100%',position:'relative'}}><canvas ref={ref}/></div>;
-}
 function SectionTitle({t,children,right}){return<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}><div style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>{children}</div>{right}</div>;}
 function Pill({active,onClick,children}){return<button onClick={onClick} style={{fontSize:'0.44rem',fontFamily:'inherit',padding:'2px 7px',borderRadius:3,cursor:'pointer',border:`1px solid ${active?'rgba(74,143,204,0.65)':'rgba(128,160,192,0.2)'}`,backgroundColor:active?'rgba(74,143,204,0.12)':'transparent',color:active?'rgba(74,143,204,1)':'rgba(128,160,192,0.7)',fontWeight:active?600:400}}>{children}</button>;}
 
@@ -139,6 +135,7 @@ export default function ResultsCountryPage() {
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
   const [hiddenMap,    setHiddenMap]    = useState({});
   const [panelWidth,   setPanelWidth]   = useState(640);
+  const { zoom, inc, dec, reset } = usePanelZoom();
   const [snapIndicator,setSnapIndicator]= useState('CapacityTechFuel');
   const [snapScenarios,setSnapScenarios]= useState(new Set());
   const [cmpRef,       setCmpRef]       = useState(null);
@@ -722,7 +719,8 @@ export default function ResultsCountryPage() {
 
       <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
 
-      <div style={{width:panelWidth,flexShrink:0,height:'100%',overflowY:'auto',padding:'18px 16px',backgroundColor:t.panel,borderLeft:`1px solid ${t.panelBorder}`}}>
+      <div style={{zoom,width:unzoom(panelWidth,zoom),flexShrink:0,height:unzoom('100%',zoom),overflowY:'auto',padding:'18px 16px',backgroundColor:t.panel,borderLeft:`1px solid ${t.panelBorder}`}}>
+        <PanelZoomControl t={t} zoom={zoom} inc={inc} dec={dec} reset={reset}/>
         <div style={{marginBottom:12}}>
           <div style={{fontSize:'0.52rem',color:t.lblMuted,marginBottom:2}}><Link to={`/region/${regionId}/results`} style={{color:t.lblMuted,textDecoration:'none'}}>← {region.name} · Results</Link></div>
           <div style={{fontSize:'1rem',fontWeight:700,color:t.lbl}}>{countryDecoded} — Results</div>
@@ -1217,8 +1215,7 @@ export default function ResultsCountryPage() {
                     return<div key={s} style={{flex:'1 1 132px',minWidth:132,padding:'7px 9px',borderRadius:4,border:`1px solid ${t.panelBorder}`,backgroundColor:hexA(col,0.06)}}>
                       <div style={{fontSize:'0.44rem',letterSpacing:'1px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s}</div>
                       <div style={{fontSize:'0.78rem',fontWeight:700,color:col,lineHeight:1.25}}>{bn(d)}
-                        <span style={{fontSize:'0.42rem',fontWeight:400,color:t.muted,marginLeft:3}}>bn$</span></div>
-                      <div style={{fontSize:'0.44rem',fontWeight:600,color:col}}>{d>0?'+':''}{fmt(d,0)} M$ benefit</div>
+                        <span style={{fontSize:'0.42rem',fontWeight:400,color:t.muted,marginLeft:3}}>bn$ benefit</span></div>
                       <div style={{fontSize:'0.4rem',color:t.lblMuted}}>cost NPV {fmt(nRef.total,0)} − {fmt(n.total,0)}</div>
                       {!n.hasCapex&&<div style={{fontSize:'0.4rem',color:'#FF9500',marginTop:2}}>⚠ capex missing</div>}
                     </div>;

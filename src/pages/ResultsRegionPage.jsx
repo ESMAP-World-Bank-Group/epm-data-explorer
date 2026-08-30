@@ -36,6 +36,8 @@ import ScenarioTab from '../components/ScenarioTab';
 import RawOutputsTab from '../components/RawOutputsTab';
 import { externalZoneSet } from '../utils/zoneClass';
 import { usePromotedZones } from '../utils/usePromotedZones';
+import CJChart from '../components/CJChart';
+import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -86,13 +88,6 @@ function priceColor(t_) {
 function priceBarColor(t_) {
   // #2E9EC8 (trade blue, low) → #E8C547 (trade gold, high)
   return `rgb(${Math.round(46+t_*(232-46))},${Math.round(158+t_*(197-158))},${Math.round(200+t_*(71-200))})`;
-}
-
-function CJChart({ type, data, options, height, plugins: ep, cacheKey }) {
-  const ref=useRef(null); const chart=useRef(null);
-  const sig=JSON.stringify({type,labels:data.labels,ck:cacheKey,ds:data.datasets?.map(d=>({l:d.label,n:d.data?.length,t:d.type}))});
-  useEffect(()=>{ const CJ=window.Chart; if(!CJ||!ref.current)return; chart.current?.destroy(); chart.current=new CJ(ref.current,{type,data,options,plugins:ep||[]}); return()=>{chart.current?.destroy();chart.current=null;}; },[sig]); // eslint-disable-line
-  return <div style={{height,width:'100%',position:'relative'}}><canvas ref={ref}/></div>;
 }
 
 function buildNetDotPlugin(netData){
@@ -243,6 +238,7 @@ export default function ResultsRegionPage() {
   const [plTopN,       setPlTopN]       = useState(20);
   const [plShowBubble,   setPlShowBubble]   = useState(false);
   const [panelWidth,     setPanelWidth]     = useState(680);
+  const { zoom, inc, dec, reset } = usePanelZoom();
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
   const [hiddenMap,      setHiddenMap]      = useState({}); // { chartId: Set<label> }
   const [pieDispMode,    setPieDispMode]    = useState('none'); // 'none'|'capacity'|'energy'
@@ -1379,7 +1375,8 @@ export default function ResultsRegionPage() {
       />
 
       {/* Right panel — resizable */}
-      <div style={{ width:panelWidth, flexShrink:0, height:'100%', overflowY:'auto', padding:'18px 16px', backgroundColor:t.panel, borderLeft:`1px solid ${t.panelBorder}` }}>
+      <div style={{ zoom, width:unzoom(panelWidth,zoom), flexShrink:0, height:unzoom('100%',zoom), overflowY:'auto', padding:'18px 16px', backgroundColor:t.panel, borderLeft:`1px solid ${t.panelBorder}` }}>
+        <PanelZoomControl t={t} zoom={zoom} inc={inc} dec={dec} reset={reset}/>
 
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:'0.52rem', color:t.lblMuted, marginBottom:2 }}>
@@ -2009,8 +2006,7 @@ export default function ResultsRegionPage() {
                     return<div key={s} style={{flex:'1 1 132px',minWidth:132,padding:'7px 9px',borderRadius:4,border:`1px solid ${t.panelBorder}`,backgroundColor:hexA(col,0.06)}}>
                       <div style={{fontSize:'0.44rem',letterSpacing:'1px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s}</div>
                       <div style={{fontSize:'0.78rem',fontWeight:700,color:col,lineHeight:1.25}}>{bn(d)}
-                        <span style={{fontSize:'0.42rem',fontWeight:400,color:t.muted,marginLeft:3}}>bn$</span></div>
-                      <div style={{fontSize:'0.44rem',fontWeight:600,color:col}}>{d>0?'+':''}{fmt(d,0)} M$ benefit</div>
+                        <span style={{fontSize:'0.42rem',fontWeight:400,color:t.muted,marginLeft:3}}>bn$ benefit</span></div>
                       <div style={{fontSize:'0.4rem',color:t.lblMuted}}>cost NPV {fmt(nRef.total,0)} − {fmt(n.total,0)}</div>
                       {(!n.hasCapex||offBy(n))&&<div style={{fontSize:'0.4rem',color:'#FF9500',marginTop:2}}>⚠ {!n.hasCapex?'capex missing':'off the model NPV'}</div>}
                     </div>;

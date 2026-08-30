@@ -22,18 +22,14 @@ import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, rai
 import { source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
 import { usePromotedZones } from '../utils/usePromotedZones';
+import CJChart from '../components/CJChart';
+import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 function fmt(n,d=0){if(n==null||isNaN(n))return'—';return n.toLocaleString('en-US',{maximumFractionDigits:d});}
 function fmtBig(n){if(!n)return'—';const a=Math.abs(n);if(a>=1e3)return`${(n/1e3).toFixed(1)}k`;return n.toFixed(1);}
 function cjDefaults(t){return{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:t.panel,borderColor:t.panelBorder,borderWidth:1,titleColor:t.lbl,bodyColor:t.muted,titleFont:{size:11},bodyFont:{size:11},padding:6}},scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:11}}},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:11}}}}};}
 
-function CJChart({type,data,options,height,plugins:ep,cacheKey}){
-  const ref=useRef(null);const chart=useRef(null);
-  const sig=JSON.stringify({type,labels:data.labels,ck:cacheKey,ds:data.datasets?.map(d=>({l:d.label,n:d.data?.length,t:d.type}))});
-  useEffect(()=>{const CJ=window.Chart;if(!CJ||!ref.current)return;chart.current?.destroy();chart.current=new CJ(ref.current,{type,data,options,plugins:ep||[]});return()=>{chart.current?.destroy();chart.current=null;};},[sig]); // eslint-disable-line
-  return <div style={{height,width:'100%',position:'relative'}}><canvas ref={ref}/></div>;
-}
 function SectionTitle({t,children,right}){return<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}><div style={{fontSize:'0.47rem',letterSpacing:'2px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>{children}</div>{right}</div>;}
 function Pill({active,onClick,children}){return<button onClick={onClick} style={{fontSize:'0.44rem',fontFamily:'inherit',padding:'2px 7px',borderRadius:3,cursor:'pointer',border:`1px solid ${active?'rgba(74,143,204,0.65)':'rgba(128,160,192,0.2)'}`,backgroundColor:active?'rgba(74,143,204,0.12)':'transparent',color:active?'rgba(74,143,204,1)':'rgba(128,160,192,0.7)',fontWeight:active?600:400}}>{children}</button>;}
 
@@ -94,6 +90,7 @@ export default function ResultsZonePage() {
   const [plTopN,       setPlTopN]       = useState(15);
   const [mapLoadedCount, setMapLoadedCount] = useState(0);
   const [panelWidth,   setPanelWidth]   = useState(600);
+  const { zoom, inc, dec, reset } = usePanelZoom();
 
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
   useEffect(()=>{hoursDataRef.current=hoursData;},[hoursData]);
@@ -312,7 +309,8 @@ export default function ResultsZonePage() {
 
       <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
 
-      <div style={{width:panelWidth,flexShrink:0,height:'100%',overflowY:'auto',padding:'18px 16px',backgroundColor:t.panel,borderLeft:`1px solid ${t.panelBorder}`}}>
+      <div style={{zoom,width:unzoom(panelWidth,zoom),flexShrink:0,height:unzoom('100%',zoom),overflowY:'auto',padding:'18px 16px',backgroundColor:t.panel,borderLeft:`1px solid ${t.panelBorder}`}}>
+        <PanelZoomControl t={t} zoom={zoom} inc={inc} dec={dec} reset={reset}/>
         <div style={{marginBottom:12}}>
           <div style={{fontSize:'0.52rem',color:t.lblMuted,marginBottom:2}}>{countryName&&<Link to={`/region/${regionId}/results/country/${encodeURIComponent(countryName)}`} style={{color:t.lblMuted,textDecoration:'none'}}>← {countryName}</Link>}</div>
           <div style={{fontSize:'1rem',fontWeight:700,color:t.lbl}}>{zoneIdDecoded} — Results</div>

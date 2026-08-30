@@ -30,31 +30,10 @@ import { fetchScenarioDocs, scenarioDocIndex } from '../utils/scenarioDocs';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
 import { source } from '../utils/mapSource';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
+import CJChart from '../components/CJChart';
+import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 
 // chart.js via CDN — no npm dep
-function CJChart({ type, data, options, height, plugins: extraPlugins, cacheKey, onClickYear }) {
-  const canvasRef = useRef(null);
-  const chartRef  = useRef(null);
-  const sig = JSON.stringify({ type, labels: data.labels, ck: cacheKey,
-    ds: data.datasets?.map(d => ({ l: d.label, n: d.data?.length, t: d.type, f: d.fill })) });
-  useEffect(() => {
-    const CJ = window.Chart;
-    if (!CJ || !canvasRef.current) return;
-    chartRef.current?.destroy();
-    const mergedOptions = onClickYear ? { ...options,
-      onClick: (e, _els, chart) => { const pts = chart.getElementsAtEventForMode(e, 'index', { intersect: false }, true); if (pts.length) onClickYear(String(data.labels[pts[0].index])); },
-      onHover: (_e, els) => { if (canvasRef.current) canvasRef.current.style.cursor = els.length ? 'pointer' : 'default'; },
-    } : options;
-    chartRef.current = new CJ(canvasRef.current, { type, data, options: mergedOptions, plugins: extraPlugins || [] });
-    return () => { chartRef.current?.destroy(); chartRef.current = null; };
-  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div style={{ height, width: '100%', position: 'relative' }}>
-      <canvas ref={canvasRef} />
-    </div>
-  );
-}
-
 // Map zone fills — blues/teals/gold only
 const MAP_PALETTE = [
   '#1B6CA8','#36B5B5','#E8C547','#4DA6FF',
@@ -1909,6 +1888,7 @@ export default function RegionPage() {
   const showExtRef = useRef(true);
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(680);
+  const { zoom, inc, dec, reset } = usePanelZoom();
   const [autoFolders,     setAutoFolders]     = useState(null);
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
@@ -2671,14 +2651,16 @@ export default function RegionPage() {
 
       {/* Right panel */}
       <div style={{
-        width: showMap ? panelWidth : '100%',
-        maxWidth: showMap ? panelWidth : 800,
+        zoom,
+        width: unzoom(showMap ? panelWidth : '100%', zoom),
+        maxWidth: unzoom(showMap ? panelWidth : 800, zoom),
         margin: showMap ? 0 : '0 auto',
-        height: 'calc(100vh - 46px)', overflowY: 'auto',
+        height: unzoom('calc(100vh - 46px)', zoom), overflowY: 'auto',
         padding: '18px 16px',
         backgroundColor: t.panel, borderLeft: showMap ? `1px solid ${t.panelBorder}` : 'none',
         flexShrink: 0,
       }}>
+        <PanelZoomControl t={t} zoom={zoom} inc={inc} dec={dec} reset={reset}/>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
           <Link to="/" style={{ fontSize: '0.75rem', color: t.muted }}>World</Link>
           <span style={{ color: t.panelBorder, fontSize: '0.75rem' }}>/</span>

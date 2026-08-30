@@ -20,6 +20,8 @@ import ScenarioTab from '../components/ScenarioTab';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { source, layer } from '../utils/mapSource';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
+import CJChart from '../components/CJChart';
+import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -62,25 +64,6 @@ function cjDefaults(t) {
 function avgProfile(profiles) {
   if (!profiles.length) return null;
   return Array.from({ length: profiles[0]?.length || 24 }, (_, i) => profiles.reduce((s, p) => s + (p[i] || 0), 0) / profiles.length);
-}
-
-function CJChart({ type, data, options, height, onClickYear }) {
-  const canvasRef = useRef(null);
-  const chartRef  = useRef(null);
-  const sig = JSON.stringify({ type, labels: data.labels,
-    ds: data.datasets?.map(d => ({ l: d.label, n: d.data?.length, t: d.type })) });
-  useEffect(() => {
-    const CJ = window.Chart;
-    if (!CJ || !canvasRef.current) return;
-    chartRef.current?.destroy();
-    const mergedOptions = onClickYear ? { ...options,
-      onClick: (e, _els, chart) => { const pts = chart.getElementsAtEventForMode(e, 'index', { intersect: false }, true); if (pts.length) onClickYear(String(data.labels[pts[0].index])); },
-      onHover: (_e, els) => { if (canvasRef.current) canvasRef.current.style.cursor = els.length ? 'pointer' : 'default'; },
-    } : options;
-    chartRef.current = new CJ(canvasRef.current, { type, data, options: mergedOptions });
-    return () => { chartRef.current?.destroy(); chartRef.current = null; };
-  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <div style={{ height, width: '100%', position: 'relative' }}><canvas ref={canvasRef} /></div>;
 }
 
 function SectionTitle({ t, children, right }) {
@@ -529,6 +512,7 @@ export default function EpmZonePage() {
 
   const hasData = !!(epmData && !loading);
   const [panelWidth, setPanelWidth] = useState(600);
+  const { zoom, inc, dec, reset } = usePanelZoom();
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
 
   if (!region) return <div style={{ padding: 40, color: t.text }}>Loading…</div>;
@@ -625,8 +609,9 @@ export default function EpmZonePage() {
 
       <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
       {/* Right panel */}
-      <div style={{ width:panelWidth, flexShrink:0, height:'100%', overflowY:'auto', padding:'18px 16px',
+      <div style={{ zoom, width:unzoom(panelWidth,zoom), flexShrink:0, height:unzoom('100%',zoom), overflowY:'auto', padding:'18px 16px',
         backgroundColor:t.panel, borderLeft:`1px solid ${t.panelBorder}` }}>
+        <PanelZoomControl t={t} zoom={zoom} inc={inc} dec={dec} reset={reset}/>
 
         {/* Header */}
         <div style={{ marginBottom:12 }}>
