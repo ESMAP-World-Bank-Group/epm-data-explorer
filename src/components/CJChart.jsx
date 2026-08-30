@@ -31,6 +31,28 @@ function guessName(wrap) {
   return read(box?.parentElement?.previousElementSibling);
 }
 
+/**
+ * A cheap fingerprint of the numbers on the chart.
+ *
+ * The signature below watches the shape of the data, not its values, and the component has
+ * no update path: a page that swaps a scenario variant, a year or a zone under an unchanged
+ * set of labels would keep the previous numbers on screen for good. Folding the values in
+ * costs one multiply per point, a few thousand per chart, and makes every such swap redraw
+ * without the page having to name it in a cacheKey.
+ */
+function fingerprint(datasets) {
+  let h = 0x811c9dc5;
+  for (const d of datasets || []) {
+    for (const v of d.data || []) {
+      const n = typeof v === 'number' ? v
+        : (v && typeof v === 'object') ? (v.y ?? v.x ?? 0)
+        : (v == null ? 0 : Number(v) || 0);
+      h = Math.imul((h ^ (Math.round(n * 1000) | 0)) >>> 0, 0x01000193) >>> 0;
+    }
+  }
+  return h;
+}
+
 const slug = s => (s || '').normalize('NFKD').replace(/[^\w\s-]/g, '').trim()
   .replace(/\s+/g, '-').slice(0, 60).toLowerCase() || 'epm-chart';
 
@@ -51,6 +73,7 @@ export default function CJChart({ type, data, options, height, plugins: extraPlu
   const [hover, setHover] = useState(false);
 
   const sig = JSON.stringify({ type, labels: data.labels, ck: cacheKey,
+    fp: fingerprint(data.datasets),
     ds: data.datasets?.map(d => ({ l: d.label, n: d.data?.length, t: d.type, f: d.fill, h: d.hidden })) });
 
   useEffect(() => {

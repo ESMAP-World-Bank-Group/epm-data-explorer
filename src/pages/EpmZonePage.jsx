@@ -11,7 +11,7 @@ import {
   processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
   availableYears, EPM_FUEL_COLORS, normalizeFuel,
 } from '../utils/epmFetch';
-import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks } from '../utils/timeAxis';
+import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks, bandingPlugin, dayWeights } from '../utils/timeAxis';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 import { zoneCentroidMap } from '../utils/centroids';
@@ -810,32 +810,28 @@ export default function EpmZonePage() {
                   if (!firstZ || !availD.length) return { chartData:{labels:[],datasets:[]}, plugin:null };
                   // x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one
                   const ax=buildTimeAxis(timeSlices,availS,availD);
-                  const nDT=availD.length, nS=availS.length, nPts=ax.slots.length;
+                  const nPts=ax.slots.length;
                   const data=ax.slots.map(sl=>pf[zoneIdDecoded]?.[sl.q]?.[sl.d]?.[sl.i]??null);
                   const ds={label:zoneIdDecoded,data,borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.3,fill:true,backgroundColor:hexA('#1a5fa8',0.08),spanGaps:true};
-                  const sepPlugin={id:'zpSep',afterDraw:(chart)=>{
-                    const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
-                    const{top,bottom}=chartArea;const xS=scales.x;
-                    const dashC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const solidC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
-                    const textC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seasC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
-                    for(let si=0;si<nS;si++){
-                      const off=(a,b)=>ax.offsets[`${availS[a]}|${availD[b]}`]||0;const spn=(a,b)=>ax.spans[`${availS[a]}|${availD[b]}`]||0;
-                      const ss=off(si,0);const sw=availD.reduce((a,_,di)=>a+spn(si,di),0);ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(availS[si],xS.getPixelForValue(ss+sw/2),top-2);ctx.restore();
-                      for(let di=0;di<nDT;di++){
-                        const dts=off(si,di);if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
-                        const midX=xS.getPixelForValue(dts+spn(si,di)/2);const w=hoursData?.[availS[si]]?.[availD[di]]||0;const pct=w>0?` (${((w/totalD)*100).toFixed(0)}%)`:'';
-                        ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='7px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${availD[di]}${pct}`,0,0);ctx.restore();
-                      }
-                    }
-                  }};
-                  return { chartData:{labels:new Array(nPts).fill(''),datasets:[ds]}, plugin:sepPlugin };
+                  const sepPlugin=bandingPlugin({ id:'zpSep', ax, seasons:availS, daytypes:availD,
+                    hoursData, totalDays:totalD, isDark });
+                  return { chartData:{labels:new Array(nPts).fill(''),datasets:[ds]}, plugin:sepPlugin, banded:true };
                 }
+                // 'All days' lays the season's day types side by side under the same banding as
+                // the full year; the other choices are one curve, so they keep the hour labels.
                 const sp=pf[zoneIdDecoded]?.[demandSeason];if(!sp)return null;
-                const refDay=demandDay==='avg'?availD[0]:demandDay;const ax=buildSeasonAxis(timeSlices,demandSeason,[refDay]);
-                const src=demandDay==='avg'?null:sp[demandDay];
-                if(demandDay!=='avg'&&!src)return null;
-                const p=ax.slots.map(sl=>src?(src[sl.i]??null):Object.values(sp).reduce((a,d)=>a+(d[sl.i]||0),0)/Object.keys(sp).length);
-                return { chartData:{labels:blockLabels(ax,timeSlices,demandSeason,refDay),datasets:[{label:zoneIdDecoded,data:p,borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.35,fill:true,backgroundColor:hexA('#1a5fa8',0.08)}]}, plugin:null, xTicks:axisTicks(ax) };
+                const days=demandDay==='all'?availD:[demandDay==='avg'?availD[0]:demandDay];
+                const banded=demandDay==='all'&&availD.length>1;
+                const ax=buildSeasonAxis(timeSlices,demandSeason,days);
+                const wts=dayWeights(hoursData,demandSeason,availD);
+                const src=(demandDay==='avg'||demandDay==='all')?null:sp[demandDay];
+                if(demandDay!=='avg'&&demandDay!=='all'&&!src)return null;
+                const p=ax.slots.map(sl=>src?(src[sl.i]??null)
+                  :demandDay==='all'?(sp[sl.d]?.[sl.i]??null)
+                  :availD.reduce((a,d,k)=>a+(sp[d]?.[sl.i]||0)*wts[k],0));
+                return { chartData:{labels:banded?new Array(ax.slots.length).fill(''):blockLabels(ax,timeSlices,demandSeason,days[0]),datasets:[{label:zoneIdDecoded,data:p,borderColor:'#1a5fa8',borderWidth:2.5,pointRadius:0,tension:0.35,fill:true,backgroundColor:hexA('#1a5fa8',0.08)}]},
+                  plugin:banded?bandingPlugin({ id:'zpSepSeason', ax, seasons:[demandSeason], daytypes:days, hoursData, totalDays:totalD, isDark }):null,
+                  banded, xTicks:banded?null:axisTicks(ax) };
               };
               const pd = buildZoneProfile();
               return (
@@ -851,21 +847,22 @@ export default function EpmZonePage() {
                         <div style={{ width:1, backgroundColor:t.panelBorder, height:14 }}/>
                         <select value={demandDay} onChange={e=>setDemandDay(e.target.value)} style={{ fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3, border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' }}>
                           <option value="avg">Avg</option>
+                          <option value="all">All days</option>
                           {availD.map(d=><option key={d} value={d}>{d}</option>)}
                         </select>
                       </>
                     )}
                   </div>
                   {pd && pd.chartData.datasets.length > 0 ? (
-                    <CJChart name={ttl('Load profile (MW)',zoneIdDecoded,demandProfileMode==='full'?'Full year':ttl(demandSeason,demandDay==='avg'?'average day':demandDay))} type="line"
-                      height={demandProfileMode==='full'?200:150}
+                    <CJChart name={ttl('Load profile (MW)',zoneIdDecoded,demandProfileMode==='full'?'Full year':ttl(demandSeason,demandDay==='avg'?'average day':demandDay==='all'?'all day types':demandDay))} type="line"
+                      height={pd.banded?200:150}
                       data={pd.chartData}
                       plugins={pd.plugin?[pd.plugin]:[]}
                       cacheKey={`${demandProfileMode}|${demandSeason}|${demandDay}`}
                       options={{ ...cjDefaults(t),
-                        layout:{padding:{top:demandProfileMode==='full'?18:4,bottom:demandProfileMode==='full'?62:4}},
+                        layout:{padding:{top:pd.banded?18:4,bottom:pd.banded?62:4}},
                         scales:{
-                          x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:demandProfileMode!=='full',color:t.muted,font:{size:8},maxTicksLimit:12,...(pd.xTicks||{})}},
+                          x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:!pd.banded,color:t.muted,font:{size:8},maxTicksLimit:12,...(pd.xTicks||{})}},
                           y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},min:0,title:{display:true,text:'Load factor',color:t.muted,font:{size:8}}},
                         }}}
                     />
@@ -1045,32 +1042,27 @@ export default function EpmZonePage() {
                   if (!firstZ || !vreAvailD.length) return { chartData:{labels:[],datasets:[]}, plugin:null };
                   // x layout: one slot per hour on a chronological model, width proportional to duration on a load-block one
                   const ax=buildTimeAxis(timeSlices,vreAvailS,vreAvailD);
-                  const nDT=vreAvailD.length, nS=vreAvailS.length, nPts=ax.slots.length;
+                  const nPts=ax.slots.length;
                   const data=ax.slots.map(sl=>firstZ[sl.q]?.[sl.d]?.[sl.i]??null);
                   const ds={label:activeTech,data,borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.3,fill:true,backgroundColor:hexA(techColor,0.08),spanGaps:true};
-                  const sepPlugin={id:'zvSep',afterDraw:(chart)=>{
-                    const{ctx,chartArea,scales}=chart;if(!chartArea||!scales.x)return;
-                    const{top,bottom}=chartArea;const xS=scales.x;
-                    const dashC=isDark?'rgba(255,255,255,0.13)':'rgba(0,0,0,0.12)';const solidC=isDark?'rgba(255,255,255,0.36)':'rgba(0,0,0,0.30)';
-                    const textC=isDark?'rgba(255,255,255,0.46)':'rgba(0,0,0,0.40)';const seasC=isDark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.58)';
-                    for(let si=0;si<nS;si++){
-                      const off=(a,b)=>ax.offsets[`${vreAvailS[a]}|${vreAvailD[b]}`]||0;const spn=(a,b)=>ax.spans[`${vreAvailS[a]}|${vreAvailD[b]}`]||0;
-                      const ss=off(si,0);const sw=vreAvailD.reduce((a,_,di)=>a+spn(si,di),0);ctx.save();ctx.font='700 9px system-ui,sans-serif';ctx.fillStyle=seasC;ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(vreAvailS[si],xS.getPixelForValue(ss+sw/2),top-2);ctx.restore();
-                      for(let di=0;di<nDT;di++){
-                        const dts=off(si,di);if(dts>0){const lx=xS.getPixelForValue(dts);const isS=di===0;ctx.save();ctx.strokeStyle=isS?solidC:dashC;ctx.lineWidth=isS?1.2:0.7;if(!isS)ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lx,top);ctx.lineTo(lx,bottom);ctx.stroke();ctx.restore();}
-                        const midX=xS.getPixelForValue(dts+spn(si,di)/2);const w=hoursData?.[vreAvailS[si]]?.[vreAvailD[di]]||0;const pct=w>0?` (${((w/totalD)*100).toFixed(0)}%)`:'';
-                        ctx.save();ctx.translate(midX,bottom+3);ctx.rotate(-Math.PI/2);ctx.font='9px system-ui,sans-serif';ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${vreAvailD[di]}${pct}`,0,0);ctx.restore();
-                      }
-                    }
-                  }};
-                  return { chartData:{labels:new Array(nPts).fill(''),datasets:[ds]}, plugin:sepPlugin };
+                  const sepPlugin=bandingPlugin({ id:'zvSep', ax, seasons:vreAvailS, daytypes:vreAvailD,
+                    hoursData, totalDays:totalD, isDark, dayFont:9 });
+                  return { chartData:{labels:new Array(nPts).fill(''),datasets:[ds]}, plugin:sepPlugin, banded:true };
                 }
+                // See the load profile above for what 'All days' draws.
                 const sp=firstZ?.[vreSeason];if(!sp)return null;
-                const refDay=vreDay==='avg'?vreAvailD[0]:vreDay;const ax=buildSeasonAxis(timeSlices,vreSeason,[refDay]);
-                const src=vreDay==='avg'?null:sp[vreDay];
-                if(vreDay!=='avg'&&!src)return null;
-                const p=ax.slots.map(sl=>src?(src[sl.i]??null):Object.values(sp).reduce((a,d)=>a+(d[sl.i]||0),0)/Object.keys(sp).length);
-                return { chartData:{labels:blockLabels(ax,timeSlices,vreSeason,refDay),datasets:[{label:activeTech,data:p,borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.35,fill:true,backgroundColor:hexA(techColor,0.08)}]}, plugin:null, xTicks:axisTicks(ax) };
+                const days=vreDay==='all'?vreAvailD:[vreDay==='avg'?vreAvailD[0]:vreDay];
+                const banded=vreDay==='all'&&vreAvailD.length>1;
+                const ax=buildSeasonAxis(timeSlices,vreSeason,days);
+                const wts=dayWeights(hoursData,vreSeason,vreAvailD);
+                const src=(vreDay==='avg'||vreDay==='all')?null:sp[vreDay];
+                if(vreDay!=='avg'&&vreDay!=='all'&&!src)return null;
+                const p=ax.slots.map(sl=>src?(src[sl.i]??null)
+                  :vreDay==='all'?(sp[sl.d]?.[sl.i]??null)
+                  :vreAvailD.reduce((a,d,k)=>a+(sp[d]?.[sl.i]||0)*wts[k],0));
+                return { chartData:{labels:banded?new Array(ax.slots.length).fill(''):blockLabels(ax,timeSlices,vreSeason,days[0]),datasets:[{label:activeTech,data:p,borderColor:techColor,borderWidth:2.5,pointRadius:0,tension:0.35,fill:true,backgroundColor:hexA(techColor,0.08)}]},
+                  plugin:banded?bandingPlugin({ id:'zvSepSeason', ax, seasons:[vreSeason], daytypes:days, hoursData, totalDays:totalD, isDark, dayFont:9 }):null,
+                  banded, xTicks:banded?null:axisTicks(ax) };
               };
               const vd = buildZoneVRE();
               return (
@@ -1093,21 +1085,22 @@ export default function EpmZonePage() {
                             <div style={{ width:1, backgroundColor:t.panelBorder, height:14 }}/>
                             <select value={vreDay} onChange={e=>setVreDay(e.target.value)} style={{ fontSize:'0.44rem', fontFamily:'inherit', padding:'2px 5px', borderRadius:3, border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' }}>
                               <option value="avg">Avg</option>
+                              <option value="all">All days</option>
                               {vreAvailD.map(d=><option key={d} value={d}>{d}</option>)}
                             </select>
                           </>
                         )}
                       </div>
                       {vd && vd.chartData.datasets.length > 0 ? (
-                        <CJChart name={ttl('VRE profile',vreTech,zoneIdDecoded,vreProfileMode==='full'?'Full year':ttl(vreSeason,vreDay==='avg'?'average day':vreDay))} type="line"
-                          height={vreProfileMode==='full'?200:150}
+                        <CJChart name={ttl('VRE profile',vreTech,zoneIdDecoded,vreProfileMode==='full'?'Full year':ttl(vreSeason,vreDay==='avg'?'average day':vreDay==='all'?'all day types':vreDay))} type="line"
+                          height={vd.banded?200:150}
                           data={vd.chartData}
                           plugins={vd.plugin?[vd.plugin]:[]}
                           cacheKey={`${vreProfileMode}|${activeTech}|${vreSeason}|${vreDay}`}
                           options={{ ...cjDefaults(t),
-                            layout:{padding:{top:vreProfileMode==='full'?18:4,bottom:vreProfileMode==='full'?80:4}},
+                            layout:{padding:{top:vd.banded?18:4,bottom:vd.banded?80:4}},
                             scales:{
-                              x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:vreProfileMode!=='full',color:t.muted,font:{size:8},maxTicksLimit:12,...(vd.xTicks||{})}},
+                              x:{grid:{color:t.panelBorder,drawTicks:false},ticks:{display:!vd.banded,color:t.muted,font:{size:8},maxTicksLimit:12,...(vd.xTicks||{})}},
                               y:{min:0,max:1,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Availability (0-1)',color:t.muted,font:{size:8}}},
                             }}}
                         />
