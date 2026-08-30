@@ -125,7 +125,6 @@ export default function ResultsCountryPage() {
   const [evIndicator,  setEvIndicator]  = useState('CapacityTechFuel');
   const [evScenarios,  setEvScenarios]  = useState(new Set());
   const [dispScenario, setDispScenario] = useState(null);
-  const [dispZone,     setDispZone]     = useState(null);
   const [dispMode,     setDispMode]     = useState('full');
   const [dispSeason,   setDispSeason]   = useState('Q1');
   const [dispDay,      setDispDay]      = useState('all');
@@ -302,7 +301,10 @@ export default function ResultsCountryPage() {
   const dispAvailS=useMemo(()=>{const qs=new Set();for(const z of allZones){for(const yr of Object.values(firstDisp[z]||{}))for(const q of Object.keys(yr))qs.add(q);}return[...qs].sort();},[firstDisp,allZones]);
   const dispAvailD=useMemo(()=>{const ds=new Set();for(const z of allZones)for(const yr of Object.values(firstDisp[z]||{}))for(const q of Object.values(yr))for(const d of Object.keys(q))ds.add(d);return[...ds].sort();},[firstDisp,allZones]);
   const totalDays=useMemo(()=>Object.values(hoursData).reduce((s,dts)=>s+Object.values(dts||{}).reduce((a,b)=>a+b,0),0)||365,[hoursData]);
-  const activeDispZone=dispZone||'__all__';
+  // One zone selection for the whole page: the selector at the top of the panel and a
+  // click on the map write it, and Dispatch reads it like every other tab. 'all' means
+  // the country, which for an hourly stack is its zones summed.
+  const activeDispZone=selZone==='all'?'__all__':selZone;
     const getZoneDisp=(sd,zone,year)=>{if(zone!=='__all__')return sd.dispatch[zone]?.[year]||{};const agg={};for(const z of allZones)for(const[q,days]of Object.entries(sd.dispatch[z]?.[year]||{}))for(const[d,hours]of Object.entries(days))for(const[tt,tfs]of Object.entries(hours))for(const[tf,val]of Object.entries(tfs)){if(!agg[q])agg[q]={};if(!agg[q][d])agg[q][d]={};if(!agg[q][d][tt])agg[q][d][tt]={};agg[q][d][tt][tf]=(agg[q][d][tt][tf]||0)+val;}return agg;};
 
   const zoneAvgPrices=useMemo(()=>{
@@ -889,10 +891,6 @@ export default function ResultsCountryPage() {
         {hasData&&activeTab==='dispatch'&&(
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-              <select value={activeDispZone||''} onChange={e=>setDispZone(e.target.value)} style={selectStyle}>
-                <option value="__all__">All zones (aggregated)</option>
-                {allZones.map(z=><option key={z} value={z}>{z}</option>)}
-              </select>
               <select value={dispScenario||''} onChange={e=>setDispScenario(e.target.value)} style={selectStyle}>{scenarioList.map(s=><option key={s} value={s}>{s}</option>)}</select>
               <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
             </div>
