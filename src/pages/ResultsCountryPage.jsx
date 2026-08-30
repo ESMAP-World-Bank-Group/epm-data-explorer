@@ -1085,7 +1085,7 @@ export default function ResultsCountryPage() {
               ? `Left out — their system-wide components do not add back to the model's own NPV, usually because summary.csv carries no generation capex for them: ${nBad.map(s=>`${s} (${fmt(npvSystemData.byScen[s].residual,0)} M$)`).join(', ')}.`
               : null,
             hasNpv&&[ref,...nCols].some(s=>!npvCountry[s].hasCapex)
-              ? 'Generation capex is missing for at least one scenario shown — its bar and total are incomplete.' : null,
+              ? 'Generation capex is missing for at least one scenario shown, so its bar and total are incomplete.' : null,
             hasNpv&&[ref,...nCols].every(s=>!npvCountry[s].hasExternal)
               ? 'Capex of the external interconnectors is outside the model objective. Publish npv_external.csv (scenario,zone,value) beside summary.csv to have it counted.' : null,
           ].filter(Boolean);

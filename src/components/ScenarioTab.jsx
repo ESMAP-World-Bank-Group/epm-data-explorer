@@ -28,8 +28,8 @@ function commonSuffix(values) {
  *
  * A region's doc file declares them (`dimensions`, each with ordered `groups`); the run
  * decides which of their values are real. Values no scenario uses are dropped, so the
- * matrix stays as small as the run actually is, and a study that declares no dimensions —
- * which is most of them — simply gets no matrix and falls back to the list.
+ * matrix stays as small as the run actually is. A study that declares no dimensions, which
+ * is most of them, simply gets no matrix and falls back to the list.
  */
 function buildAxes(docs, scenarios) {
   const dims = docs?.dimensions || [];
@@ -226,10 +226,10 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
     // against, so the cell says so rather than showing a blank where a benefit would be.
     const isRef = !d?.counterfactual;
     const val = v != null ? `${v > 0 ? '+' : '−'}${(Math.abs(v) / 1000).toFixed(2)}`
-      : isRef ? 'ref' : '—';
+      : isRef ? 'ref' : 'n/a';
     return (
       <button key={scen} type="button" onClick={() => setSel(sel === scen ? null : scen)}
-        title={`${d?.title || scen} — ${scen}${v != null ? ` · ${v > 0 ? '+' : ''}${(v / 1000).toFixed(2)} bn$ vs ${ben.ref}` : ''}`}
+        title={`${d?.title || scen} · ${scen}${v != null ? ` · ${v > 0 ? '+' : ''}${(v / 1000).toFixed(2)} bn$ vs ${ben.ref}` : ''}`}
         style={{ display: 'block', width: '100%', border: 'none', background: 'none', cursor: 'pointer',
           font: 'inherit', padding: '4px 7px', textAlign: 'center', whiteSpace: 'nowrap' }}>
         <div style={{ fontSize: '0.36rem', color: t.lblMuted, fontWeight: 400 }}>{scen}</div>
@@ -242,11 +242,10 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: '0.5rem', color: t.muted, lineHeight: 1.6 }}>
-        {docs?.intro && <div style={{ marginBottom: 6 }}>{docs.intro}</div>}
         <b>{all.length}</b> scenario{all.length !== 1 ? 's' : ''}
         {scnMeta?.scenariosFile && <> in <code>{scnMeta.scenariosFile}</code></>}.
         {' '}{grid
-          ? <>Read a project across its own row for the price sensitivity, and against the top of its own column for the benefit — a scenario is only comparable to the counterfactual that shares its price path.</>
+          ? <>Read a project across its own row for the price sensitivity, and against the top of its own column for the benefit. A scenario is only comparable to the counterfactual that shares its price path.</>
           : <>Each card shows the inputs a scenario <b>changes from the base case</b> (a △ variant file); everything else uses the default.</>}
       </div>
 
@@ -327,11 +326,12 @@ export default function ScenarioTab({ t, scnMeta, docs, order, benefitOf }) {
         <div style={{ fontSize: '0.4rem', color: t.lblMuted, lineHeight: 1.6 }}>
           {scale > 0
             ? <>Each cell holds the scenario name and its net benefit in bn$ against its own counterfactual, shaded by size.
-              {' '}<b>ref</b> = the counterfactual itself; <b>—</b> = solved, but its cost decomposition does not reconcile
-              {' '}with the model NPV, so no benefit is shown. Click a cell to read what the scenario changes. Empty = not run.</>
-            : <>Each cell holds a scenario the run solved. Click one to read what it changes. Empty = not run.</>}
+              {' '}<b>ref</b> marks a counterfactual itself. <b>n/a</b> marks a scenario the run solved but whose cost
+              {' '}decomposition does not reconcile with the model NPV, so no benefit is shown. Click a cell to read what
+              {' '}the scenario changes. An empty cell was not run.</>
+            : <>Each cell holds a scenario the run solved. Click one to read what it changes. An empty cell was not run.</>}
           {axes.unplaced.length > 0 && <>
-            {' '}Off the matrix (no declared axes): {axes.unplaced.map((s, i) => (
+            {' '}Off the matrix, with no declared axes: {axes.unplaced.map((s, i) => (
               <span key={s}>{i ? ', ' : ''}
                 <button type="button" onClick={() => setSel(sel === s ? null : s)}
                   style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: t.muted,

@@ -24,15 +24,19 @@ export function usePanelZoom() {
 }
 
 /**
- * A length written back in the panel's own units. `zoom: z` renders a computed length z
- * times larger, so the panel's outer box has to be divided by z to keep the width the user
- * dragged and the height of the viewport.
+ * A length written back in the panel's own units, so the zoomed panel still occupies the
+ * box the layout gave it.
+ *
+ * `zoom: z` renders an absolute length z times larger, so px and vh have to be divided by
+ * z. A percentage does not: it resolves against the containing block already expressed in
+ * the zoomed coordinate space, so `height: 100%` fills the parent on its own and dividing
+ * it leaves a gap of exactly (1 - 1/z) of the panel.
  */
 export function unzoom(value, zoom) {
   if (value == null || zoom === 1) return value;
   if (typeof value === 'number') return value / zoom;
   const s = String(value).trim();
-  if (s.endsWith('%')) return `${parseFloat(s) / zoom}%`;
+  if (s.endsWith('%')) return s;
   return `calc((${s}) / ${zoom})`;
 }
 

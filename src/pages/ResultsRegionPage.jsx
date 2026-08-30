@@ -1875,10 +1875,10 @@ export default function ResultsRegionPage() {
               ? `Every component is a discounted cost, so a difference is ${ref} minus the scenario: positive means the scenario spends less on that line, which is a benefit.`
               : null,
             nBad.length
-              ? `Left out — their components do not add back to the model's own NPV, usually because summary.csv carries no generation capex for them: ${nBad.map(s=>`${s} (${fmt(npvData.byScen[s].residual,0)} M$)`).join(', ')}.`
+              ? `Left out. Their components do not add back to the model's own NPV, usually because summary.csv carries no generation capex for them: ${nBad.map(s=>`${s} (${fmt(npvData.byScen[s].residual,0)} M$)`).join(', ')}.`
               : null,
             hasNpv&&[ref,...nCols].some(s=>!npvData.byScen[s].hasCapex)
-              ? 'Generation capex is missing for at least one scenario shown — its bar and total are incomplete.' : null,
+              ? 'Generation capex is missing for at least one scenario shown, so its bar and total are incomplete.' : null,
             hasNpv&&[ref,...nCols].every(s=>!npvData.byScen[s].hasExternal)
               ? 'Capex of the external interconnectors is outside the model objective. Publish npv_external.csv (scenario,zone,value) beside summary.csv to have it counted.' : null,
           ].filter(Boolean);
