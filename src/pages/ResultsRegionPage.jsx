@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
@@ -20,14 +20,14 @@ import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLeg
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
 import {
   buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible,
-  extNodeCoordMap, buildExtFlowFeatures, updateExtFlows, bindExtFlowHandlers, addExtPriceDots,
+  extNodeCoordMap, buildExtFlowFeatures, bindExtFlowHandlers, addExtPriceDots,
 } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
 import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import { physicalStats } from '../utils/summaryStats';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
-import { source, markStyleReady, styleReady } from '../utils/mapSource';
+import { alive, source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
 import { priceDotEl } from '../utils/priceDot';
 import { fetchScenarioConfig, resolveFile, overridesFor } from '../utils/epmScenarios';
@@ -466,6 +466,30 @@ export default function ResultsRegionPage() {
     });
   }, [activeTab, dispScenario, cmpRef, refYear, simRun, region, outputDir, resultsData]); // eslint-disable-line
 
+  // ── Corridor overlays: compute once, apply whenever the map can take them ───
+  //
+  // `ntc-results` and `ext-flows` are created empty and filled by the effects further
+  // down, so the data and the map can arrive in either order, and a map can be rebuilt
+  // under an effect that has already run. Both keep their last computed features here
+  // and push them through applyCorridors(), which sets them if the source exists and
+  // otherwise leaves them for the next readiness signal. Nothing ever pushes an empty
+  // collection over drawn corridors: no data loaded means keep what is on screen.
+  const ntcRef = useRef({ feats: null, applied: null });
+  const extFlowRef = useRef({ feats: null, applied: null });
+
+  const applyCorridors = useCallback(() => {
+    const map = mapRef.current;
+    if (!alive(map)) return;
+    for (const [ref, id] of [[ntcRef, 'ntc-results'], [extFlowRef, 'ext-flows']]) {
+      const st = ref.current;
+      if (!st.feats || st.feats === st.applied) continue;
+      const src = source(map, id);
+      if (!src) continue;
+      src.setData({ type: 'FeatureCollection', features: st.feats });
+      st.applied = st.feats;
+    }
+  }, []);
+
   // ── Map ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !region || !zonesGJ) return;
@@ -478,6 +502,10 @@ export default function ResultsRegionPage() {
     const lons=Object.values(zoneCentroids).map(c=>c[0]);
     const lats=Object.values(zoneCentroids).map(c=>c[1]);
     const bounds=lons.length?[[Math.min(...lons)-2,Math.min(...lats)-2],[Math.max(...lons)+2,Math.max(...lats)+2]]:null;
+
+    // A fresh map means fresh empty sources, so whatever was applied to the previous
+    // one has to be pushed again.
+    ntcRef.current.applied = null; extFlowRef.current.applied = null;
 
     const map = new maplibregl.Map({
       container:containerRef.current, style:mapStyle(theme),
@@ -500,10 +528,21 @@ export default function ResultsRegionPage() {
       }
       if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData }, { sdf:true });
 
-      const countries = await fetchCountries('10m');
-      const boundaries = await fetchBoundaries('10m');
-      addCountriesSource(map, countries);
-      addBaseLayers(map, tv, boundaries);
+      // The basemap is the backdrop. Everything that matters is added after it, so a
+      // file that fails to arrive, or a map removed while these were in flight, must
+      // not take the zone and corridor layers down with it.
+      let countries = null, boundaries = null;
+      try {
+        countries = await fetchCountries('10m');
+        boundaries = await fetchBoundaries('10m');
+      } catch (err) {
+        console.warn('basemap unavailable, drawing zones only', err);
+      }
+      if (!alive(map)) return;
+      if (countries) {
+        addCountriesSource(map, countries);
+        addBaseLayers(map, tv, boundaries || { type:'FeatureCollection', features:[] });
+      }
 
       const isoToCountry = {};
       for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3]=f.properties.c;
@@ -588,6 +627,11 @@ export default function ResultsRegionPage() {
       markStyleReady(map);
       setMapLoadedCount(c => c + 1);
       raiseBoundaries(map);
+      // Corridors computed before the map was ready, plus any source added after this
+      // handler by another effect. applyCorridors() is a no-op once its features are
+      // on the map, so the style chatter of a hover filter costs nothing.
+      applyCorridors();
+      map.on('styledata', applyCorridors);
     });
 
     return () => { popup.remove(); dotMarkersRef.current.forEach(m=>m.remove()); dotMarkersRef.current=[]; pieMarkersRef.current.forEach(m=>m.remove()); pieMarkersRef.current=[]; mapRef.current?.remove(); };
@@ -605,21 +649,23 @@ export default function ResultsRegionPage() {
     const extPopup = new maplibregl.Popup({ closeButton:false, closeOnClick:false, offset:10, className:`popup-${theme}` });
     bindExtZoneHandlers(map, extPopup);
     bindExtFlowHandlers(map, extPopup);
+    applyCorridors(); // ext-flows exists only now, and its features may already be in
   }, [mapLoadedCount, zonesGJ, linestringGJ, zonesExtGJ, extNtc, refYear, theme]); // eslint-disable-line
 
   // ── What crossed the external corridors ─────────────────────────────────────
   // The same job the ntc-results effect does for the internal ones, off the same run
   // and the same year, so both halves of a corridor map move together.
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !source(map, 'ext-flows')) return;
     const sd = resultsData[ovScenario] || Object.values(resultsData)[0];
-    updateExtFlows(map, buildExtFlowFeatures({
-      tx: sd?.transmission, extNtc, year: refYear,
+    const tx = sd?.transmission;
+    if (!tx || !Object.keys(tx).length) return; // run not loaded yet: keep what is drawn
+    extFlowRef.current.feats = buildExtFlowFeatures({
+      tx, extNtc, year: refYear,
       zoneCentroids: zoneCentroidMap(zonesGJ, linestringGJ),
       extNodeCoords: extNodeCoordMap(zonesExtGJ),
-    }));
-  }, [resultsData, ovScenario, refYear, zonesGJ, linestringGJ, zonesExtGJ, extNtc, mapLoadedCount]);
+    });
+    applyCorridors();
+  }, [resultsData, ovScenario, refYear, zonesGJ, linestringGJ, zonesExtGJ, extNtc, mapLoadedCount, applyCorridors]);
 
   useEffect(() => { showExtRef.current = showExtZones; setExtZonesVisible(mapRef.current, showExtZones); }, [showExtZones]);
 
@@ -633,11 +679,10 @@ export default function ResultsRegionPage() {
 
   // ── Update NTC + price dots when data changes ────────────────────────────────
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !source(map, 'ntc-results') || !refYear) return;
+    if (!refYear) return;
     const sd = resultsData[ovScenario] || Object.values(resultsData)[0];
-    if (!sd) return;
-    const tx = sd.transmission;
+    const tx = sd?.transmission;
+    if (!tx || !Object.keys(tx).length) return; // run not loaded yet: keep what is drawn
     const zcCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
 
     const seen = new Set(); const features = [];
@@ -660,8 +705,9 @@ export default function ResultsRegionPage() {
         features.push({ type:'Feature', properties:{ z, z2, fwd, rev, util:Math.min(1,Math.max(0,util)), vol, cap, yr:refYear }, geometry:{ type:'LineString', coordinates:finalCoords } });
       }
     }
-    source(map, 'ntc-results').setData({ type:'FeatureCollection', features });
-  }, [resultsData, refYear, ovScenario, zonesGJ, linestringGJ, mapLoadedCount]); // eslint-disable-line
+    ntcRef.current.feats = features;
+    applyCorridors();
+  }, [resultsData, refYear, ovScenario, zonesGJ, linestringGJ, mapLoadedCount, applyCorridors]); // eslint-disable-line
 
   // ── Update price dots ────────────────────────────────────────────────────────
   useEffect(() => {
