@@ -39,8 +39,35 @@ const layerIdFor = style => `boundaries-${style.toLowerCase().replace(/ /g, '-')
 /** Every layer this module draws above the country fills, in drawing order. */
 const BROKEN_LAYERS = ['boundaries-mask', ...LINE_STYLES.map(s => layerIdFor(s.style))];
 
-async function fetchJson(path) {
-  return fetch(path).then(r => r.json());
+// countries_10m.geojson is 8.7 MB, and a map is rebuilt on every theme change, run
+// change and page move. Each file is therefore fetched once per session and shared:
+// the source data is handed to maplibre, which copies it to its worker, so nothing
+// downstream depends on getting its own object. A rejected fetch is dropped from the
+// cache, or one bad moment on the network would hold for the whole session.
+const files = new Map();
+
+function fetchJson(path) {
+  if (!files.has(path)) {
+    files.set(path, fetch(path).then(r => {
+      // Without this a 404 reaches r.json() and fails as a parse error on the HTML the
+      // server sent instead, which says nothing about what actually happened.
+      if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+      return r.json();
+    }).catch(err => { files.delete(path); throw err; }));
+  }
+  return files.get(path);
+}
+
+/** The 10m files are the detailed ones. On a connection that cannot bring 8.7 MB back,
+ *  a coarser border is worth more than no border at all. */
+async function atBestResolution(resolution, load) {
+  try {
+    return await load(resolution);
+  } catch (err) {
+    if (resolution === '110m') throw err;
+    console.warn(`basemap ${resolution} unavailable, falling back to 110m`, err);
+    return load('110m');
+  }
 }
 
 /**
@@ -50,7 +77,7 @@ async function fetchJson(path) {
  * @param {'10m'|'110m'} resolution
  */
 export async function fetchCountries(resolution = '10m') {
-  const fc = await fetchJson(`/data/countries_${resolution}.geojson`);
+  const fc = await atBestResolution(resolution, r => fetchJson(`/data/countries_${r}.geojson`));
   fc.features.forEach((f, i) => { f.id = i; });
   return fc;
 }
@@ -69,7 +96,7 @@ export function addCountriesSource(map, countries) {
  * @param {'10m'|'110m'} resolution
  */
 export async function fetchBoundaries(resolution = '10m') {
-  return fetchJson(`/data/boundaries_${resolution}.geojson`);
+  return atBestResolution(resolution, r => fetchJson(`/data/boundaries_${r}.geojson`));
 }
 
 /**

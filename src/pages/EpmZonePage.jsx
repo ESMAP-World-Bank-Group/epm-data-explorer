@@ -331,7 +331,7 @@ export default function EpmZonePage() {
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: mapStyle(theme),
-      center, zoom: 5, minZoom: 1, maxZoom: 14, preserveDrawingBuffer: true, attributionControl: false,
+      center, zoom: 5, minZoom: 1, maxZoom: 14, canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10,

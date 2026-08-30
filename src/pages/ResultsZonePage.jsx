@@ -161,7 +161,7 @@ export default function ResultsZonePage() {
     const regionCountries=[...new Set(zcmapRows.map(r=>r.c))].sort();const colorMap={};regionCountries.forEach((c,i)=>{colorMap[c]=MAP_PALETTE[i%MAP_PALETTE.length];});
     const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const center=zoneCentroids[zoneIdDecoded]||[35,39];
-    const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center,zoom:5,minZoom:1,maxZoom:14,preserveDrawingBuffer: true, attributionControl:false});
+    const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center,zoom:5,minZoom:1,maxZoom:14,canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl:false});
     mapRef.current=map;
     const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
     const ntcClickPopup=new maplibregl.Popup({closeButton:true,closeOnClick:true,offset:10,className:`popup-${theme}`});

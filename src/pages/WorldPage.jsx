@@ -55,7 +55,7 @@ export default function WorldPage() {
       zoom: 2.2,
       minZoom: 1.5,
       maxZoom: 9,
-      preserveDrawingBuffer: true, attributionControl: false,
+      canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
 

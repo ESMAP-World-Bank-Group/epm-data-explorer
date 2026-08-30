@@ -413,7 +413,7 @@ export default function EpmCountryPage() {
       style: mapStyle(theme),
       center: [lons.length ? lons.reduce((a,b)=>a+b,0)/lons.length : 20,
                lats.length ? lats.reduce((a,b)=>a+b,0)/lats.length : 0],
-      zoom: 4, minZoom: 1, maxZoom: 14, preserveDrawingBuffer: true, attributionControl: false,
+      zoom: 4, minZoom: 1, maxZoom: 14, canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10,

@@ -2098,7 +2098,7 @@ export default function RegionPage() {
       container: containerRef.current,
       style: mapStyle(theme),
       center: [0, 20], zoom: 2, minZoom: 1, maxZoom: 14,
-      preserveDrawingBuffer: true, attributionControl: false,
+      canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
 

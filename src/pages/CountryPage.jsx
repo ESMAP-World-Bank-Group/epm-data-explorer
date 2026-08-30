@@ -138,7 +138,7 @@ export default function CountryPage() {
       style: mapStyle(theme),
       center: [0, 20], zoom: 2,
       minZoom: 1, maxZoom: 16,
-      preserveDrawingBuffer: true, attributionControl: false,
+      canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
 

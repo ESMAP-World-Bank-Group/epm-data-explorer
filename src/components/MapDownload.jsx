@@ -76,10 +76,16 @@ export async function exportMapPng(map, name) {
     }
     ctx.fillText(txt, pad, band / 2);
   }
-  // The buffer is preserved between frames, but a redraw guarantees it holds the frame the
-  // reader is looking at rather than the one before the last style change.
+  // The drawing buffer is only guaranteed to hold pixels for the frame that drew them,
+  // so the capture is taken from inside one. redraw() renders synchronously and emits
+  // 'render' at the end of that frame; the call after it is the safety net for a build
+  // where it does not, and is a no-op once the handler has drawn.
+  let drawn = false;
+  const paint = () => { if (!drawn) { drawn = true; ctx.drawImage(src, 0, band); } };
+  map.once?.('render', paint);
   map.redraw?.();
-  ctx.drawImage(src, 0, band);
+  map.off?.('render', paint);
+  paint();
   const overlay = await overlayImage(map.getContainer(), src.clientWidth, src.clientHeight);
   if (overlay) ctx.drawImage(overlay, 0, band, src.width, src.height);
   const a = document.createElement('a');
