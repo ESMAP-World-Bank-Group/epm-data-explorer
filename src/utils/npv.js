@@ -31,6 +31,8 @@ const yr = v => String(v ?? '').trim().replace(/\.0+$/, '');
 
 const TOTAL_LINE = 'NPV of system cost: $m';
 const CAPEX_ATTR = 'Investment costs: $m';
+/** The attribute the 'Costs total' indicator reads out of pYearlyZoneMerged. */
+const TOTAL_ATTR = 'Costs';
 const DISCOUNTED = 'DiscountedWeightedCostsCumulated';
 
 /** Stacking and legend order. Signs are COST signs: a positive NPV is money the system
@@ -200,6 +202,11 @@ export function capexNpvByZone(summaryRows, scen, factors) {
  * the same $m annuities, which is what this grafts back on. A run whose pCosts already
  * carries the line is handed straight back, unchanged and with its identity intact.
  *
+ * Both the breakdown and the total are repaired. output_treatment builds the Costs
+ * attribute of pYearlyZoneMerged by totalling the same amputated pCosts, so the 'Costs
+ * total' indicator is short of exactly the same amount, and mending one without the other
+ * would leave the breakdown standing taller than the total it is meant to reconstitute.
+ *
  * Only zones the cost file already knows are filled, so no view gains a zone it had no
  * costs for, and the 'System' rows summary.csv repeats are skipped by the same test.
  */
@@ -225,6 +232,67 @@ export function withSummaryCapex(resultsData, summaryRows) {
     if (!zones.length) continue;
     const nc = { ...costs };
     for (const z of zones) nc[z] = { ...costs[z], [CAPEX_ATTR]: add[z] };
+
+    const yz = sd?.yearlyZone;
+    let nyz = yz;
+    if (yz) {
+      nyz = { ...yz };
+      for (const z of zones) {
+        const cur = yz[z]?.[TOTAL_ATTR];
+        if (!cur) continue;
+        const merged = { ...cur };
+        for (const [y, v] of Object.entries(add[z])) merged[y] = (merged[y] || 0) + v;
+        nyz[z] = { ...yz[z], [TOTAL_ATTR]: merged };
+      }
+    }
+    out[scen] = { ...sd, costs: nc, yearlyZone: nyz };
+    touched = true;
+  }
+  return touched ? out : resultsData;
+}
+
+/** The three pCosts lines that stand for trade between zones of the same region, and the
+ *  single line they are shown as. Same idea as INTERNAL above, one level down: that one
+ *  folds NPV components, this one folds the raw cost lines they are built from. */
+export const INTERNAL_TRADE_LINES = [
+  'Import costs with internal zones: $m',
+  'Export revenues with internal zones: $m',
+  'Trade shared benefits: $m',
+];
+export const NET_TRADE_LINE = 'Internal trade, net: $m';
+
+/**
+ * Add the net internal trade line to a cost breakdown, as a real entry rather than a
+ * category the call sites have to know how to resolve.
+ *
+ * Internal trade is a transfer between zones of the same region, so the three lines sum
+ * to zero region-wide and the region view is right to leave them out. A country view is
+ * not: trade with the neighbours is real money there. Drawn separately they are two large
+ * bars that mostly annihilate, and for a country of several zones the part traded between
+ * its own zones cancels exactly as it does region-wide, so what is meaningful at every
+ * granularity is the net. Summing the three per zone gives it, and summing that over any
+ * selection of zones gives the selection's net, which is why this lands in the data.
+ */
+export function withNetInternalTrade(resultsData) {
+  if (!resultsData) return resultsData;
+  let touched = false;
+  const out = {};
+  for (const [scen, sd] of Object.entries(resultsData)) {
+    out[scen] = sd;
+    const costs = sd?.costs;
+    if (!costs) continue;
+    const nc = { ...costs };
+    let any = false;
+    for (const [z, lines] of Object.entries(costs)) {
+      if (NET_TRADE_LINE in lines) continue;
+      const src = INTERNAL_TRADE_LINES.filter(l => lines[l]);
+      if (!src.length) continue;
+      const net = {};
+      for (const l of src) for (const [y, v] of Object.entries(lines[l])) net[y] = (net[y] || 0) + v;
+      nc[z] = { ...lines, [NET_TRADE_LINE]: net };
+      any = true;
+    }
+    if (!any) continue;
     out[scen] = { ...sd, costs: nc };
     touched = true;
   }

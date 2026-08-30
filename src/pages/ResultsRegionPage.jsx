@@ -52,6 +52,7 @@ const COST_COLORS = {
   'VRE curtailment: $m':'#FFD700', 'Variable Cost: $m':'#5DADE2',
   'Import costs with internal zones: $m':'#E53935', 'Import costs with external zones: $m':'#C0392B',
   'Export revenues with internal zones: $m':'#52C860', 'Export revenues with external zones: $m':'#27AE60',
+  'Spinning reserve costs: $m':'#8A97A8', 'Unmet country spinning reserve costs: $m':'#B0BAC6',
 };
 const COST_LABELS = {
   'Fuel costs: $m':'Fuel', 'Fixed O&M: $m':'Fixed O&M', 'Variable O&M: $m':'Variable O&M',
@@ -59,8 +60,17 @@ const COST_LABELS = {
   'VRE curtailment: $m':'VRE curtailment', 'Variable Cost: $m':'Variable cost',
   'Import costs with internal zones: $m':'Internal imports', 'Import costs with external zones: $m':'External imports',
   'Export revenues with internal zones: $m':'Internal exports', 'Export revenues with external zones: $m':'External exports',
+  'Spinning reserve costs: $m':'Spinning reserve', 'Unmet country spinning reserve costs: $m':'Unmet reserve',
 };
-const MAIN_COST_CATS = ['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Investment costs: $m','Carbon costs: $m','VRE curtailment: $m','Transmission costs: $m'];
+// The cost lines the breakdown draws. Everything the model writes is here except the
+// three internal trade lines, which are a transfer between zones of the same region and
+// cancel to zero across it: left in they would draw as two large annihilating bars. The
+// sum of what is left therefore ties with the 'Costs total' indicator exactly. A country
+// view cannot make the same cut, and does not: see NET_TRADE_LINE in ResultsCountryPage.
+const MAIN_COST_CATS = ['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Investment costs: $m',
+  'Carbon costs: $m','VRE curtailment: $m','Transmission costs: $m',
+  'Import costs with external zones: $m','Export revenues with external zones: $m',
+  'Spinning reserve costs: $m','Unmet country spinning reserve costs: $m'];
 function costColor(cat) { return COST_COLORS[cat] || '#888888'; }
 function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
 

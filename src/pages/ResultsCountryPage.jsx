@@ -31,7 +31,7 @@ import { externalZoneSet } from '../utils/zoneClass';
 import { usePromotedZones } from '../utils/usePromotedZones';
 import {
   processNpvInput, processNpvSystem, buildNpv, aggregateNpv, npvDelta, visibleComps,
-  withSummaryCapex,
+  withSummaryCapex, withNetInternalTrade, NET_TRADE_LINE,
 } from '../utils/npv';
 import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
@@ -52,9 +52,23 @@ function cjDefaults(t){return{responsive:true,maintainAspectRatio:false,plugins:
 function priceColor(t_){return`rgb(${Math.round(255-t_*(255-27))},${Math.round(255-t_*(255-108))},${Math.round(255-t_*(255-168))})`}
 function priceBarColor(t_){return`rgb(${Math.round(46+t_*(232-46))},${Math.round(158+t_*(197-158))},${Math.round(200+t_*(71-200))})`}
 
-const COST_COLORS={'Fuel costs: $m':'#E8C547','Fixed O&M: $m':'#4DA6FF','Variable O&M: $m':'#36B5B5','Investment costs: $m':'#8B5CF6','Carbon costs: $m':'#EF4444','VRE curtailment: $m':'#F59E0B','Transmission costs: $m':'#1B6CA8'};
-const COST_LABELS={'Fuel costs: $m':'Fuel','Fixed O&M: $m':'Fixed O&M','Variable O&M: $m':'Var O&M','Investment costs: $m':'CAPEX','Carbon costs: $m':'Carbon','VRE curtailment: $m':'Curtailment','Transmission costs: $m':'Transmission'};
-const MAIN_COST_CATS=['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Investment costs: $m','Carbon costs: $m','VRE curtailment: $m','Transmission costs: $m'];
+const COST_COLORS={'Fuel costs: $m':'#E8C547','Fixed O&M: $m':'#4DA6FF','Variable O&M: $m':'#36B5B5','Investment costs: $m':'#8B5CF6','Carbon costs: $m':'#EF4444','VRE curtailment: $m':'#F59E0B','Transmission costs: $m':'#1B6CA8',
+  'Import costs with external zones: $m':'#C0392B','Export revenues with external zones: $m':'#27AE60',
+  'Spinning reserve costs: $m':'#8A97A8','Unmet country spinning reserve costs: $m':'#B0BAC6',
+  [NET_TRADE_LINE]:'#B9C2CC'};
+const COST_LABELS={'Fuel costs: $m':'Fuel','Fixed O&M: $m':'Fixed O&M','Variable O&M: $m':'Var O&M','Investment costs: $m':'CAPEX','Carbon costs: $m':'Carbon','VRE curtailment: $m':'Curtailment','Transmission costs: $m':'Transmission',
+  'Import costs with external zones: $m':'External imports','Export revenues with external zones: $m':'External exports',
+  'Spinning reserve costs: $m':'Spinning reserve','Unmet country spinning reserve costs: $m':'Unmet reserve',
+  [NET_TRADE_LINE]:'Internal trade, net'};
+// Every cost line the model writes, the three internal trade ones folded into the single
+// net line withNetInternalTrade puts in the data. A region can drop them, since they
+// cancel across it; a country cannot, and the net is what stays meaningful whether the
+// selection is one zone or a whole country. The sum ties with 'Costs total'.
+const MAIN_COST_CATS=['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Investment costs: $m',
+  'Carbon costs: $m','VRE curtailment: $m','Transmission costs: $m',
+  'Import costs with external zones: $m','Export revenues with external zones: $m',
+  'Spinning reserve costs: $m','Unmet country spinning reserve costs: $m',
+  NET_TRADE_LINE];
 function costColor(cat){return COST_COLORS[cat]||'#888888';}
 function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
 
@@ -154,7 +168,10 @@ export default function ResultsCountryPage() {
   // pCostsMerged lost its 'Investment costs: $m' line to a bug in output_treatment.py, so
   // for a run treated before the fix withSummaryCapex puts it back from summary.csv.
   // Everything below reads the repaired object; a run that never lost it is untouched.
-  const resultsData = useMemo(() => withSummaryCapex(resultsDataPromoted, summaryRows),
+  // withNetInternalTrade then folds the three internal trade lines into the single net one
+  // MAIN_COST_CATS draws, so the call sites see it as an ordinary cost line.
+  const resultsData = useMemo(
+    () => withNetInternalTrade(withSummaryCapex(resultsDataPromoted, summaryRows)),
     [resultsDataPromoted, summaryRows]);
   const [pieDispMode,  setPieDispMode]  = useState('none');
   const pieMarkersRef = useRef([]);
