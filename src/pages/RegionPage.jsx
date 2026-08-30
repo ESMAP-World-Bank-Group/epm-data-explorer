@@ -26,6 +26,7 @@ import { annotateCsv, inputLines } from '../utils/csvMeta';
 import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
+import { fetchScenarioDocs, scenarioDocIndex } from '../utils/scenarioDocs';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
 import { source } from '../utils/mapSource';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
@@ -1892,6 +1893,7 @@ export default function RegionPage() {
 
   const [epmLoading,      setEpmLoading]      = useState(false);
   const [scnMeta,         setScnMeta]         = useState(undefined);
+  const [scnDocs,         setScnDocs]         = useState(null);
   const [varOverrides,    setVarOverrides]    = useState({});
   const [activeFolder,    setActiveFolder]    = useState(null);
   const [activeZcmap,     setActiveZcmap]     = useState(null);
@@ -1924,6 +1926,8 @@ export default function RegionPage() {
       setRegion(r || null);
     });
     setCapacity(null);
+    // Written scenario descriptions, when the study has any (utils/scenarioDocs).
+    fetchScenarioDocs(regionId).then(setScnDocs);
     fetch(`/data/cache/region_capacity_${regionId}.json`).then(r => r.json()).then(setCapacity).catch(() => {});
     setFuelsOff(new Set()); setStatusOff(new Set()); setKvsOff(new Set());
     setLinesOn(true); setPlantsOn(true); setSubsOn(false);
@@ -2744,7 +2748,7 @@ export default function RegionPage() {
             section={resourceSection} setSection={setResourceSection} />
         )}
         {activeTab === 'scenarios' && (
-          <ScenarioTab t={t} scnMeta={scnMeta} />
+          <ScenarioTab t={t} scnMeta={scnMeta} docs={scenarioDocIndex(scnDocs, scnMeta?.scenarios || [])} />
         )}
         {activeTab === 'trade' && (
           <TradeTab t={t} epmData={epmData} epmLoading={epmLoading} hasEpm={!!region.epm} region={region}

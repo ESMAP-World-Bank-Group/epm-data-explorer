@@ -1,0 +1,221 @@
+{
+  "region": "blacksea",
+  "updated": "2026-08-30",
+  "intro": "Two things move across the study: which interconnectors get built, and what the EU pays for power at the border. A scenario is one choice on each axis, so a project scenario must be read against the counterfactual that shares its price path — not against the central baseline.",
+  "dimensions": [
+    { "key": "grid",  "label": "Grid" },
+    { "key": "price", "label": "EU price path" }
+  ],
+  "scenarios": {
+    "LC_Baseline": {
+      "aliases": ["baseline", "Baseline"],
+      "title": "Baseline",
+      "dimensions": { "grid": "Existing corridors", "price": "Central" },
+      "summary": "The counterfactual. Existing cross-border capacity only, no new interconnector to the EU, no new line inside the region, EU border prices on the central path.",
+      "detail": [
+        "pExtTransferLimit_baseline.csv holds the corridors that already exist; pNewTransmission_none.csv offers the model no internal candidate to build.",
+        "Every project scenario on the central price path is read against this one."
+      ]
+    },
+    "LC_Iso": {
+      "title": "Isolation",
+      "dimensions": { "grid": "No trade at all", "price": "Central" },
+      "summary": "Every zone on its own: internal transfer limits zeroed and trade with the external zones switched off.",
+      "detail": [
+        "pTransferLimit_iso.csv and pSettings_iso.csv. Not a plan — the bound on what integration can be worth, and the case where scarcity shows up as price spikes."
+      ],
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_60pct": {
+      "title": "60% reinforcement",
+      "dimensions": { "grid": "Existing corridors reinforced", "price": "Central" },
+      "summary": "The existing Turkiye–EU corridors reinforced: +1 360 MW to Bulgaria and +680 MW to Greece from 2027, 816 M$ of capex. No new corridor.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_BSSC": {
+      "title": "Black Sea Submarine Cable",
+      "dimensions": { "grid": "BSSC phase 1", "price": "Central" },
+      "summary": "Phase 1 of the Georgia–Romania submarine cable: 1 300 MW from 2031, 3 500 M$.",
+      "detail": [
+        "The cable is the only route that sells Caucasus power into the EU without crossing Turkiye, so most of its value lands in Georgia."
+      ],
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_GECO": {
+      "title": "GECO — full cable",
+      "dimensions": { "grid": "BSSC phases 1+2", "price": "Central" },
+      "summary": "The Georgia–Romania corridor at full size: 5 200 MW from 2031, 14 000 M$. Contains BSSC phase 1 as its first phase.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_EWTC": {
+      "title": "East–West Transmission Corridor",
+      "dimensions": { "grid": "EWTC", "price": "Central" },
+      "summary": "775 MW Trakia–Bulgaria from 2033 and 775 MW Trakia–Greece from 2034, 500 M$ together.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_TransCaspian": {
+      "title": "Trans-Caspian",
+      "dimensions": { "grid": "Trans-Caspian", "price": "Central" },
+      "summary": "1 000 MW between Azerbaijan and Kazakhstan across the Caspian from 2035, 2 000 M$.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_BSTN": {
+      "title": "BSTN — EastAna–Georgia",
+      "dimensions": { "grid": "One regional line committed", "price": "Central" },
+      "summary": "The Turkiye–Georgia line committed: 350 MW from 2032, 850 M$. External capacity unchanged.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_Zangezur": {
+      "title": "Zangezur — Nakhchivan–EastAna",
+      "dimensions": { "grid": "One regional line committed", "price": "Central" },
+      "summary": "The Nakhchivan–Turkiye line committed: 1 000 MW from 2032, 1 450 M$.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_CTN": {
+      "title": "CTN — Georgia–Armenia",
+      "dimensions": { "grid": "One regional line committed", "price": "Central" },
+      "summary": "The Georgia–Armenia line committed: 350 MW from 2029, 850 M$.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_AllProjects": {
+      "title": "All projects",
+      "dimensions": { "grid": "Every project", "price": "Central" },
+      "summary": "Everything at once: GECO 5 200 MW to Romania, EWTC 2×775 MW to Bulgaria and Greece, Trans-Caspian 1 000 MW, and the three regional lines committed. 16 500 M$ of external capex.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_FreeExpProjects": {
+      "title": "Regional lines as candidates",
+      "dimensions": { "grid": "Regional lines optional", "price": "Central" },
+      "summary": "The three regional lines offered to the model rather than committed: it builds them only if they pay for themselves.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_FreeExpNational": {
+      "title": "Free expansion — inside Turkiye",
+      "dimensions": { "grid": "Turkish grid free", "price": "Central" },
+      "summary": "Every internal Turkish corridor gets up to ten 1 000 MW candidates from 2028; the cross-border lines stay out.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_FreeExpCrossBorder": {
+      "title": "Free expansion — regional borders",
+      "dimensions": { "grid": "Borders free", "price": "Central" },
+      "summary": "The regional borders opened to candidates: up to 6 lines EastAna–Georgia, 6 Georgia–Armenia, 3 Nakhchivan–EastAna, 4 Azerbaijan–Georgia.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_FreeExpAll": {
+      "title": "Free expansion — everything",
+      "dimensions": { "grid": "Whole grid free", "price": "Central" },
+      "summary": "Both free-expansion sets at once: what the region would build if internal capacity were free to choose. A benchmark, not a plan.",
+      "counterfactual": "LC_Baseline"
+    },
+    "LC_TRGasFlat": {
+      "title": "Turkish gas flat",
+      "dimensions": { "grid": "Existing corridors", "price": "Central" },
+      "summary": "Turkish gas at a flat 10 $/MMBtu. That path became the study default on 2026-08-25, so this scenario now reproduces the baseline and is kept only for provenance.",
+      "counterfactual": "LC_Baseline"
+    },
+
+    "LC_Base_VeryLow": {
+      "title": "Baseline · very low EU prices",
+      "dimensions": { "grid": "Existing corridors", "price": "Very low" },
+      "summary": "The baseline grid, with the EU border price on the very-low path. The counterfactual for every project scenario run at very-low prices."
+    },
+    "LC_Base_Low": {
+      "title": "Baseline · low EU prices",
+      "dimensions": { "grid": "Existing corridors", "price": "Low" },
+      "summary": "The baseline grid on the low EU price path."
+    },
+    "LC_Base_High": {
+      "title": "Baseline · high EU prices",
+      "dimensions": { "grid": "Existing corridors", "price": "High" },
+      "summary": "The baseline grid on the high EU price path."
+    },
+    "LC_Base_Crisis": {
+      "title": "Baseline · crisis prices",
+      "dimensions": { "grid": "Existing corridors", "price": "Crisis" },
+      "summary": "The baseline grid on the crisis price path — a repeat of the 2022 kind of shock. The counterfactual for project scenarios run at crisis prices."
+    },
+    "LC_Base_CBAM": {
+      "title": "Baseline · CBAM on exports",
+      "dimensions": { "grid": "Existing corridors", "price": "Central + CBAM" },
+      "summary": "Central import prices, but exports to the EU pay the carbon border adjustment. It takes most of the margin out of Turkish exports.",
+      "detail": [
+        "Only the export price file changes (pTradePriceExport_eu_central_cbam.csv): what the region pays to import is untouched."
+      ]
+    },
+    "LC_Base_VeryLowCBAM": {
+      "title": "Baseline · very low + CBAM",
+      "dimensions": { "grid": "Existing corridors", "price": "Very low + CBAM" },
+      "summary": "Very-low import prices with the carbon border adjustment on exports."
+    },
+    "LC_Base_LowCBAM": {
+      "title": "Baseline · low + CBAM",
+      "dimensions": { "grid": "Existing corridors", "price": "Low + CBAM" },
+      "summary": "Low import prices with the carbon border adjustment on exports."
+    },
+    "LC_Base_HighCBAM": {
+      "title": "Baseline · high + CBAM",
+      "dimensions": { "grid": "Existing corridors", "price": "High + CBAM" },
+      "summary": "High import prices with the carbon border adjustment on exports."
+    },
+    "LC_Base_CrisisCBAM": {
+      "title": "Baseline · crisis + CBAM",
+      "dimensions": { "grid": "Existing corridors", "price": "Crisis + CBAM" },
+      "summary": "Crisis import prices with the carbon border adjustment on exports."
+    },
+
+    "LC_BSSC_VeryLow": {
+      "title": "BSSC · very low EU prices",
+      "dimensions": { "grid": "BSSC phase 1", "price": "Very low" },
+      "summary": "The submarine cable on the very-low price path. Read against LC_Base_VeryLow: a benefit only means something against the same prices.",
+      "counterfactual": "LC_Base_VeryLow"
+    },
+    "LC_BSSC_Crisis": {
+      "title": "BSSC · crisis prices",
+      "dimensions": { "grid": "BSSC phase 1", "price": "Crisis" },
+      "summary": "The submarine cable on the crisis price path.",
+      "counterfactual": "LC_Base_Crisis"
+    },
+    "LC_BSSC_CBAM": {
+      "title": "BSSC · CBAM on exports",
+      "dimensions": { "grid": "BSSC phase 1", "price": "Central + CBAM" },
+      "summary": "The submarine cable when exports to the EU pay the carbon border adjustment.",
+      "counterfactual": "LC_Base_CBAM"
+    },
+    "LC_AllProjects_VeryLow": {
+      "title": "All projects · very low EU prices",
+      "dimensions": { "grid": "Every project", "price": "Very low" },
+      "summary": "The full project set on the very-low price path.",
+      "counterfactual": "LC_Base_VeryLow"
+    },
+    "LC_AllProjects_Crisis": {
+      "title": "All projects · crisis prices",
+      "dimensions": { "grid": "Every project", "price": "Crisis" },
+      "summary": "The full project set on the crisis price path.",
+      "counterfactual": "LC_Base_Crisis"
+    },
+    "LC_AllProjects_CBAM": {
+      "title": "All projects · CBAM on exports",
+      "dimensions": { "grid": "Every project", "price": "Central + CBAM" },
+      "summary": "The full project set when exports to the EU pay the carbon border adjustment.",
+      "counterfactual": "LC_Base_CBAM"
+    },
+    "LC_FreeExpAll_VeryLow": {
+      "title": "Free expansion · very low EU prices",
+      "dimensions": { "grid": "Whole grid free", "price": "Very low" },
+      "summary": "The unconstrained-grid benchmark on the very-low price path.",
+      "counterfactual": "LC_Base_VeryLow"
+    },
+    "LC_FreeExpAll_Crisis": {
+      "title": "Free expansion · crisis prices",
+      "dimensions": { "grid": "Whole grid free", "price": "Crisis" },
+      "summary": "The unconstrained-grid benchmark on the crisis price path.",
+      "counterfactual": "LC_Base_Crisis"
+    },
+    "LC_FreeExpAll_CBAM": {
+      "title": "Free expansion · CBAM on exports",
+      "dimensions": { "grid": "Whole grid free", "price": "Central + CBAM" },
+      "summary": "The unconstrained-grid benchmark when exports pay the carbon border adjustment.",
+      "counterfactual": "LC_Base_CBAM"
+    }
+  }
+}

@@ -403,6 +403,21 @@ export async function fetchInputScenarios(branch, outputDir, simRun) {
   } catch { return null; }
 }
 
+/** Fetch a CSV written at the ROOT of a run, beside input_scenarios.csv, rather than in
+ *  one scenario's output_csv. Two of those matter: summary.csv, which is the only place
+ *  the generation capex annuities are reported (all scenarios in columns), and the
+ *  optional npv_external.csv a study publishes for costs the model never priced.
+ *  Returns null when the run does not carry the file -- both are optional. */
+export async function fetchRunRootCSV(branch, outputDir, simRun, filename) {
+  if (!branch || !outputDir || !simRun) return null;
+  const url = `${rawBase(branch)}/${branch}/${outputDir}/${simRun}/${filename}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return parseCSV(await res.text());
+  } catch { return null; }
+}
+
 export async function fetchZonesExtGeoJSON(branch, dataFolder) {
   const url = `${rawBase(branch)}/${branch}/epm/input/${dataFolder}/zones_ext.geojson`;
   try {

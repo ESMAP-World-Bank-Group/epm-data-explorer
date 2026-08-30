@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { useTheme } from '../App';
 import { getT, mapStyle } from '../constants';
 import {
-  fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
+  fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear, fetchRunRootCSV,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
   processHours, processTimeSlices, processTransmissionResults, processPlants, processCosts, processExtNTC, processEnergyBalance,
   processTradePrice,
@@ -28,6 +28,9 @@ import { priceDotEl } from '../utils/priceDot';
 import { fetchScenarioConfig, resolveFile, overridesFor } from '../utils/epmScenarios';
 import { externalZoneSet } from '../utils/zoneClass';
 import { usePromotedZones } from '../utils/usePromotedZones';
+import {
+  processNpvInput, processNpvSystem, buildNpv, aggregateNpv, npvDelta, visibleComps,
+} from '../utils/npv';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -143,6 +146,10 @@ export default function ResultsCountryPage() {
   const [plZone,       setPlZone]       = useState('all');
   const [selZone,      setSelZone]      = useState('all');
   const [summaryRef,   setSummaryRef]   = useState(null);
+  const [summaryScen,  setSummaryScen]  = useState(new Set());
+  const [npvSplit,     setNpvSplit]     = useState('scenario'); // 'scenario' | 'zone'
+  const [summaryRows,  setSummaryRows]  = useState(null);   // run-root summary.csv
+  const [extNpvRows,   setExtNpvRows]   = useState(null);   // run-root npv_external.csv
   const [pieDispMode,  setPieDispMode]  = useState('none');
   const pieMarkersRef = useRef([]);
 
@@ -202,17 +209,30 @@ export default function ResultsCountryPage() {
   },[region,outputDir,simRun,runsResolved]);
 
   useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const b=region.epm.branch;resolveOutputDir(b).then(dir=>{setOutputDir(dir);return fetchRunList(b,dir);}).then(names=>{setRunsUnreachable(names===null);const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});},[region]);
-  useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(defaultScenarios(s));setCmpRef(base);setCmpScenarios(defaultScenarios(s.filter(x=>x!==base)));setTrScenarios(defaultScenarios(s));setSnapScenarios(defaultScenarios(s));}});},[region,simRun,outputDir]);
+  useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(defaultScenarios(s));setCmpRef(base);setCmpScenarios(defaultScenarios(s.filter(x=>x!==base)));setTrScenarios(defaultScenarios(s));setSnapScenarios(defaultScenarios(s));setSummaryRef(null);setSummaryScen(defaultScenarios(s.filter(x=>x!==base)));}});},[region,simRun,outputDir]);
 
   useEffect(()=>{
     if(!region?.epm||!simRun||!scenarioList.length)return;
     setLoadingData(true);const{branch}=region.epm;
     // Dispatch (pDispatchComplete) is huge -> loaded lazily per year (see effect below)
     Promise.all(scenarioList.map(async scen=>{
-      const[tf,yz,pr,tx,pl,co,eb]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pTransmissionMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pCostsMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pEnergyBalance.csv',outputDir)]);
-      return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:{},price:pr?processHourlyPrice(pr):{},transmission:tx?processTransmissionResults(tx):{},plants:pl?processPlants(pl):[],costs:co?processCosts(co):{},energyBalance:eb?processEnergyBalance(eb):{}};
+      const[tf,yz,pr,tx,pl,co,eb,np]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pTransmissionMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pCostsMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pEnergyBalance.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pNetPresentCostSystemMerged.csv',outputDir)]);
+      return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:{},price:pr?processHourlyPrice(pr):{},transmission:tx?processTransmissionResults(tx):{},plants:pl?processPlants(pl):[],costs:co?processCosts(co):{},energyBalance:eb?processEnergyBalance(eb):{},npvRaw:co?processNpvInput(co):null,npvSystem:np?processNpvSystem(np):null};
     })).then(res=>{const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);dispLoadedRef.current=new Set();const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);}).finally(()=>setLoadingData(false));
   },[region,simRun,scenarioList]); // eslint-disable-line
+
+  // The two files a run writes at its root rather than per scenario, both optional:
+  // summary.csv, which holds the generation capex annuities the NPV cannot be assembled
+  // without, and npv_external.csv, the costs a study prices outside the model.
+  useEffect(()=>{
+    if(!region?.epm||!simRun){setSummaryRows(null);setExtNpvRows(null);return;}
+    const{branch}=region.epm;let stale=false;
+    Promise.all([
+      fetchRunRootCSV(branch,outputDir,simRun,'summary.csv'),
+      fetchRunRootCSV(branch,outputDir,simRun,'npv_external.csv'),
+    ]).then(([sm,ext])=>{if(stale)return;setSummaryRows(sm);setExtNpvRows(ext);});
+    return()=>{stale=true;};
+  },[region,simRun,outputDir]);
 
   // Lazy-load dispatch for the year/scenarios actually shown (big file, split per year).
   useEffect(()=>{
@@ -242,6 +262,40 @@ export default function ResultsCountryPage() {
   const hasData = Object.keys(resultsData).length>0;
   const allYears = useMemo(()=>{const f=Object.values(resultsData)[0];return f?resultYears(f.techFuel):[];},[resultsData]);
   const activeInd = useMemo(()=>INDICATORS.find(i=>i.key===evIndicator)||INDICATORS[0],[evIndicator]);
+  // ── NPV ────────────────────────────────────────────────────────────────────
+  /** npv_external.csv -> { scenario: { zone: $m } }. Header: scenario,zone,value. */
+  const extNpv = useMemo(()=>{
+    if(!extNpvRows?.length)return null;
+    const out={};
+    for(const r of extNpvRows){
+      const sc=(r.scenario||'').trim(),z=(r.zone||'').trim();const v=parseFloat(r.value);
+      if(!sc||!z||!Number.isFinite(v))continue;
+      (out[sc]||={})[z]=(out[sc][z]||0)+v;
+    }
+    return out;
+  },[extNpvRows]);
+
+  // Grouped by ZONE, not by country: this page already IS one country and splits it by
+  // zone. Scenario totals and the residual cover the whole system whatever the grouping,
+  // so the reconciliation check stays the model-wide one even though the tables below
+  // show one country's slice of it.
+  const npvSystemData = useMemo(()=>buildNpv({
+    scenarios:scenarioList.filter(s=>resultsData[s]),
+    resultsData,summaryRows,extNpv,zoneToCountry:z=>z,
+  }),[scenarioList,resultsData,summaryRows,extNpv]);
+
+  /** The country's slice, over the zones on screen. Internal trade is left unmerged here:
+   *  the three lines cancel across a whole region, never inside one country. */
+  const npvCountry = useMemo(()=>{
+    const out={};
+    for(const[sc,n]of Object.entries(npvSystemData.byScen)){
+      const{comps,total}=aggregateNpv(n.byCountry,visZones);
+      out[sc]={comps,total,byZone:n.byCountry,residual:n.residual,modelTotal:n.modelTotal,
+               hasCapex:n.hasCapex,hasExternal:n.hasExternal};
+    }
+    return out;
+  },[npvSystemData,visZones]);
+
   const allTechfuels = useMemo(()=>{const tfs=new Set();for(const d of Object.values(resultsData))for(const z of allZones)for(const a of Object.values(d.techFuel[z]||{}))for(const y of Object.values(a))for(const tf of Object.keys(y))tfs.add(tf);return[...tfs].filter(t=>t!=='Demand').sort();},[resultsData,allZones]);
 
   const firstDisp=resultsData[dispScenario]?.dispatch||Object.values(resultsData)[0]?.dispatch||{};
@@ -997,6 +1051,56 @@ export default function ResultsCountryPage() {
         {hasData&&activeTab==='summary'&&summaryData&&(()=>{
           const{allSc,ref,nonRef,data,lastY}=summaryData;
           const hasGen=allSc.some(s=>visZones.some(z=>Object.keys(resultsData[s]?.techFuel[z]?.GenerationTechFuel?.[lastY]||{}).length>0));
+
+          // ── The country's share of the objective, discounted on the model's own year
+          // factors (utils/npv). The check is necessarily system-wide -- the model writes
+          // one NPV for the whole system, not one per country -- so a scenario appears
+          // here only when its FULL decomposition adds back to that number. Otherwise the
+          // country slice would inherit a hole (a missing capex column, typically) with
+          // nothing on this page able to reveal it.
+          const offBy  = s=>{const n=npvSystemData.byScen[s];return n&&n.residual!=null&&Math.abs(n.residual)>0.005*Math.abs(n.modelTotal||1);};
+          const npvOk  = s=>!!npvCountry[s]&&!offBy(s);
+          const nRef   = npvOk(ref)?npvCountry[ref]:null;
+          const hasNpv = !!nRef;
+          const nCols  = hasNpv?baseFirst(allSc.filter(s=>s!==ref&&summaryScen.has(s)&&npvOk(s))):[];
+          const nBad   = allSc.filter(s=>npvCountry[s]&&!npvOk(s));
+          const byZ    = npvSplit==='zone'&&visZones.length>1;
+          const dScen  = Object.fromEntries(nCols.map(s=>[s,npvDelta(nRef.comps,npvCountry[s].comps)]));
+          const dZone  = Object.fromEntries(nCols.map(s=>[s,Object.fromEntries(visZones.map(z=>[z,npvDelta(nRef.byZone[z],npvCountry[s].byZone[z])]))]));
+          const netOf  = s=>nRef.total-npvCountry[s].total;
+          // Two lists: the levels table shows what the scenarios cost this country, the
+          // chart and the Δ table show what moved, and a component can be large in one
+          // and flat in the other.
+          const compsL = hasNpv?visibleComps([nRef.comps,...nCols.map(s=>npvCountry[s].comps)]):[];
+          const comps  = hasNpv&&nCols.length?visibleComps(byZ?nCols.flatMap(s=>visZones.map(z=>dZone[s][z])):nCols.map(s=>dScen[s])):[];
+          const bn     = v=>v==null||!Number.isFinite(v)?'—':`${v>0?'+':v<0?'-':''}${(Math.abs(v)/1000).toFixed(2)}`;
+          const npvChart = !comps.length?null:byZ?{
+            labels:visZones,
+            datasets:nCols.flatMap((s,si)=>comps.map(c=>({
+              label:nCols.length>1?`${s} — ${c.label}`:c.label,
+              data:visZones.map(z=>+((dZone[s][z][c.key]||0)/1000).toFixed(3)),
+              backgroundColor:hexA(c.color,nCols.length>1?0.62:0.85),borderColor:c.color,borderWidth:nCols.length>1?1:0,
+              stack:s,_si:si,
+            })).filter(d=>d.data.some(v=>v!==0))),
+            net:nCols.map((s,si)=>({si,data:visZones.map(z=>+(Object.values(dZone[s][z]).reduce((a,b)=>a+b,0)/1000).toFixed(3)),color:t.lbl})),
+          }:{
+            labels:nCols,
+            datasets:comps.map(c=>({label:c.label,data:nCols.map(s=>+((dScen[s][c.key]||0)/1000).toFixed(3)),backgroundColor:hexA(c.color,0.85),borderWidth:0,stack:'d',_si:0})),
+            net:[{si:0,data:nCols.map(s=>+(netOf(s)/1000).toFixed(3)),color:t.lbl}],
+          };
+          const npvNotes = [
+            hasNpv
+              ? `Discounted on the model's own year factors. The totals are ${countryDecoded}'s share of the system NPV — a share the model never reports on its own, so each scenario's whole decomposition is checked against the model's NPV before its slice is drawn.`
+              : null,
+            nBad.length
+              ? `Left out — their system-wide components do not add back to the model's own NPV, usually because summary.csv carries no generation capex for them: ${nBad.map(s=>`${s} (${fmt(npvSystemData.byScen[s].residual,0)} M$)`).join(', ')}.`
+              : null,
+            hasNpv&&[ref,...nCols].some(s=>!npvCountry[s].hasCapex)
+              ? 'Generation capex is missing for at least one scenario shown — its bar and total are incomplete.' : null,
+            hasNpv&&[ref,...nCols].every(s=>!npvCountry[s].hasExternal)
+              ? 'Capex of the external interconnectors is outside the model objective. Publish npv_external.csv (scenario,zone,value) beside summary.csv to have it counted.' : null,
+          ].filter(Boolean);
+
           const ROWS=[
             {sec:`DEMAND  ·  ${allYears[0]}–${lastY}`},
             {k:'demCumul',l:'Cumulative demand',u:'TWh',d:1},
@@ -1009,9 +1113,13 @@ export default function ResultsCountryPage() {
             {sec:`TRADE  ·  ${allYears[0]}–${lastY}`},
             {k:'niCumul',l:'Net import (cumul.)',u:'TWh',d:1,sgn:true},
             {k:'niLast',l:`Net import (${lastY})`,u:'TWh/yr',d:1,sgn:true},
-            {sec:'SYSTEM COST  ·  cumulative  (M$)'},
-            {k:'costTotal',l:'Total',u:'M$',d:0,gP:false},
-            ...MAIN_COST_CATS.map(cat=>({k:cat,l:COST_LABELS[cat]||cat,u:'M$',d:0,gP:false,ind:true})),
+            // Costs belong to the NPV tables above whenever the run carries the discounted
+            // block. Without one, this undiscounted sum is all the page can say about cost.
+            ...(hasNpv?[]:[
+              {sec:'SYSTEM COST  ·  cumulative, undiscounted  (M$)'},
+              {k:'costTotal',l:'Total',u:'M$',d:0,gP:false},
+              ...MAIN_COST_CATS.map(cat=>({k:cat,l:COST_LABELS[cat]||cat,u:'M$',d:0,gP:false,ind:true})),
+            ]),
           ];
           const fmtS=(v,r,force)=>{
             if(v==null||isNaN(v))return'—';
@@ -1045,16 +1153,115 @@ export default function ResultsCountryPage() {
               )}</tbody>
             </table>
           );
+          // Levels ($m NPV) or differences against the reference, same shape either way.
+          const npvVal=(scen,key,delta)=>delta
+            ?(key==='__total'?netOf(scen):(dScen[scen]?.[key]||0))
+            :(key==='__total'?npvCountry[scen].total:(npvCountry[scen].comps[key]||0));
+          const mkNpvTbl=(cols,delta)=>(
+            <table style={{borderCollapse:'collapse',width:'100%'}}>
+              <thead><tr>
+                <th style={{...hs,textAlign:'left',minWidth:130}}/>
+                {cols.map(s=><th key={s} style={hs}>{delta?`Δ ${s}`:s}</th>)}
+                <th style={{...hs,width:34}}>M$</th>
+              </tr></thead>
+              <tbody>
+                {(delta?comps:compsL).map(c=><tr key={c.key}>
+                  <td style={{...ls,paddingLeft:8}}>
+                    <span style={{display:'inline-block',width:7,height:7,borderRadius:2,backgroundColor:c.color,marginRight:5}}/>{c.label}
+                  </td>
+                  {cols.map(s=>{const v=npvVal(s,c.key,delta);
+                    return<td key={s} style={{...cs,color:t.lbl,backgroundColor:delta?dBg(v,true):'transparent'}}>{fmt(v,0)}</td>;})}
+                  <td/>
+                </tr>)}
+                <tr>
+                  <td style={{...ls,fontWeight:700,color:t.lbl}}>{delta?'Net difference':`Net present cost · ${countryDecoded}`}</td>
+                  {cols.map(s=>{const v=npvVal(s,'__total',delta);
+                    return<td key={s} style={{...cs,fontWeight:700,color:t.lbl,backgroundColor:delta?dBg(v,true):'transparent'}}>{fmt(v,0)}</td>;})}
+                  <td/>
+                </tr>
+                {!delta&&<tr>
+                  <td style={{...ls,fontSize:'0.44rem',color:t.lblMuted}}>System NPV (whole model)</td>
+                  {cols.map(s=><td key={s} style={{...cs,fontSize:'0.44rem',color:t.lblMuted}}>{fmt(npvCountry[s].modelTotal,0)}</td>)}
+                  <td/>
+                </tr>}
+              </tbody>
+            </table>
+          );
           return(
             <div style={{display:'flex',flexDirection:'column',gap:14}}>
               <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                 <span style={{fontSize:'0.45rem',letterSpacing:'1.5px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase'}}>Reference:</span>
                 <select value={ref} onChange={e=>setSummaryRef(e.target.value)} style={selectStyle}>{allSc.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                {hasNpv&&<>
+                  <ScenarioPicker t={t} label="Compare" all={allSc} exclude={[ref]} selected={summaryScen} onChange={setSummaryScen}/>
+                  {visZones.length>1&&<>
+                    <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
+                    <Pill active={!byZ} onClick={()=>setNpvSplit('scenario')}>By scenario</Pill>
+                    <Pill active={byZ}  onClick={()=>setNpvSplit('zone')}>By zone</Pill>
+                  </>}
+                </>}
                 <span style={{fontSize:'0.4rem',color:t.lblMuted,marginLeft:8}}>Period: {allYears[0]}–{lastY} · {allYears.length} yrs · {visZones.length} zone{visZones.length>1?'s':''}</span>
               </div>
+
+              {hasNpv?<>
+                {/* The headline: what the scenario saves this country against the reference. */}
+                {nCols.length>0&&<div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  {nCols.map(s=>{
+                    const n=npvCountry[s],d=netOf(s),good=d>0;
+                    const col=good?'#34C759':'#FF3B30';
+                    return<div key={s} style={{flex:'1 1 148px',minWidth:148,padding:'8px 10px',borderRadius:4,border:`1px solid ${t.panelBorder}`,backgroundColor:hexA(col,0.06)}}>
+                      <div style={{fontSize:'0.44rem',letterSpacing:'1px',fontWeight:700,color:t.lblMuted,textTransform:'uppercase',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s}</div>
+                      <div style={{fontSize:'1.05rem',fontWeight:700,color:col,lineHeight:1.3}}>{bn(d)}
+                        <span style={{fontSize:'0.48rem',fontWeight:400,color:t.muted,marginLeft:3}}>bn$ NPV</span></div>
+                      <div style={{fontSize:'0.42rem',color:t.lblMuted}}>{fmt(n.total,0)} vs {fmt(nRef.total,0)} M$</div>
+                      {!n.hasCapex&&<div style={{fontSize:'0.4rem',color:'#FF9500',marginTop:2}}>⚠ capex missing</div>}
+                    </div>;
+                  })}
+                </div>}
+
+                <div>
+                  <SectionTitle t={t}>{`NPV difference vs ${ref}  ·  positive = saving for ${countryDecoded}  ·  bn$`}</SectionTitle>
+                  {npvChart&&npvChart.datasets.length?
+                    <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+                      {byZ&&nCols.length>1&&<ScenarioKey t={t} scenarios={nCols}/>}
+                      <div style={{flex:1,minWidth:0}}>
+                        <CJChart type="bar" height={240}
+                          cacheKey={`npv-c|${ref}|${npvSplit}|${theme}|${nCols.join(',')}|${visZones.join(',')}|${[...hiddenMap['npv-comp-c']||[]].join(',')}`}
+                          plugins={[buildNetDotPlugin(npvChart.net),byZ?makeScenPlugin(nCols,t.muted):null].filter(Boolean)}
+                          data={{labels:npvChart.labels,datasets:npvChart.datasets.filter(d=>!isHidden('npv-comp-c',tfLabel(d)))}}
+                          options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{
+                            x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxRotation:30,padding:byZ&&nCols.length>1?16:2}},
+                            y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'bn$ (discounted)',color:t.muted,font:{size:8}}},
+                          },plugins:{...cjDefaults(t).plugins,legend:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw} bn$`}}}}}
+                        />
+                        <div style={{fontSize:'0.4rem',color:t.lblMuted,marginTop:3,display:'flex',alignItems:'center',gap:4}}>
+                          <span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',backgroundColor:t.lbl}}/>net difference
+                        </div>
+                      </div>
+                      {makeLegend('npv-comp-c',comps.map(c=>({label:c.label,color:c.color})))}
+                    </div>
+                  :<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Pick at least one scenario to compare against {ref}.</div>}
+                </div>
+
+                <SectionTitle t={t}>Net present cost by component</SectionTitle>
+                {mkNpvTbl([ref,...nCols],false)}
+                {nCols.length>0&&<>
+                  <SectionTitle t={t}>{`Δ vs ${ref}  ·  positive = saving`}</SectionTitle>
+                  {mkNpvTbl(nCols,true)}
+                </>}
+              </>:<div style={{fontSize:'0.5rem',color:t.lblMuted,lineHeight:1.6}}>
+                {npvCountry[ref]
+                  ?`The decomposition of ${ref} does not add back to the model's own NPV, so it cannot serve as a reference. Pick another one.`
+                  :'This run carries no discounted cost block (DiscountedWeightedCostsCumulated in pCostsMerged.csv), so the NPV cannot be decomposed. The undiscounted totals below are all the page can say about cost.'}
+              </div>}
+              {npvNotes.length>0&&<div style={{fontSize:'0.42rem',color:t.lblMuted,lineHeight:1.6}}>
+                {npvNotes.map((n,i)=><div key={i}>· {n}</div>)}
+              </div>}
+
+              <div style={{height:1,backgroundColor:t.panelBorder,margin:'4px 0'}}/>
+              <SectionTitle t={t}>Physical indicators</SectionTitle>
               {mkTbl(allSc,false)}
               {nonRef.length>0&&<>
-                <div style={{height:1,backgroundColor:t.panelBorder,margin:'4px 0'}}/>
                 <SectionTitle t={t}>{`Δ vs ${ref}`}</SectionTitle>
                 {mkTbl(nonRef,true)}
               </>}
