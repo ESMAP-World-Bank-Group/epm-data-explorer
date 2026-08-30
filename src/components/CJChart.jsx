@@ -13,14 +13,22 @@ function resolveBg(el) {
   return '#ffffff';
 }
 
-/** A name for the file: what the caller said, else the heading the chart sits under. */
+/**
+ * A title for the chart: what the caller said, else the heading it sits under.
+ *
+ * A section heading is a flex row whose first child is the label and whose second holds
+ * whatever controls that section carries, so the first element child is the part worth
+ * reading. Falling back to the whole row would drag every button caption in with it.
+ */
 function guessName(wrap) {
   const box = wrap?.parentElement;
+  const read = el => ((el?.firstElementChild?.textContent ?? el?.textContent) || '')
+    .replace(/\s+/g, ' ').trim().slice(0, 90);
   for (let n = box?.previousElementSibling; n; n = n.previousElementSibling) {
-    const txt = (n.textContent || '').trim();
+    const txt = read(n);
     if (txt) return txt;
   }
-  return (box?.parentElement?.previousElementSibling?.textContent || '').trim();
+  return read(box?.parentElement?.previousElementSibling);
 }
 
 const slug = s => (s || '').normalize('NFKD').replace(/[^\w\s-]/g, '').trim()
@@ -58,19 +66,39 @@ export default function CJChart({ type, data, options, height, plugins: extraPlu
   }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The canvas is transparent and its backing store is already device-pixel sized, so the
-  // export is that store painted over the panel's own background.
+  // export is that store painted over the panel's own background, under its own title:
+  // out of the app a chart has to say what it is.
   const download = () => {
     const src = canvasRef.current;
     if (!src || !src.width) return;
+    const title = (name || guessName(wrapRef.current) || '').trim();
+    const ratio = src.width / (src.clientWidth || src.width);   // device pixels per CSS pixel
+    const pad = Math.round(10 * ratio);
+    const band = title ? Math.round(30 * ratio) : 0;
+
     const out = document.createElement('canvas');
-    out.width = src.width; out.height = src.height;
+    out.width = src.width; out.height = src.height + band;
     const ctx = out.getContext('2d');
     ctx.fillStyle = resolveBg(src);
     ctx.fillRect(0, 0, out.width, out.height);
-    ctx.drawImage(src, 0, 0);
+
+    if (title) {
+      ctx.fillStyle = getComputedStyle(src).color || '#333';
+      ctx.font = `600 ${Math.round(13 * ratio)}px 'Segoe UI', system-ui, sans-serif`;
+      ctx.textBaseline = 'middle';
+      let txt = title;
+      const room = out.width - 2 * pad;
+      if (ctx.measureText(txt).width > room) {
+        while (txt.length > 1 && ctx.measureText(`${txt}…`).width > room) txt = txt.slice(0, -1);
+        txt += '…';
+      }
+      ctx.fillText(txt, pad, band / 2);
+    }
+
+    ctx.drawImage(src, 0, band);
     const a = document.createElement('a');
     a.href = out.toDataURL('image/png');
-    a.download = `${slug(name || guessName(wrapRef.current))}-${new Date().toISOString().slice(0, 10)}.png`;
+    a.download = `${slug(title)}-${new Date().toISOString().slice(0, 10)}.png`;
     a.click();
   };
 
