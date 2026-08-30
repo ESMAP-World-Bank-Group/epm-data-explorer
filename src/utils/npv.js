@@ -64,6 +64,7 @@ const INTERNAL = ['exp_int', 'imp_int', 'shared'];
  *  in 'other': those lines are usually pennies, but they have to go somewhere or the
  *  decomposition stops adding up to the model's NPV. */
 const LINE_TO_COMP = {
+  'Investment costs: $m':                     ['capex',   1],
   'Fuel costs: $m':                           ['fuel',    1],
   'Fixed O&M: $m':                            ['fom',     1],
   'Variable O&M: $m':                         ['vom',     1],
@@ -190,6 +191,47 @@ export function capexNpvByZone(summaryRows, scen, factors) {
 }
 
 /**
+ * Put the generation capex back into the per-year cost breakdown.
+ *
+ * output_treatment.py transcribed the GAMS sumhdr set with 'Generation costs: $m' where
+ * the model writes 'Investment costs: $m', and it reindexes pCosts onto that list with a
+ * left join, so every run treated before the fix lost its largest cost line outright.
+ * summary.csv comes through another path and kept it, zone by zone and year by year, in
+ * the same $m annuities, which is what this grafts back on. A run whose pCosts already
+ * carries the line is handed straight back, unchanged and with its identity intact.
+ *
+ * Only zones the cost file already knows are filled, so no view gains a zone it had no
+ * costs for, and the 'System' rows summary.csv repeats are skipped by the same test.
+ */
+export function withSummaryCapex(resultsData, summaryRows) {
+  if (!resultsData || !summaryRows?.length) return resultsData;
+  let touched = false;
+  const out = {};
+  for (const [scen, sd] of Object.entries(resultsData)) {
+    out[scen] = sd;
+    const costs = sd?.costs;
+    if (!costs || Object.values(costs).some(lines => CAPEX_ATTR in lines)) continue;
+    const add = {};
+    for (const r of summaryRows) {
+      if ((r.attribute || '').trim() !== CAPEX_ATTR) continue;
+      const z = (r.zone || '').trim();
+      const y = yr(r.year);
+      if (!z || !y || !costs[z]) continue;
+      const v = parseFloat(r[scen]);
+      if (!Number.isFinite(v) || v === 0) continue;
+      (add[z] ||= {})[y] = (add[z][y] || 0) + v;
+    }
+    const zones = Object.keys(add);
+    if (!zones.length) continue;
+    const nc = { ...costs };
+    for (const z of zones) nc[z] = { ...costs[z], [CAPEX_ATTR]: add[z] };
+    out[scen] = { ...sd, costs: nc };
+    touched = true;
+  }
+  return touched ? out : resultsData;
+}
+
+/**
  * The NPV of every scenario, by component and by country.
  *
  * `resultsData[scen]` is expected to carry `npvRaw` (processNpvInput) and `npvSystem`
@@ -226,7 +268,12 @@ export function buildNpv({ scenarios, resultsData, summaryRows, extNpv, zoneToCo
         add(nameOf(zone), comp, sign * v);
       }
     }
-    const cap = capexNpvByZone(summaryRows, scen, raw.factors);
+    // A run treated after the output_treatment fix carries the capex in pCosts itself,
+    // already discounted on the model's own factors. Taking summary.csv as well would
+    // count it twice, so summary.csv is the fallback and not the source.
+    const capexInCosts = Object.values(raw.byZone).some(l => CAPEX_ATTR in l);
+    const cap = capexInCosts ? { byZone: {}, found: true }
+                             : capexNpvByZone(summaryRows, scen, raw.factors);
     for (const [zone, v] of Object.entries(cap.byZone)) add(nameOf(zone), 'capex', v);
     for (const [zone, v] of Object.entries(extNpv?.[scen] || {})) add(nameOf(zone), 'newcap', v);
 

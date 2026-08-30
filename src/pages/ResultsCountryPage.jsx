@@ -31,6 +31,7 @@ import { externalZoneSet } from '../utils/zoneClass';
 import { usePromotedZones } from '../utils/usePromotedZones';
 import {
   processNpvInput, processNpvSystem, buildNpv, aggregateNpv, npvDelta, visibleComps,
+  withSummaryCapex,
 } from '../utils/npv';
 import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
@@ -115,7 +116,7 @@ export default function ResultsCountryPage() {
   // Zones this region asked to be shown as external, moved across the line before any
   // of the code below sees them (utils/zoneClass). For every other region this hands
   // the raw state straight back.
-  const { zcmapRows, zonesGJ, zonesExtGJ, extNtc, resultsData } =
+  const { zcmapRows, zonesGJ, zonesExtGJ, extNtc, resultsData: resultsDataPromoted } =
     usePromotedZones(region, { zcmapRows: zcmapRowsRaw, zonesGJ: zonesGJRaw,
       zonesExtGJ: zonesExtGJRaw, extNtc: extNtcRaw, resultsData: resultsDataRaw });
 
@@ -149,6 +150,12 @@ export default function ResultsCountryPage() {
   const [npvSplit,     setNpvSplit]     = useState('scenario'); // 'scenario' | 'zone'
   const [summaryRows,  setSummaryRows]  = useState(null);   // run-root summary.csv
   const [extNpvRows,   setExtNpvRows]   = useState(null);   // run-root npv_external.csv
+
+  // pCostsMerged lost its 'Investment costs: $m' line to a bug in output_treatment.py, so
+  // for a run treated before the fix withSummaryCapex puts it back from summary.csv.
+  // Everything below reads the repaired object; a run that never lost it is untouched.
+  const resultsData = useMemo(() => withSummaryCapex(resultsDataPromoted, summaryRows),
+    [resultsDataPromoted, summaryRows]);
   const [pieDispMode,  setPieDispMode]  = useState('none');
   const pieMarkersRef = useRef([]);
 

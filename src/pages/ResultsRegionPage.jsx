@@ -12,7 +12,7 @@ import {
   resultYears,
 } from '../utils/epmFetch';
 import {
-  processNpvInput, processNpvSystem, buildNpv, npvDelta, visibleComps,
+  processNpvInput, processNpvSystem, buildNpv, npvDelta, visibleComps, withSummaryCapex,
 } from '../utils/npv';
 import { annotateCsv, resultLines } from '../utils/csvMeta';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
@@ -215,7 +215,7 @@ export default function ResultsRegionPage() {
   // Zones this region asked to be shown as external, moved across the line before any
   // of the code below sees them (utils/zoneClass). For every other region this hands
   // the raw state straight back.
-  const { zcmapRows, zonesGJ, zonesExtGJ, extNtc, resultsData } =
+  const { zcmapRows, zonesGJ, zonesExtGJ, extNtc, resultsData: resultsDataPromoted } =
     usePromotedZones(region, { zcmapRows: zcmapRowsRaw, zonesGJ: zonesGJRaw,
       zonesExtGJ: zonesExtGJRaw, extNtc: extNtcRaw, resultsData: resultsDataRaw });
 
@@ -260,6 +260,12 @@ export default function ResultsRegionPage() {
   const [extNpvRows,     setExtNpvRows]     = useState(null);   // run-root npv_external.csv
   const [scnMeta,        setScnMeta]        = useState(null);   // scenarios.csv variant matrix
   const [scnDocs,        setScnDocs]        = useState(null);   // written scenario descriptions
+
+  // pCostsMerged lost its 'Investment costs: $m' line to a bug in output_treatment.py, so
+  // for a run treated before the fix withSummaryCapex puts it back from summary.csv.
+  // Everything below reads the repaired object; a run that never lost it is untouched.
+  const resultsData = useMemo(() => withSummaryCapex(resultsDataPromoted, summaryRows),
+    [resultsDataPromoted, summaryRows]);
   const isDraggingRef = useRef(false);
   const dragStartX    = useRef(0);
   const dragStartW    = useRef(0);
