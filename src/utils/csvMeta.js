@@ -23,6 +23,13 @@
 //     merge from the money parameter they are stacked onto. They are USD/MWh --
 //     which is why the attribute is consulted before the label.
 //
+// UtilizationPlant is labelled 'share' rather than 'share (0-1)' because the runs
+// write values above 1: Armenia_Nuclear_Cand reaches 1.804 in 2036 of the baseline,
+// and 17 rows of that run are above 1 altogether. A plant cannot run more than the
+// hours in a year, so the denominator is wrong somewhere in generate_report.gms,
+// most likely the capacity of a commissioning year. The values are passed on as the
+// model wrote them; only the claim that they fit in 0-1 is dropped.
+
 // EmissionsIntensityZone is deliberately left without a unit. generate_report.gms
 // divides pEmissionsZone -- already scaled to Mt -- by GWh and labels the result
 // tCO2/GWh, so a run writes 1e-9 of the declared unit (~3e-7 where the real
@@ -47,8 +54,9 @@ export const RESULT_UNIT_BY_ATTRIBUTE = {
   // Unit costs
   CostsPerMWh: 'USD/MWh', GenCostsPerMWh: 'USD/MWh', NetPresentCostPerMWh: 'USD/MWh',
   NetPresentCostSystemPerMWh: 'USD/MWh', PlantAnnualLCOE: 'USD/MWh',
-  // Shares, 0-1 -- not percentages, whatever generate_report.gms declares
-  UtilizationTechFuel: 'share (0-1)', UtilizationPlant: 'share (0-1)',
+  // Shares -- not percentages, whatever generate_report.gms declares. Three of them
+  // stay inside 0-1 in every run; UtilizationPlant does not, so it carries no range.
+  UtilizationTechFuel: 'share (0-1)', UtilizationPlant: 'share',
   InterconUtilization: 'share (0-1)', CongestionShare: 'share (0-1)',
   // Emissions
   EmissionsZone: 'Mt CO2',

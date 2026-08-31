@@ -305,7 +305,13 @@ export function processCosts(rows) {
   return out;
 }
 
-/** pPlantMerged → [{ g, z, c, techfuel, attribute, year, value }] */
+/** pPlantMerged → [{ g, z, c, techfuel, attribute, cat, year, value }]
+ *
+ *  `cat` is the cost category CostsPlant is broken down by, read off the `uni`
+ *  column and stripped of the unit it carries after the colon ('Fixed O&M: $m'
+ *  becomes 'Fixed O&M'). It is empty for every other attribute, which the model
+ *  writes once per plant and year. Without it a plant's cost is four unlabelled
+ *  rows that no consumer can add back together. */
 export function processPlants(rows) {
   if (!rows?.length) return [];
   return rows.map(r => ({
@@ -314,6 +320,7 @@ export function processPlants(rows) {
     c:         r.c || '',
     techfuel:  r.techfuel || r.tech || '',
     attribute: r.attribute || '',
+    cat:       String(r.uni || '').replace(/\s*:\s*[^:]*$/, '').trim(),
     y:         String(r.y || ''),
     value:     parseFloat(r.value) || 0,
   })).filter(r => r.g && r.attribute && r.y);

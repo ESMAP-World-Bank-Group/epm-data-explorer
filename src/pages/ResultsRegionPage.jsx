@@ -16,6 +16,7 @@ import {
 } from '../utils/npv';
 import { annotateCsv, resultLines } from '../utils/csvMeta';
 import { yzAgg } from '../utils/zoneAgg';
+import { rankPlants, plantDisplay, plantFmt } from '../utils/plantRank';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
 import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLegendItem } from '../utils/annualExtras';
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
@@ -1102,10 +1103,10 @@ export default function ResultsRegionPage() {
   };
 
   // ── Plants ──────────────────────────────────────────────────────────────────
-  const buildPlantsList = () => {
-    const pl=(resultsData[plScenario]?.plants||[]).filter(p=>p.attribute===plIndicator&&p.y===refYear&&p.value>0&&(plZone==='all'||p.z===plZone)).sort((a,b)=>b.value-a.value).slice(0,plTopN);
-    return pl;
-  };
+  const buildPlantsList = () => rankPlants(resultsData[plScenario]?.plants, {
+    attribute:plIndicator, year:refYear, topN:plTopN,
+    keep:p=>plZone==='all'||p.z===plZone,
+  });
 
   const buildLCOEBubble = () => {
     const pl=resultsData[plScenario]?.plants||[]; if(!refYear)return null;
@@ -1394,6 +1395,7 @@ export default function ResultsRegionPage() {
   const tradeCmpDeltaData=buildTradeCmpDelta();
   const tradeEvData=buildTradeEvolution();
   const plantsData=buildPlantsList(), lcoeData=buildLCOEBubble(), summaryData=buildSummary();
+  const plUnit=plantDisplay(plIndicator).unit;
   const dispTechfuels=dispResult.chartData.datasets.filter(d=>d.label!=='Marginal cost'&&d.label!=='Demand').map(d=>d.label);
 
   // ── Legend helpers ──────────────────────────────────────────────────────────
@@ -1912,13 +1914,13 @@ export default function ResultsRegionPage() {
             </div>
             {/* Ranking */}
             {plantsData.length>0?<>
-              <SectionTitle t={t}>Top {plTopN} — {plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim()}</SectionTitle>
+              <SectionTitle t={t}>Top {plTopN} — {plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim()} ({plUnit})</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   {(()=>{const pd=plantsData.filter(p=>!isHidden('plants-tf',p.techfuel));return(
                     <CJChart name={ttl(`Top ${plTopN} plants`,plIndicator.replace('Plant','').replace(/([A-Z])/g,' $1').trim(),plScenario,refYear,plZone!=='all'?plZone:null)} type="bar" height={Math.min(pd.length*18+24,260)} cacheKey={`pl|${plScenario}|${refYear}|${plIndicator}|${plTopN}|${theme}|${[...hiddenMap['plants-tf']||[]].join(',')}`}
                       data={{labels:pd.map(p=>p.g),datasets:[{label:plScenario,data:pd.map(p=>+p.value.toFixed(2)),backgroundColor:pd.map(p=>hexA(techColor(p.techfuel),0.85)),borderWidth:0,barThickness:12}]}}
-                      options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}}}}
+                      options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:plUnit,color:t.muted,font:{size:8}}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const e=pd[ctx.dataIndex],head=`${plantFmt(ctx.parsed.x)} ${plUnit}`;return e&&e.parts.length>1?[head,...e.parts.map(q=>`  ${q.cat}: ${plantFmt(q.value)}`)]:head;}}}}}}
                     />
                   );})()}
                 </div>
@@ -1934,7 +1936,7 @@ export default function ResultsRegionPage() {
                     data={{...lcoeData,datasets:lcoeData.datasets.filter(ds=>!isHidden('lcoe-tf',ds.label))}}
                     options={{...cjDefaults(t),plugins:{...cjDefaults(t).plugins,
                       tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>{const d=ctx.raw;return[`${d._plant||ctx.dataset.label}`,`LCOE: ${d.y} $/MWh  ·  Util: ${d.x.toFixed(0)}%`,d._cap?`Cap: ${fmt(d._cap)} MW`:''].filter(Boolean);}}}},
-                      scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:9}},min:0,max:105},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:9}},min:0}}}}
+                      scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'Utilization (%)',color:t.muted,font:{size:9}},min:0,suggestedMax:105},y:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9}},title:{display:true,text:'LCOE (USD/MWh)',color:t.muted,font:{size:9}},min:0}}}}
                   />
                 </div>
                 {makeLegend('lcoe-tf',lcoeData.datasets.map(ds=>({label:ds.label,color:ds.backgroundColor,shape:'circle'})))}
