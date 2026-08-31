@@ -74,6 +74,15 @@ const MAIN_COST_CATS = ['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Inv
 function costColor(cat) { return COST_COLORS[cat] || '#888888'; }
 function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
 
+// The country selector's third regime: draw the countries side by side instead of
+// summing them. Only the yearlyZone indicators can take it, they are the ones drawn as
+// curves; a stack of techfuels or of cost lines would have to be restacked by country,
+// which is a different chart and not this one.
+const EACH_COUNTRY = '__each__';
+// One dash pattern per scenario, so colour is free to carry the country. Solid first,
+// which is the base scenario wherever baseFirst put it.
+const SCEN_DASH = [[], [6,3], [2,3], [9,3,2,3], [1,3]];
+
 const INDICATORS = [
   { key:'CapacityTechFuel',             label:'Capacity (MW)',             source:'techFuel',   unit:'MW' },
   { key:'EnergyTechFuelComplete',       label:'Energy (GWh)',              source:'techFuel',   unit:'GWh' },
@@ -814,7 +823,15 @@ export default function ResultsRegionPage() {
   const hasData       = Object.keys(resultsData).length>0;
   const allYears      = useMemo(()=>{ const f=Object.values(resultsData)[0]; return f?resultYears(f.techFuel):[]; },[resultsData]);
   const activeInd     = useMemo(()=>INDICATORS.find(i=>i.key===evIndicator)||INDICATORS[0],[evIndicator]);
-  const evZones       = useMemo(()=>evCountry==='all'?allZones:allZones.filter(z=>zoneToCountry[z]===evCountry),[evCountry,allZones,zoneToCountry]);
+  // In the per-country regime every zone is in play, so anything that still wants one
+  // flat list  the extras, the totals, a stacked indicator  reads the whole region.
+  const evZones       = useMemo(()=>evCountry==='all'||evCountry===EACH_COUNTRY?allZones:allZones.filter(z=>zoneToCountry[z]===evCountry),[evCountry,allZones,zoneToCountry]);
+  const evGroups      = useMemo(()=>allCountries.map(c=>({name:c,zones:allZones.filter(z=>zoneToCountry[z]===c)})).filter(g=>g.zones.length),[allCountries,allZones,zoneToCountry]);
+  const evEach        = evCountry===EACH_COUNTRY&&activeInd.source==='yearlyZone';
+  const evGroupColor  = i => MAP_PALETTE[i%MAP_PALETTE.length];
+  // Switching to a stacked indicator leaves the regime with nothing to draw, so hand the
+  // selector back to 'all' rather than let it show a choice the chart is ignoring.
+  useEffect(()=>{ if(evCountry===EACH_COUNTRY&&activeInd.source!=='yearlyZone') setEvCountry('all'); },[evCountry,activeInd.source]);
   const allTechfuels  = useMemo(()=>{ const tfs=new Set(); for(const d of Object.values(resultsData)) for(const z of Object.values(d.techFuel)) for(const a of Object.values(z)) for(const y of Object.values(a)) for(const tf of Object.keys(y)) tfs.add(tf); return[...tfs].filter(t=>t!=='Demand').sort();},[resultsData]);
 
   // ── NPV ────────────────────────────────────────────────────────────────────
@@ -976,6 +993,16 @@ export default function ResultsRegionPage() {
       return { labels:allYears, datasets };
     }
     if (ind.source==='yearlyZone') {
+      if (evEach) {
+        const multi=activeSc.length>1;
+        return { labels:allYears, datasets:activeSc.flatMap((scen,si)=>evGroups.map((g,gi)=>({
+          label:multi?`${scen} — ${g.name}`:g.name,
+          data:allYears.map(y=>+getEvVal(scen,y,ind,g.zones).toFixed(2)),
+          borderColor:evGroupColor(gi), backgroundColor:hexA(evGroupColor(gi),0.75),
+          borderDash:SCEN_DASH[si%SCEN_DASH.length], borderWidth:2, pointRadius:0,
+          fill:false, tension:0.3, type:'line', _country:g.name,
+        }))) };
+      }
       return { labels:allYears, datasets:activeSc.map((scen,i)=>({ label:scen, data:allYears.map(y=>+evZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)), backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.75), borderColor:SCEN_COLORS[i%SCEN_COLORS.length], borderWidth:2, fill:false, tension:0.3, type:'line' })) };
     }
     if(ind.source==='trade'){
@@ -1094,10 +1121,12 @@ export default function ResultsRegionPage() {
   // ── Scenario comparison (shared across tabs) ──────────────────────────────
   const findBase = scens => scens.find(s=>/^base/i.test(s))||scens[0];
   const SCEN_COLORS = ['#1B6CA8','#36B5B5','#4169E1','#D4A820','#B83838','#7048A8','#4A9E6A','#2E9EC8'];
-  const getEvVal = (scen, y, ind) => {
-    if(ind.source==='techFuel') return evZones.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]||{}).reduce((a,b)=>a+b,0),0);
-    if(ind.source==='yearlyZone') return evZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0);
-    if(ind.source==='costs') return MAIN_COST_CATS.reduce((s,cat)=>s+evZones.reduce((s2,z)=>s2+(resultsData[scen]?.costs[z]?.[cat]?.[y]||0),0),0);
+  /** The indicator's value for one scenario and one year, over `zs`  the whole Evolution
+   *  selection by default, one country's zones when the per-country regime asks. */
+  const getEvVal = (scen, y, ind, zs = evZones) => {
+    if(ind.source==='techFuel') return zs.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]||{}).reduce((a,b)=>a+b,0),0);
+    if(ind.source==='yearlyZone') return zs.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0);
+    if(ind.source==='costs') return MAIN_COST_CATS.reduce((s,cat)=>s+zs.reduce((s2,z)=>s2+(resultsData[scen]?.costs[z]?.[cat]?.[y]||0),0),0);
     return 0;
   };
   // Trade helper: {imp, exp, net} per zone for a given year
@@ -1167,6 +1196,14 @@ export default function ResultsRegionPage() {
       }
       return{labels:allYears,datasets};
     }
+    // Per country: the same signed bar, cut by country. The cuts add up to the single bar
+    // the aggregate regime draws, so the height of the stack is unchanged.
+    if(evEach) return{labels:allYears,datasets:compareScs.flatMap((scen)=>evGroups.map((g,gi)=>{
+      const data=allYears.map(y=>+(getEvVal(scen,y,ind,g.zones)-getEvVal(cmpRef,y,ind,g.zones)).toFixed(1));
+      return data.some(v=>v!==0)?{label:multi?`Δ ${scen} ${g.name}`:`Δ ${g.name}`,data,
+        backgroundColor:hexA(evGroupColor(gi),0.78),borderColor:evGroupColor(gi),borderWidth:0,
+        stack:scen,_country:g.name}:null;
+    }).filter(Boolean))};
     // yearlyZone / costs: single signed bar per scenario (no techfuel breakdown available)
     return{labels:allYears,datasets:compareScs.map((scen,i)=>({
       label:`Δ ${scen}`,
@@ -1363,8 +1400,8 @@ export default function ResultsRegionPage() {
   const makeLegend=(id,items,clickable=true)=>{
     const hidden=hiddenMap[id]||new Set();
     return <div style={{width:90,flexShrink:0,display:'flex',flexDirection:'column',gap:2,paddingTop:4,maxHeight:220,overflowY:'auto'}}>
-      {items.map(({label,color,shape,fill})=><div key={label} onClick={clickable?()=>toggleHidden(id,label):undefined} style={{display:'flex',alignItems:'center',gap:3,cursor:clickable?'pointer':'default',opacity:hidden.has(label)?0.25:1}}>
-        {shape==='line'?<div style={{width:12,height:2,backgroundColor:color,borderRadius:1,flexShrink:0}}/>:<div style={{width:8,height:8,borderRadius:shape==='circle'?'50%':2,background:fill||color,flexShrink:0}}/>}
+      {items.map(({label,color,shape,fill,dash})=><div key={label} onClick={clickable?()=>toggleHidden(id,label):undefined} style={{display:'flex',alignItems:'center',gap:3,cursor:clickable?'pointer':'default',opacity:hidden.has(label)?0.25:1}}>
+        {shape==='line'?<div style={{width:12,height:2,borderRadius:1,flexShrink:0,...(dash&&dash.length?{backgroundImage:`repeating-linear-gradient(90deg,${color} 0 ${dash[0]}px,transparent 0 ${dash[0]+dash[1]}px)`}:{backgroundColor:color})}}/>:<div style={{width:8,height:8,borderRadius:shape==='circle'?'50%':2,background:fill||color,flexShrink:0}}/>}
         <span style={{fontSize:'0.4rem',color:t.muted,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</span>
       </div>)}
       {clickable&&<div style={{fontSize:'0.38rem',color:t.lblMuted,marginTop:4,display:'flex',gap:6}}>
@@ -1623,27 +1660,31 @@ export default function ResultsRegionPage() {
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
               <select value={evIndicator} onChange={e=>setEvIndicator(e.target.value)} style={selectStyle}>{INDICATORS.map(ind=><option key={ind.key} value={ind.key}>{ind.label}</option>)}</select>
-              <select value={evCountry} onChange={e=>setEvCountry(e.target.value)} style={selectStyle}><option value="all">All countries</option>{allCountries.map(c=><option key={c} value={c}>{c}</option>)}</select>
+              <select value={evCountry} onChange={e=>setEvCountry(e.target.value)} style={selectStyle}><option value="all">All countries</option>{activeInd.source==='yearlyZone'&&allCountries.length>1&&<option value={EACH_COUNTRY}>Each country</option>}{allCountries.map(c=><option key={c} value={c}>{c}</option>)}</select>
               <div style={{width:1,height:14,backgroundColor:t.panelBorder}}/>
               <ScenarioPicker t={t} all={scenarioList} selected={evScenarios} onChange={setEvScenarios}/>
             </div>
             {evolutionData?
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
-                <ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]))}/>
+                {/* S1/S2 keys the bar labels; the per-country regime draws lines and names
+                    the scenarios by dash pattern in its own legend instead. */}
+                {!evEach&&<ScenarioKey t={t} scenarios={baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]))}/>}
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart name={ttl(activeInd.label,evCountry!=='all'?evCountry:'All countries',scenList(evScenarios))} type={activeInd.source==='yearlyZone'?'line':'bar'} height={220}
-                    cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}|${theme}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
+                  <CJChart name={ttl(activeInd.label,evEach?'By country':evCountry!=='all'?evCountry:'All countries',scenList(evScenarios))} type={activeInd.source==='yearlyZone'?'line':'bar'} height={220}
+                    cacheKey={`ev|${evIndicator}|${[...evScenarios].sort().join(',')}|${evCountry}|${theme}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}|${[...hiddenMap['ev-country']||[]].join(',')}`}
                     data={{...evolutionData,datasets:evolutionData.datasets.filter(d=>{
+                      if(evEach) return !isHidden('ev-country',d._country||'');
                       if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
                       if(activeInd.source==='costs') return !isHidden('ev-cost',tfLabel(d));
                       if(activeInd.source==='trade') return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');
                       return true;
                     })}}
                     plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return sp?[sp]:[];})()}
-                    options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10,padding:16}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
+                    options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10,padding:16}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&!evEach&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`}}}}}
                   />
                 </div>
-                {activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(evolutionData.datasets.map(tfLabel))].map(seriesLegendItem))}
+                {evEach&&(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));return <div style={{flexShrink:0,display:'flex',flexDirection:'column',gap:6}}>{makeLegend('ev-country',evGroups.map((g,i)=>({label:g.name,color:evGroupColor(i)})))}{aSc.length>1&&makeLegend('__ev_dash__',aSc.map((sc,i)=>({label:sc,color:t.muted,shape:'line',dash:SCEN_DASH[i%SCEN_DASH.length]})),false)}</div>;})()}
+                {!evEach&&activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(evolutionData.datasets.map(tfLabel))].map(seriesLegendItem))}
                 {activeInd.source==='costs'&&makeLegend('ev-cost',MAIN_COST_CATS.filter(cat=>evolutionData.datasets.some(d=>tfLabel(d)===(COST_LABELS[cat]||cat))).map(cat=>({label:COST_LABELS[cat]||cat,color:costColor(cat)})))}
                 {activeInd.source==='trade'&&(()=>{const ps=[...new Set(evolutionData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));return <div style={{flexShrink:0,display:'flex',flexDirection:'column',gap:6}}>{makeLegend('ev-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})))}{aSc.length>1&&makeLegend('__ev_scen__',aSc.map((s,i)=>({label:s,color:SCEN_COLORS[i%SCEN_COLORS.length],shape:'line'})),false)}</div>;})()}
               </div>
@@ -1662,9 +1703,10 @@ export default function ResultsRegionPage() {
                 return cmpEvData&&cmpEvData.datasets.length>0?
                   <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <CJChart name={ttl(`Δ ${activeInd.label} vs ${cmpRef}`,evCountry!=='all'?evCountry:'All countries',scenList(cmpScenarios))} type="bar" height={190}
-                        cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}|${theme}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}`}
+                      <CJChart name={ttl(`Δ ${activeInd.label} vs ${cmpRef}`,evEach?'By country':evCountry!=='all'?evCountry:'All countries',scenList(cmpScenarios))} type="bar" height={190}
+                        cacheKey={`cmp-ev|${evIndicator}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${evCountry}|${theme}|${[...hiddenMap['ev-tf']||[]].join(',')}|${[...hiddenMap['ev-cost']||[]].join(',')}|${[...hiddenMap['ev-country']||[]].join(',')}`}
                         data={{...cmpEvData,datasets:cmpEvData.datasets.filter(d=>{
+                          if(evEach) return !isHidden('ev-country',d._country||'');
                           if(activeInd.source==='techFuel') return !isHidden('ev-tf',tfLabel(d));
                           if(activeInd.source==='costs') return !isHidden('ev-cost',tfLabel(d));
                           if(activeInd.source==='trade') return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');
@@ -1673,13 +1715,14 @@ export default function ResultsRegionPage() {
                         options={{...cjDefaults(t),scales:{
                           x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},
                           y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}},
-                        },plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
+                        },plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&!evEach?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,mode:'index',intersect:false,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw>0?'+':''}${ctx.raw?.toLocaleString?.()??ctx.raw}`,footer:ctxs=>{const total=ctxs.reduce((s,c)=>s+(c.raw||0),0);return total!==0?`Net: ${total>0?'+':''}${Math.round(total).toLocaleString()} ${activeInd.unit}`:undefined;}}}}}}
                       />
-                      {activeInd.source!=='yearlyZone'&&[...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef).length>0&&(
+                      {(activeInd.source!=='yearlyZone'||evEach)&&[...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef).length>0&&(
                         <div style={{fontSize:'0.42rem',color:t.lblMuted,marginTop:3}}>Δ vs <b style={{color:t.muted}}>{cmpRef}</b>: {baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef)).join(' · ')}</div>
                       )}
                     </div>
-                    {activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(cmpEvData.datasets.map(tfLabel))].map(seriesLegendItem))}
+                    {evEach&&makeLegend('ev-country',evGroups.map((g,i)=>({label:g.name,color:evGroupColor(i)})))}
+                    {!evEach&&activeInd.source==='techFuel'&&makeLegend('ev-tf',[...new Set(cmpEvData.datasets.map(tfLabel))].map(seriesLegendItem))}
                     {activeInd.source==='costs'&&makeLegend('ev-cost',[...new Set(cmpEvData.datasets.map(tfLabel))].map(tf=>({label:tf,color:costColor(tf)})))}
                     {activeInd.source==='trade'&&(()=>{const ps=[...new Set(cmpEvData.datasets.filter(d=>d._partner).map(d=>d._partner))].sort();const compareScsL=baseFirst([...cmpScenarios].filter(s=>resultsData[s]&&s!==cmpRef));return <div style={{flexShrink:0,display:'flex',flexDirection:'column',gap:6}}>{makeLegend('ev-trade-p',ps.map((p,i)=>({label:p,color:MAP_PALETTE[i%MAP_PALETTE.length]})))}{compareScsL.length>1&&makeLegend('__cmp_scen__',compareScsL.map((s,i)=>({label:s,color:SCEN_COLORS[(i+1)%SCEN_COLORS.length],shape:'line'})),false)}</div>;})()}
                   </div>
