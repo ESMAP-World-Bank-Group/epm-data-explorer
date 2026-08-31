@@ -15,6 +15,7 @@ import {
   processNpvInput, processNpvSystem, buildNpv, npvDelta, visibleComps, withSummaryCapex,
 } from '../utils/npv';
 import { annotateCsv, resultLines } from '../utils/csvMeta';
+import { yzAgg } from '../utils/zoneAgg';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
 import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLegendItem } from '../utils/annualExtras';
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
@@ -1003,7 +1004,7 @@ export default function ResultsRegionPage() {
           fill:false, tension:0.3, type:'line', _country:g.name,
         }))) };
       }
-      return { labels:allYears, datasets:activeSc.map((scen,i)=>({ label:scen, data:allYears.map(y=>+evZones.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0).toFixed(2)), backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.75), borderColor:SCEN_COLORS[i%SCEN_COLORS.length], borderWidth:2, fill:false, tension:0.3, type:'line' })) };
+      return { labels:allYears, datasets:activeSc.map((scen,i)=>({ label:scen, data:allYears.map(y=>+getEvVal(scen,y,ind).toFixed(2)), backgroundColor:hexA(SCEN_COLORS[i%SCEN_COLORS.length],0.75), borderColor:SCEN_COLORS[i%SCEN_COLORS.length], borderWidth:2, fill:false, tension:0.3, type:'line' })) };
     }
     if(ind.source==='trade'){
       const multi=activeSc.length>1;const datasets=[];const partnerSet=new Set();const pdCache={};
@@ -1125,7 +1126,7 @@ export default function ResultsRegionPage() {
    *  selection by default, one country's zones when the per-country regime asks. */
   const getEvVal = (scen, y, ind, zs = evZones) => {
     if(ind.source==='techFuel') return zs.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[y]||{}).reduce((a,b)=>a+b,0),0);
-    if(ind.source==='yearlyZone') return zs.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[y]||0),0);
+    if(ind.source==='yearlyZone') return yzAgg(resultsData[scen]?.yearlyZone, ind.key, zs, y);
     if(ind.source==='costs') return MAIN_COST_CATS.reduce((s,cat)=>s+zs.reduce((s2,z)=>s2+(resultsData[scen]?.costs[z]?.[cat]?.[y]||0),0),0);
     return 0;
   };
@@ -1227,7 +1228,7 @@ export default function ResultsRegionPage() {
     const getTotal=(scen,grp)=>{
       const zs=getZones(grp);
       if(ind.source==='techFuel') return zs.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]||{}).reduce((a,b)=>a+b,0),0);
-      if(ind.source==='yearlyZone') return zs.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[refYear]||0),0);
+      if(ind.source==='yearlyZone') return yzAgg(resultsData[scen]?.yearlyZone, ind.key, zs, refYear);
       if(ind.source==='costs') return MAIN_COST_CATS.reduce((s,cat)=>s+zs.reduce((s2,z)=>s2+(resultsData[scen]?.costs[z]?.[cat]?.[refYear]||0),0),0);
       return 0;
     };
@@ -1269,7 +1270,7 @@ export default function ResultsRegionPage() {
     const getTotal=(scen,grp)=>{
       const zs=getZones(grp);
       if(ind.source==='techFuel') return zs.reduce((s,z)=>s+Object.values(resultsData[scen]?.techFuel[z]?.[ind.key]?.[refYear]||{}).reduce((a,b)=>a+b,0),0);
-      if(ind.source==='yearlyZone') return zs.reduce((s,z)=>s+(resultsData[scen]?.yearlyZone[z]?.[ind.key]?.[refYear]||0),0);
+      if(ind.source==='yearlyZone') return yzAgg(resultsData[scen]?.yearlyZone, ind.key, zs, refYear);
       return 0;
     };
     if(ind.source==='techFuel'){
