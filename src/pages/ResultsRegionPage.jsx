@@ -43,6 +43,7 @@ import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 import { ttl, scenList } from '../utils/chartTitle';
+import { barTotalPlugin, barTotalFooter } from '../utils/barTotals';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1556,7 +1557,8 @@ export default function ResultsRegionPage() {
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart name={ttl('Capacity mix (MW)',ovMixMode==='zone'?'by zone':'by country',ovScenario,refYear)} type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}|${theme}|${[...hiddenMap['ov-mix']||[]].join(',')}`} data={{...overviewMix,datasets:overviewMix.datasets.filter(d=>!isHidden('ov-mix',d.label))}}
-                    options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}
+                    plugins={[barTotalPlugin({axis:'x',color:t.lbl,unit:'MW',fmt:v=>fmt(v)})]}
+                    options={{...cjDefaults(t),indexAxis:'y',layout:{padding:{right:62}},scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,footerColor:t.lbl,footerFont:{size:10},callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`,footer:barTotalFooter({axis:'x',unit:'MW',fmt:v=>fmt(v),filtered:(hiddenMap['ov-mix']?.size||0)>0})}}}}}
                   />
                 </div>
                 {makeLegend('ov-mix',allTechfuels.filter(tf=>overviewMix.datasets.some(d=>d.label===tf)).map(tf=>({label:tf,color:techColor(tf)})))}

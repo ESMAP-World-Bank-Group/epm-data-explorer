@@ -40,6 +40,7 @@ import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 import { ttl, scenList } from '../utils/chartTitle';
+import { barTotalPlugin, barTotalFooter } from '../utils/barTotals';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -794,7 +795,7 @@ export default function ResultsCountryPage() {
               <SectionTitle t={t}>Capacity mix by zone (MW)</SectionTitle>
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <CJChart name={ttl('Capacity mix (MW)',selZone==='all'?countryDecoded:selZone,ovScenario,refYear)} type="bar" height={Math.min(mixData.labels.length*22+24,260)} cacheKey={`mix-c|${ovScenario}|${refYear}|${theme}|${[...hiddenMap['mix-c']||[]].join(',')}`} data={mixData} options={{...cjDefaults(t),indexAxis:'y',scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`}}}}}/>
+                  <CJChart name={ttl('Capacity mix (MW)',selZone==='all'?countryDecoded:selZone,ovScenario,refYear)} type="bar" height={Math.min(mixData.labels.length*22+24,260)} cacheKey={`mix-c|${ovScenario}|${refYear}|${theme}|${[...hiddenMap['mix-c']||[]].join(',')}`} data={mixData} plugins={[barTotalPlugin({axis:'x',color:t.lbl,unit:'MW',fmt:v=>fmt(v)})]} options={{...cjDefaults(t),indexAxis:'y',layout:{padding:{right:62}},scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,footerColor:t.lbl,footerFont:{size:10},callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`,footer:barTotalFooter({axis:'x',unit:'MW',fmt:v=>fmt(v),filtered:(hiddenMap['mix-c']?.size||0)>0})}}}}}/>
                 </div>
                 {makeLegend('mix-c',allTechfuels.filter(tf=>mixData.datasets.some(d=>d.label===tf)).map(tf=>({label:tf,color:techColor(tf)})))}
               </div>
