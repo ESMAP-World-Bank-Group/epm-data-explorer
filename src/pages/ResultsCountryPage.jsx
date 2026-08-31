@@ -24,6 +24,7 @@ import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
 import { physicalStats } from '../utils/summaryStats';
 import { yzAgg } from '../utils/zoneAgg';
 import { rankPlants, plantDisplay, plantFmt } from '../utils/plantRank';
+import { netImportGWh } from '../utils/netImport';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { source, markStyleReady, styleReady } from '../utils/mapSource';
 import { zoneCentroidMap } from '../utils/centroids';
@@ -396,7 +397,7 @@ export default function ResultsCountryPage() {
         if(z!==hovZ){hovZ=z;map.setFilter('zone-hover',['==',['get','z'],z]);}
         const rd=resultsDataRef.current;const yr=refYearRef.current;const sd=rd[ovScenarioRef.current]||Object.values(rd)[0];
         let statsHtml='';
-        if(sd&&yr&&z){const cap=Object.values(sd.techFuel[z]?.CapacityTechFuel?.[yr]||{}).reduce((a,b)=>a+b,0)/1000;const dem=(sd.yearlyZone[z]?.DemandEnergyZone?.[yr]||0)/1000;const netImp=(sd.yearlyZone[z]?.NetImport?.[yr]||0)/1000;const hd=hoursDataRef.current;const zP=sd.price[z]?.[yr]||{};let tw=0,tp=0;for(const[q,days]of Object.entries(zP))for(const[d,hrs]of Object.entries(days)){const w=hd[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}const avgP=tw>0?tp/tw:null;statsHtml=`<br><span style="opacity:.8;font-size:0.78em">Installed: ${cap.toFixed(1)} GW · Demand: ${dem.toFixed(0)} TWh<br>Net import: ${netImp>=0?'+':''}${netImp.toFixed(0)} TWh${avgP!=null?` · Price: ${avgP.toFixed(1)} $/MWh`:''}</span>`;}
+        if(sd&&yr&&z){const cap=Object.values(sd.techFuel[z]?.CapacityTechFuel?.[yr]||{}).reduce((a,b)=>a+b,0)/1000;const dem=(sd.yearlyZone[z]?.DemandEnergyZone?.[yr]||0)/1000;const peak=(sd.yearlyZone[z]?.DemandPeakZone?.[yr]||0)/1000;const netImp=netImportGWh(sd.transmission,[z],yr)/1000;const hd=hoursDataRef.current;const zP=sd.price[z]?.[yr]||{};let tw=0,tp=0;for(const[q,days]of Object.entries(zP))for(const[d,hrs]of Object.entries(days)){const w=hd[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}const avgP=tw>0?tp/tw:null;statsHtml=`<br><span style="opacity:.8;font-size:0.78em">Installed: ${cap.toFixed(1)} GW · Peak: ${peak.toFixed(1)} GW<br>Demand: ${dem.toFixed(0)} TWh · Net import: ${netImp>=0?'+':''}${netImp.toFixed(1)} TWh${avgP!=null?`<br>Price: ${avgP.toFixed(1)} $/MWh`:''}</span>`;}
         popup.setLngLat(e.lngLat).setHTML(`<b>${z}</b>${statsHtml}`).addTo(map);
       });
       map.on('mouseleave','zone-fill',()=>{map.getCanvas().style.cursor='';hovZ=null;map.setFilter('zone-hover',['==',['get','z'],'']),popup.remove();});

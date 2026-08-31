@@ -17,6 +17,7 @@ import {
 import { annotateCsv, resultLines } from '../utils/csvMeta';
 import { yzAgg } from '../utils/zoneAgg';
 import { rankPlants, plantDisplay, plantFmt } from '../utils/plantRank';
+import { netImportGWh } from '../utils/netImport';
 import { techColor, hexA, cssFillFor, legendItem } from '../utils/chartColors';
 import { extraSeries, extraDelta, extraDataset, extraKind, orderStack, seriesLegendItem } from '../utils/annualExtras';
 import { buildDispatchSeries, buildDispatchDeltaSeries, deltaTooltip } from '../utils/dispatchSeries';
@@ -640,15 +641,16 @@ export default function ResultsRegionPage() {
         if (sd && yr && z) {
           const cap = Object.values(sd.techFuel[z]?.CapacityTechFuel?.[yr]||{}).reduce((a,b)=>a+b,0)/1000;
           const dem = (sd.yearlyZone[z]?.DemandEnergyZone?.[yr]||0)/1000;
-          const netImp = (sd.yearlyZone[z]?.NetImport?.[yr]||0)/1000;
+          const peak = (sd.yearlyZone[z]?.DemandPeakZone?.[yr]||0)/1000;
+          const netImp = netImportGWh(sd.transmission,[z],yr)/1000;
           const hd=hoursDataRef.current;
           const zP=sd.price[z]?.[yr]||{}; let tw=0,tp=0;
           for(const[q,days]of Object.entries(zP))for(const[d,hrs]of Object.entries(days)){const w=hd[q]?.[d]||0;for(const p of Object.values(hrs)){tp+=p*w;tw+=w;}}
           const avgP=tw>0?tp/tw:null;
           statsHtml=`<br><span style="opacity:.8;font-size:0.78em">` +
             `${c?`Country: ${c}<br>`:''}` +
-            `Installed: ${cap.toFixed(1)} GW &nbsp; Demand: ${dem.toFixed(0)} TWh<br>` +
-            `Net import: ${netImp>=0?'+':''}${netImp.toFixed(0)} TWh` +
+            `Installed: ${cap.toFixed(1)} GW &nbsp; Peak: ${peak.toFixed(1)} GW<br>` +
+            `Demand: ${dem.toFixed(0)} TWh &nbsp; Net import: ${netImp>=0?'+':''}${netImp.toFixed(1)} TWh` +
             `${avgP!=null?` &nbsp; Avg price: ${avgP.toFixed(1)} $/MWh`:''}</span>`;
         }
         popup.setLngLat(e.lngLat).setHTML(`<b>${z||c}</b>${statsHtml}<br><span style="opacity:.5;font-size:0.7em">click to explore country</span>`).addTo(map);

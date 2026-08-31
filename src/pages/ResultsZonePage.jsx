@@ -27,6 +27,7 @@ import MapDownload from '../components/MapDownload';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 import { ttl } from '../utils/chartTitle';
 import { rankPlants, plantDisplay, plantFmt } from '../utils/plantRank';
+import { netImportGWh } from '../utils/netImport';
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 function fmt(n,d=0){if(n==null||isNaN(n))return'—';return n.toLocaleString('en-US',{maximumFractionDigits:d});}
@@ -337,11 +338,12 @@ export default function ResultsZonePage() {
           const sd=resultsData[scenario];if(!sd||!refYear)return<div style={{color:t.lblMuted,fontSize:'0.58rem'}}>Select a scenario.</div>;
           const cap=Object.values(sd.techFuel[zoneIdDecoded]?.CapacityTechFuel?.[refYear]||{}).reduce((a,b)=>a+b,0)/1000;
           const dem=(sd.yearlyZone[zoneIdDecoded]?.DemandEnergyZone?.[refYear]||0)/1000;
-          const netImp=(sd.yearlyZone[zoneIdDecoded]?.NetImport?.[refYear]||0)/1000;
+          const peak=(sd.yearlyZone[zoneIdDecoded]?.DemandPeakZone?.[refYear]||0)/1000;
+          const netImp=netImportGWh(sd.transmission,[zoneIdDecoded],refYear)/1000;
           const tfs=Object.keys(sd.techFuel[zoneIdDecoded]?.CapacityTechFuel?.[refYear]||{}).filter(tf=>sd.techFuel[zoneIdDecoded]?.CapacityTechFuel?.[refYear]?.[tf]>0).sort();
           return <div style={{display:'flex',flexDirection:'column',gap:14}}>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
-              {[{l:`Installed ${refYear}`,v:`${cap.toFixed(1)} GW`},{l:`Demand ${refYear}`,v:`${dem.toFixed(0)} TWh`},{l:'Net import',v:`${netImp>=0?'+':''}${netImp.toFixed(0)} TWh`}].map(({l,v})=><div key={l} style={{border:`1px solid ${t.panelBorder}`,borderRadius:6,padding:'8px 10px'}}><div style={{fontSize:'0.41rem',color:t.lblMuted,marginBottom:2}}>{l}</div><div style={{fontSize:'0.78rem',fontWeight:700,color:t.lbl}}>{v}</div></div>)}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:8}}>
+              {[{l:`Installed ${refYear}`,v:`${cap.toFixed(1)} GW`},{l:`Peak ${refYear}`,v:`${peak.toFixed(1)} GW`},{l:`Demand ${refYear}`,v:`${dem.toFixed(0)} TWh`},{l:'Net import',v:`${netImp>=0?'+':''}${netImp.toFixed(1)} TWh`}].map(({l,v})=><div key={l} style={{border:`1px solid ${t.panelBorder}`,borderRadius:6,padding:'8px 10px'}}><div style={{fontSize:'0.41rem',color:t.lblMuted,marginBottom:2}}>{l}</div><div style={{fontSize:'0.78rem',fontWeight:700,color:t.lbl}}>{v}</div></div>)}
             </div>
             {tfs.length>0&&<><SectionTitle t={t}>Capacity by technology (MW)</SectionTitle>
               <CJChart name={ttl('Capacity mix (MW)',zoneIdDecoded,scenario,refYear)} type="bar" height={Math.min(tfs.length*22+24,200)} cacheKey={`ov-z|${scenario}|${refYear}|${theme}`}

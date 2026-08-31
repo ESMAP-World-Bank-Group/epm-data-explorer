@@ -7,6 +7,8 @@
  * study — the discounted NPV the deck prints — lives in utils/npv.js instead.
  */
 
+import { netImportGWh, netImportCumulGWh } from './netImport';
+
 /** Renewables, by the techfuel labels EPM writes. */
 const RE = new Set(['Solar','PV','CSP','RPV','OnshoreWind','Onshore Wind','OffshoreWind',
   'Offshore Wind','Reservoir','ReservoirHydro','ROR','PSH','Biomass','Geothermal']);
@@ -52,7 +54,11 @@ export function physicalStats(sd, zones, years, lastY, costCats = []) {
     peak,
     // Sum of zonal peaks, not a regional coincident peak: EPM writes no regional one.
     resMargin: peak>0?((cT/1000-peak)/peak)*100:null,
-    niCumul: yZS('NetImport')/1000, niLast: yZL('NetImport')/1000,
+    // Net import comes from the transmission pairs, not from yearlyZone, which
+    // carries no such attribute -- see utils/netImport. Flows between two zones of
+    // `zones` cancel, so this is the selection's exchange with everything outside it.
+    niCumul: netImportCumulGWh(sd.transmission, zones, years)/1000,
+    niLast:  netImportGWh(sd.transmission, zones, lastY)/1000,
     co2Cumul, co2Last,
     // Mt/TWh -> kg/MWh is a factor of 1000.
     co2Int: demLast>0?(co2Last/demLast)*1000:null,
