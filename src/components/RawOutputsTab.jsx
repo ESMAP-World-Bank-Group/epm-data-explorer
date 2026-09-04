@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { fetchOutputFileList, resultCsvUrl } from '../utils/epmFetch';
 import { resultLines, resultLabel } from '../utils/csvMeta';
 import RawDataTable from './RawDataTable';
+import DownloadAllExcel from './DownloadAllExcel';
+import { exportName } from '../utils/xlsxExport';
 
 // --- Raw data: the result files a run wrote ---
 //
@@ -43,6 +45,22 @@ export default function RawOutputsTab({ t, regionName, branch, outputDir, simRun
   const url      = resultCsvUrl(branch, simRun, scen, file, outputDir);
   const filename = file.split('/').pop();
 
+  // Every file this run wrote, in the order the picker offers them. The tab name
+  // is the file without its extension, so it is the parameter EPM wrote -- a
+  // split parameter (pDispatchComplete/y2030.csv) keeps both halves of its name.
+  const all = list.map(f => ({
+    sheet: f.replace(/\.csv$/i, ''),
+    label: resultLabel(f),
+    file: f,
+    url: resultCsvUrl(branch, simRun, scen, f, outputDir),
+  }));
+  const meta = [
+    ['EPM View', 'raw results export'],
+    ['region', regionName], ['branch', branch],
+    ['run', simRun], ['scenario', scen],
+    ['downloaded', new Date().toISOString()],
+  ];
+
   const sel = { fontSize: '0.44rem', fontFamily: 'inherit', padding: '3px 6px', borderRadius: 3,
     border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.muted, cursor: 'pointer' };
 
@@ -67,6 +85,9 @@ export default function RawOutputsTab({ t, regionName, branch, outputDir, simRun
         </label>
 
         <span style={{ color: t.lblMuted }}>{list.length} file{list.length === 1 ? '' : 's'} in this run</span>
+
+        <DownloadAllExcel t={t} items={all} meta={meta} style={{ marginLeft: 'auto' }}
+          filename={exportName([branch, simRun, scen], '_results.xlsx')} />
       </div>
 
       <RawDataTable

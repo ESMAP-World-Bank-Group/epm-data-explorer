@@ -22,6 +22,8 @@ import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneD
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
 import RawDataTable from '../components/RawDataTable';
+import DownloadAllExcel from '../components/DownloadAllExcel';
+import { exportName } from '../utils/xlsxExport';
 import { annotateCsv, inputLines } from '../utils/csvMeta';
 import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
@@ -1598,6 +1600,23 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
   // and repeating it inside the sentence just makes the dropdown wider.
   const plain = (label) => (label || '').replace(/\s*\(Unit:[^)]*\)\s*/gi, ' ').trim();
 
+  // Every parameter config.csv declares, in the order it declares them, each on
+  // its base file: what the folder is, said as the folder itself says it. The
+  // variants stay a per-parameter choice above -- a workbook holding both a base
+  // file and the scenario that replaces it could not say which is which on a tab.
+  const all = [...sections.values()].flat().map(p => ({
+    sheet: p.param,
+    label: plain(p.label),
+    unit: p.unit || '',
+    file: (p.defaultFile || '').split('/').pop(),
+    url: rawFileUrl(branch, `epm/input/${activeFolder}/${p.defaultFile}`),
+  }));
+  const bookMeta = [
+    ['EPM View', 'raw input export'],
+    ['region', region?.name], ['branch', branch], ['data folder', activeFolder],
+    ['downloaded', new Date().toISOString()],
+  ];
+
   const sel = { fontSize:'0.44rem', fontFamily:'inherit', padding:'3px 6px', borderRadius:3,
     border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' };
 
@@ -1645,6 +1664,9 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
             })}
           </select>
         </label>
+
+        <DownloadAllExcel t={t} items={all} meta={bookMeta} style={{ marginLeft: 'auto' }}
+          filename={exportName([branch, activeFolder], '_inputs.xlsx')} />
       </div>
 
       <RawDataTable
