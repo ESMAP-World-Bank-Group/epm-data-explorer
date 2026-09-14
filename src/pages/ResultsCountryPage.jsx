@@ -209,7 +209,7 @@ export default function ResultsCountryPage() {
       const cfg=await fetchScenarioConfig(branch,dataFolder,{scenariosFile,configFile}).catch(()=>null);
       const rf=(p,fallback)=>resolveFile(cfg,overridesFor(cfg,ovScenario),p,fallback);
       const[zc,hr,zExt,extRaw,offGJ,tpIn,tpOut]=await Promise.all([
-        fetchEpmCSV(branch,dataFolder,'zcmap.csv'),
+        fetchEpmCSV(branch,dataFolder,rf('zcmap','zcmap.csv')),
         fetchEpmCSV(branch,dataFolder,rf('pHours','pHours.csv')),
         fetchZonesExtGeoJSON(branch,dataFolder),
         fetchEpmCSV(branch,dataFolder,rf('pExtTransferLimit','trade/pExtTransferLimit.csv')),

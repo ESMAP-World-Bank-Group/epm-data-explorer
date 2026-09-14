@@ -338,7 +338,7 @@ export default function ResultsRegionPage() {
       if (!stale) setScnMeta(cfg);   // the Scenarios tab shows the same matrix the inputs pages do
       const rf = (p, fallback) => resolveFile(cfg, overridesFor(cfg, ovScenario), p, fallback);
       const [zc, hr, zExt, extRaw, offGJ, tpIn, tpOut] = await Promise.all([
-        fetchEpmCSV(branch, dataFolder, 'zcmap.csv'),
+        fetchEpmCSV(branch, dataFolder, rf('zcmap', 'zcmap.csv')),
         fetchEpmCSV(branch, dataFolder, rf('pHours', 'pHours.csv')),
         fetchZonesExtGeoJSON(branch, dataFolder),
         fetchEpmCSV(branch, dataFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),

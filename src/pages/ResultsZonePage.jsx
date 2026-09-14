@@ -106,7 +106,7 @@ export default function ResultsZonePage() {
   useEffect(()=>{if(!region?.epm)return;const{branch,dataFolder,scenariosFile,configFile}=region.epm;let stale=false;(async()=>{
     const cfg=await fetchScenarioConfig(branch,dataFolder,{scenariosFile,configFile}).catch(()=>null);
     const rf=(p,fallback)=>resolveFile(cfg,overridesFor(cfg,scenario),p,fallback);
-    const[zc,hr,zExt,extRaw,offGJ]=await Promise.all([fetchEpmCSV(branch,dataFolder,'zcmap.csv'),fetchEpmCSV(branch,dataFolder,rf('pHours','pHours.csv')),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,rf('pExtTransferLimit','trade/pExtTransferLimit.csv')),fetchZonesOffgridGeoJSON(branch,dataFolder)]);
+    const[zc,hr,zExt,extRaw,offGJ]=await Promise.all([fetchEpmCSV(branch,dataFolder,rf('zcmap','zcmap.csv')),fetchEpmCSV(branch,dataFolder,rf('pHours','pHours.csv')),fetchZonesExtGeoJSON(branch,dataFolder),fetchEpmCSV(branch,dataFolder,rf('pExtTransferLimit','trade/pExtTransferLimit.csv')),fetchZonesOffgridGeoJSON(branch,dataFolder)]);
     if(stale)return;
     setZcmapRows(zc||[]);if(hr){setHoursData(processHours(hr));setSlices(processTimeSlices(hr));}setZonesExtGJ(zExt||null);setExtNtc(extRaw?processExtNTC(extRaw):[]);setOffgridGJ(offGJ||null);
   })();return()=>{stale=true;};},[region,scenario]);
