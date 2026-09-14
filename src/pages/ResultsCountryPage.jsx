@@ -20,7 +20,7 @@ import {
 } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
-import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
+import { baseFirst, baseScenario, defaultScenarios } from '../utils/scenarioOrder';
 import { physicalStats } from '../utils/summaryStats';
 import { yzAgg } from '../utils/zoneAgg';
 import { rankPlants, plantDisplay, plantFmt } from '../utils/plantRank';
@@ -33,7 +33,7 @@ import { fetchScenarioConfig, resolveFile, overridesFor } from '../utils/epmScen
 import { externalZoneSet } from '../utils/zoneClass';
 import { usePromotedZones } from '../utils/usePromotedZones';
 import {
-  processNpvInput, processNpvSystem, buildNpv, aggregateNpv, npvDelta, visibleComps,
+  processNpvInput, processNpvSystem, buildNpv, aggregateNpv, npvDelta, visibleComps, npvCheckNotes,
   withSummaryCapex, withNetInternalTrade, NET_TRADE_LINE,
 } from '../utils/npv';
 import CJChart from '../components/CJChart';
@@ -238,16 +238,19 @@ export default function ResultsCountryPage() {
   },[region,outputDir,simRun,runsResolved]);
 
   useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const b=region.epm.branch;resolveOutputDir(b).then(dir=>{setOutputDir(dir);return fetchRunList(b,dir);}).then(names=>{setRunsUnreachable(names===null);const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});},[region]);
-  useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length){const base=s.find(x=>/^base(line)?$/i.test(x))||s[0];setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(defaultScenarios(s));setCmpRef(base);setCmpScenarios(defaultScenarios(s.filter(x=>x!==base)));setTrScenarios(defaultScenarios(s));setSnapScenarios(defaultScenarios(s));setSummaryRef(null);setSummaryScen(defaultScenarios(s.filter(x=>x!==base)));}});},[region,simRun,outputDir]);
+  useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length){const base=baseScenario(s);setOvScenario(base);setDispScenario(base);setTrScenario(base);setPlScenario(base);setEvScenarios(defaultScenarios(s));setCmpRef(base);setCmpScenarios(defaultScenarios(s.filter(x=>x!==base)));setTrScenarios(defaultScenarios(s));setSnapScenarios(defaultScenarios(s));setSummaryRef(null);setSummaryScen(defaultScenarios(s.filter(x=>x!==base)));}});},[region,simRun,outputDir]);
 
   useEffect(()=>{
     if(!region?.epm||!simRun||!scenarioList.length)return;
     setLoadingData(true);const{branch}=region.epm;
+    // A run change fires this once with the old scenario list: that batch is stale.
+    let stale=false;
     // Dispatch (pDispatchComplete) is huge -> loaded lazily per year (see effect below)
     Promise.all(scenarioList.map(async scen=>{
       const[tf,yz,pr,tx,pl,co,eb,np]=await Promise.all([fetchResultCSV(branch,simRun,scen,'pTechFuelMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pYearlyZoneMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pHourlyPrice.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pTransmissionMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pPlantMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pCostsMerged.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pEnergyBalance.csv',outputDir),fetchResultCSV(branch,simRun,scen,'pNetPresentCostSystemMerged.csv',outputDir)]);
       return{scen,techFuel:tf?processTechFuel(tf):{},yearlyZone:yz?processYearlyZone(yz):{},dispatch:{},price:pr?processHourlyPrice(pr):{},transmission:tx?processTransmissionResults(tx):{},plants:pl?processPlants(pl):[],costs:co?processCosts(co):{},energyBalance:eb?processEnergyBalance(eb):{},npvRaw:co?processNpvInput(co):null,npvSystem:np?processNpvSystem(np):null};
-    })).then(res=>{const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);dispLoadedRef.current=new Set();const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);}).finally(()=>setLoadingData(false));
+    })).then(res=>{if(stale)return;const rd=Object.fromEntries(res.map(r=>[r.scen,r]));setResultsData(rd);dispLoadedRef.current=new Set();const yrs=resultYears(res[0]?.techFuel||{});if(yrs.length)setRefYear(yrs[0]);}).finally(()=>{if(!stale)setLoadingData(false);});
+    return()=>{stale=true;};
   },[region,simRun,scenarioList]); // eslint-disable-line
 
   // The two files a run writes at its root rather than per scenario, both optional:
@@ -319,7 +322,7 @@ export default function ResultsCountryPage() {
     const out={};
     for(const[sc,n]of Object.entries(npvSystemData.byScen)){
       const{comps,total}=aggregateNpv(n.byCountry,visZones);
-      out[sc]={comps,total,byZone:n.byCountry,residual:n.residual,modelTotal:n.modelTotal,
+      out[sc]={comps,total,byZone:n.byCountry,residual:n.residual,reconciled:n.reconciled,modelTotal:n.modelTotal,
                hasCapex:n.hasCapex,hasExternal:n.hasExternal};
     }
     return out;
@@ -1072,16 +1075,14 @@ export default function ResultsCountryPage() {
 
           // ── The country's share of the objective, discounted on the model's own year
           // factors (utils/npv). The check is necessarily system-wide -- the model writes
-          // one NPV for the whole system, not one per country -- so a scenario appears
-          // here only when its FULL decomposition adds back to that number. Otherwise the
-          // country slice would inherit a hole (a missing capex column, typically) with
-          // nothing on this page able to reveal it.
-          const offBy  = s=>{const n=npvSystemData.byScen[s];return n&&n.residual!=null&&Math.abs(n.residual)>0.005*Math.abs(n.modelTotal||1);};
-          const npvOk  = s=>!!npvCountry[s]&&!offBy(s);
+          // one NPV for the whole system, not one per country -- so a gap in it (a missing
+          // capex column, typically, or internal trade a pre-fix report did not net) cannot
+          // be placed in any one country. Every scenario is drawn, and npvCheckNotes says
+          // under the tables which ones carry such a gap.
+          const npvOk  = s=>!!npvCountry[s];
           const nRef   = npvOk(ref)?npvCountry[ref]:null;
           const hasNpv = !!nRef;
           const nCols  = hasNpv?baseFirst(allSc.filter(s=>s!==ref&&summaryScen.has(s)&&npvOk(s))):[];
-          const nBad   = allSc.filter(s=>npvCountry[s]&&!npvOk(s));
           const byZ    = npvSplit==='zone'&&visZones.length>1;
           const dScen  = Object.fromEntries(nCols.map(s=>[s,npvDelta(nRef.comps,npvCountry[s].comps)]));
           const dZone  = Object.fromEntries(nCols.map(s=>[s,Object.fromEntries(visZones.map(z=>[z,npvDelta(nRef.byZone[z],npvCountry[s].byZone[z])]))]));
@@ -1111,11 +1112,9 @@ export default function ResultsCountryPage() {
               ? `Every component is a discounted cost, so a difference is ${ref} minus the scenario: positive means the scenario spends less on that line, which is a benefit.`
               : null,
             hasNpv
-              ? `Discounted on the model's own year factors. The totals are ${countryDecoded}'s share of the system NPV — a share the model never reports on its own, so each scenario's whole decomposition is checked against the model's NPV before its slice is drawn.`
+              ? `Discounted on the model's own year factors. The totals are ${countryDecoded}'s share of the system NPV. The model never reports that share on its own, so each scenario's whole decomposition is checked against the model's NPV.`
               : null,
-            nBad.length
-              ? `Left out — their system-wide components do not add back to the model's own NPV, usually because summary.csv carries no generation capex for them: ${nBad.map(s=>`${s} (${fmt(npvSystemData.byScen[s].residual,0)} M$)`).join(', ')}.`
-              : null,
+            ...(hasNpv?npvCheckNotes(npvSystemData.byScen,[ref,...nCols]):[]),
             hasNpv&&[ref,...nCols].some(s=>!npvCountry[s].hasCapex)
               ? 'Generation capex is missing for at least one scenario shown, so its bar and total are incomplete.' : null,
             hasNpv&&[ref,...nCols].every(s=>!npvCountry[s].hasExternal)
@@ -1285,9 +1284,7 @@ export default function ResultsCountryPage() {
                 <SectionTitle t={t}>Net present cost by component  ·  levels, not benefits</SectionTitle>
                 {mkNpvTbl([ref,...nCols],false)}
               </>:<div style={{fontSize:'0.5rem',color:t.lblMuted,lineHeight:1.6}}>
-                {npvCountry[ref]
-                  ?`The decomposition of ${ref} does not add back to the model's own NPV, so it cannot serve as a reference. Pick another one.`
-                  :'This run carries no discounted cost block (DiscountedWeightedCostsCumulated in pCostsMerged.csv), so the NPV cannot be decomposed. The undiscounted totals below are all the page can say about cost.'}
+                {`${ref} carries no discounted cost block (DiscountedWeightedCostsCumulated in pCostsMerged.csv), so its NPV cannot be decomposed. The undiscounted totals below are all the page can say about cost.`}
               </div>}
               {npvNotes.length>0&&<div style={{fontSize:'0.42rem',color:t.lblMuted,lineHeight:1.6}}>
                 {npvNotes.map((n,i)=><div key={i}>· {n}</div>)}

@@ -19,9 +19,16 @@
 //     is absent, and the UI says so rather than pretending the corridors were free.
 //
 // Everything is checked back against the model's own 'NPV of system cost'
-// (pNetPresentCostSystemMerged). A decomposition that does not sum back to it means the
-// map below is missing a line this particular model writes -- so the residual is reported
-// rather than swallowed, and the caller can refuse to draw a total the model disowns.
+// (pNetPresentCostSystemMerged). Two things are settled on that check, per scenario: the
+// sign the external export line is read with (see exportSignOf), and whatever gap is left,
+// which is drawn as its own 'Unexplained' component rather than swallowed. The totals so
+// always land on the model's NPV, and a gap stays visible at its full size.
+//
+// Internal trade is left out of the whole-region totals: it is a transfer between zones of
+// the same region, zero by construction. A run whose report predates the fix in
+// generate_report.gms (trade with zones without demand booked on one side only) does not
+// net it to zero. buildNpv records by how much and in which zones, so a page can say that
+// the split by country is off while the region figures stay exact.
 //
 // The conventions here mirror tools/results_report/slides_regional.py in the blacksea
 // study, which is what the printed deck is built from. Keep the two in step.
@@ -53,13 +60,16 @@ export const NPV_COMPONENTS = [
   { key:'exp_int', label:'Export revenue, internal',      color:'#ECCB72' },
   { key:'imp_int', label:'Import cost, internal',         color:'#D7DDE5' },
   { key:'shared',  label:'Trade shared benefits',         color:'#9C8AB5' },
+  // The model's NPV minus every component above. Zero on a sound run; see buildNpv.
+  { key:'unexpl',  label:'Unexplained',                   color:'#D0605E' },
 ];
 export const NPV_COMP = Object.fromEntries(NPV_COMPONENTS.map(c => [c.key, c]));
 
 /** Internal trade is a transfer between zones of the same region: these three lines sum
  *  to zero region-wide by construction. Left apart they draw as three large bars that
- *  annihilate, so a whole-region view merges them; a per-country view must not, because
- *  that is exactly where they stop cancelling. */
+ *  annihilate, so a whole-region view merges them (and buildNpv then leaves the merged
+ *  line out); a per-country view must not, because that is exactly where they stop
+ *  cancelling. */
 const INTERNAL = ['exp_int', 'imp_int', 'shared'];
 
 /** pCosts line -> [component, sign]. Anything a model writes that is not named here lands
@@ -72,9 +82,9 @@ const LINE_TO_COMP = {
   'Variable O&M: $m':                         ['vom',     1],
   'Transmission costs: $m':                   ['trans',   1],
   'Import costs with external zones: $m':     ['imp_ext', 1],
-  // generate_report.gms writes this one as a positive magnitude, but base.gms:679
-  // subtracts it from the objective. Flip it or the NPV will not reconcile.
-  'Export revenues with external zones: $m':  ['exp_ext', -1],
+  // Read as written here; buildNpv flips it for runs that stored a magnitude. See
+  // exportSignOf.
+  'Export revenues with external zones: $m':  ['exp_ext', 1],
   'Import costs with internal zones: $m':     ['imp_int', 1],
   'Export revenues with internal zones: $m':  ['exp_int', 1],
   'Trade shared benefits: $m':                ['shared',  1],
@@ -311,6 +321,21 @@ export function withNetInternalTrade(resultsData) {
  * `countries` lists them. The scenario totals and the residual are unaffected -- they sum
  * every zone whatever the grouping -- so the check against the model stays system-wide
  * even when the caller goes on to show one country's slice.
+ *
+ * Per scenario:
+ *   comps, total       the whole region. Internal trade is left out (zero by construction)
+ *                      and any gap to the model's NPV is drawn as 'unexpl', so total minus
+ *                      the external interconnector capex IS the model's NPV.
+ *   byCountry          per group, internal trade kept: it is real money to one country.
+ *                      'unexpl' is system-wide and belongs to no group.
+ *   residual           the gap before it was drawn; null without the model's NPV.
+ *   reconciled         the gap is within npvTolerance.
+ *   exportSign         how the external export line was read (see exportSignOf).
+ *   internalImbalance  what the internal trade lines sum to region-wide. Zero on a sound
+ *                      report; see npvCheckNotes for what it means when it is not.
+ *   noDemandZones, noDemandCountries
+ *                      the zones without demand, and their countries, named only when the
+ *                      imbalance is not zero.
  */
 export function buildNpv({ scenarios, resultsData, summaryRows, extNpv, zoneToCountry }) {
   const byScen = {};
@@ -322,6 +347,27 @@ export function buildNpv({ scenarios, resultsData, summaryRows, extNpv, zoneToCo
     if (!raw) continue;
     const look   = typeof zoneToCountry === 'function' ? zoneToCountry : (z => zoneToCountry?.[z]);
     const nameOf = z => look(z) || raw.zoneCountry[z] || z;
+    const modelTotal = sd?.npvSystem ?? null;
+
+    // A run treated after the output_treatment fix carries the capex in pCosts itself,
+    // already discounted on the model's own factors. Taking summary.csv as well would
+    // count it twice, so summary.csv is the fallback and not the source.
+    const capexInCosts = Object.values(raw.byZone).some(l => CAPEX_ATTR in l);
+    const cap = capexInCosts ? { byZone: {}, found: true }
+                             : capexNpvByZone(summaryRows, scen, raw.factors);
+
+    // The sign of the external export line is decided on the whole scenario at once, on
+    // everything else the objective carries. Internal trade stays out of it: see INTERNAL.
+    let exp = 0, rest = 0;
+    for (const lines of Object.values(raw.byZone)) {
+      for (const [line, v] of Object.entries(lines)) {
+        const [comp, sign] = LINE_TO_COMP[line] || ['other', 1];
+        if (comp === 'exp_ext') exp += v;
+        else if (!INTERNAL.includes(comp)) rest += sign * v;
+      }
+    }
+    for (const v of Object.values(cap.byZone)) rest += v;
+    const exportSign = exportSignOf(exp, rest, modelTotal);
 
     const byCountry = {};
     const add = (country, comp, v) => {
@@ -329,37 +375,105 @@ export function buildNpv({ scenarios, resultsData, summaryRows, extNpv, zoneToCo
       (byCountry[country] ||= {})[comp] = (byCountry[country][comp] || 0) + v;
       countries.add(country);
     };
-
     for (const [zone, lines] of Object.entries(raw.byZone)) {
       for (const [line, v] of Object.entries(lines)) {
         const [comp, sign] = LINE_TO_COMP[line] || ['other', 1];
-        add(nameOf(zone), comp, sign * v);
+        add(nameOf(zone), comp, (comp === 'exp_ext' ? exportSign : sign) * v);
       }
     }
-    // A run treated after the output_treatment fix carries the capex in pCosts itself,
-    // already discounted on the model's own factors. Taking summary.csv as well would
-    // count it twice, so summary.csv is the fallback and not the source.
-    const capexInCosts = Object.values(raw.byZone).some(l => CAPEX_ATTR in l);
-    const cap = capexInCosts ? { byZone: {}, found: true }
-                             : capexNpvByZone(summaryRows, scen, raw.factors);
     for (const [zone, v] of Object.entries(cap.byZone)) add(nameOf(zone), 'capex', v);
     for (const [zone, v] of Object.entries(extNpv?.[scen] || {})) add(nameOf(zone), 'newcap', v);
 
-    // Region totals, with internal trade merged: see INTERNAL.
-    const { comps, total } = aggregateNpv(byCountry, Object.keys(byCountry), true);
+    // Region totals. Internal trade merges into one line, which is zero on a sound report
+    // and is then left out: whatever it sums to is an error of the report, not a cost.
+    const { comps, total: sum } = aggregateNpv(byCountry, Object.keys(byCountry), true);
+    const internalImbalance = comps.int_net || 0;
+    delete comps.int_net;
+    let total = sum - internalImbalance;
+
     // The model's NPV knows nothing about external interconnector capex, so the check has
     // to be made on the part of the decomposition it does cover.
-    const modelTotal = sd?.npvSystem ?? null;
-    const checked = total - (comps.newcap || 0);
+    const tol = npvTolerance(modelTotal ?? total);
+    const residual = modelTotal == null ? null : total - (comps.newcap || 0) - modelTotal;
+    const reconciled = residual == null || Math.abs(residual) <= tol;
+    if (!reconciled) {
+      comps.unexpl = -residual;
+      total -= residual;
+    }
+    const noDemandZones = Math.abs(internalImbalance) > tol
+      ? zonesWithoutDemand(sd.yearlyZone, raw.byZone) : [];
+
     byScen[scen] = {
-      comps, byCountry, total, modelTotal,
-      residual: modelTotal == null ? null : checked - modelTotal,
+      comps, byCountry, total, modelTotal, residual, reconciled, exportSign,
+      internalImbalance, noDemandZones,
+      noDemandCountries: [...new Set(noDemandZones.map(z => raw.zoneCountry[z] || nameOf(z)))].sort(),
       hasCapex: cap.found,
       hasExternal: !!Object.keys(extNpv?.[scen] || {}).length,
     };
   }
 
   return { byScen, countries: [...countries].sort() };
+}
+
+/** How close the decomposition has to land on the model's NPV: $1m, or a hundredth of a
+ *  percent of the NPV on a large system. Same rule as the deck's _reconciles. */
+export const npvTolerance = model => Math.max(1, 1e-4 * Math.abs(model || 0));
+
+/**
+ * The sign the external export line is read with, for one scenario.
+ *
+ * generate_report.gms wrote the revenue as a positive magnitude until 2026-09-02, and as a
+ * cost (negative) since. base.gms subtracts it from the objective either way, so the right
+ * reading is the one that lands on the model's NPV, and the two readings sit twice the
+ * revenue apart. Without the model's NPV to decide on, the value itself does: revenue is
+ * money coming in, so a positive line is the old magnitude.
+ */
+function exportSignOf(exp, rest, model) {
+  if (Math.abs(exp) < 1e-9) return 1;
+  if (model != null) return Math.abs(rest + exp - model) <= Math.abs(rest - exp - model) ? 1 : -1;
+  return exp > 0 ? -1 : 1;
+}
+
+const DEMAND_ATTR = 'DemandEnergyZone';
+
+/** Zones in the cost file that serve no demand in any year: transit hubs. Empty when the
+ *  caller loaded no yearly zone data, since a zone cannot be told apart without it. */
+function zonesWithoutDemand(yearlyZone, byZone) {
+  if (!yearlyZone || !Object.keys(yearlyZone).length) return [];
+  return Object.keys(byZone)
+    .filter(z => !Object.values(yearlyZone[z]?.[DEMAND_ATTR] || {}).some(v => v > 0))
+    .sort();
+}
+
+const musd = v => `${v > 0 ? '+' : v < 0 ? '-' : ''}${Math.round(Math.abs(v)).toLocaleString('en-US')} M$`;
+
+/**
+ * What a page has to say under its NPV tables about the scenarios it shows, one sentence
+ * group per kind of trouble. Empty on a sound run. Both results pages print these, so the
+ * wording lives here once.
+ */
+export function npvCheckNotes(byScen, scens) {
+  const shown = [...new Set(scens || [])].filter(s => byScen?.[s]);
+  const notes = [];
+
+  const gap = shown.filter(s => !byScen[s].reconciled);
+  if (gap.length) notes.push(
+    `The components of ${gap.map(s => `${s} (${musd(byScen[s].residual)})`).join(', ')} do not add back `
+    + "to the model's own NPV, usually because summary.csv carries no generation capex for them. "
+    + "The gap is drawn as Unexplained, so their totals are still the model's NPV.");
+
+  const off = shown.filter(s => byScen[s].noDemandZones.length);
+  if (off.length) {
+    const zones = [...new Set(off.flatMap(s => byScen[s].noDemandZones))].sort();
+    const ctys  = [...new Set(off.flatMap(s => byScen[s].noDemandCountries))].sort();
+    notes.push(
+      `Internal trade does not net to zero in ${off.map(s => `${s} (${musd(byScen[s].internalImbalance)})`).join(', ')}. `
+      + `The report of these runs predates the fix in generate_report.gms: trade with zones without demand (${zones.join(', ')}) `
+      + 'was booked on one side only. Region totals and benefits leave internal trade out, as its true value is zero, '
+      + `so they are exact. Split by country, ${ctys.join(' and ')} and any country with a line into those zones `
+      + 'stay wrong until these scenarios are rerun.');
+  }
+  return notes;
 }
 
 /**

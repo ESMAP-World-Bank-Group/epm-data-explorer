@@ -12,7 +12,7 @@ import {
   resultYears,
 } from '../utils/epmFetch';
 import {
-  processNpvInput, processNpvSystem, buildNpv, npvDelta, visibleComps, withSummaryCapex,
+  processNpvInput, processNpvSystem, buildNpv, npvDelta, visibleComps, withSummaryCapex, npvCheckNotes,
 } from '../utils/npv';
 import { annotateCsv, resultLines } from '../utils/csvMeta';
 import { yzAgg } from '../utils/zoneAgg';
@@ -27,7 +27,7 @@ import {
 } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
-import { baseFirst, defaultScenarios } from '../utils/scenarioOrder';
+import { baseFirst, baseScenario, defaultScenarios } from '../utils/scenarioOrder';
 import { physicalStats } from '../utils/summaryStats';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { alive, source, markStyleReady, styleReady } from '../utils/mapSource';
@@ -400,18 +400,18 @@ export default function ResultsRegionPage() {
         scens = (fromCsv || []).sort();
       }
       setScenarioList(scens); setEvScenarios(defaultScenarios(scens));
+      const base = baseScenario(scens);
       if (scens.length) {
-        const base = scens.find(s=>/^base(line)?$/i.test(s))||scens[0];
         setOvScenario(base); setDispScenario(base); setTrScenario(base); setPlScenario(base); setCmpRef(base);
       }
-      setCmpScenarios(defaultScenarios(scens.filter(s=>s!==(scens.find(s2=>/^base(line)?$/i.test(s2))||scens[0]))));
+      setCmpScenarios(defaultScenarios(scens.filter(s=>s!==base)));
       setCmpMode('values');
       setTrScenarios(defaultScenarios(scens));
       setSnapScenarios(defaultScenarios(scens));
       setSummaryRef(null);
       // The summary compares against a reference, so the reference itself is not one of
       // the columns: pick the first few of the rest.
-      setSummaryScen(defaultScenarios(scens.filter(s=>s!==(scens.find(s2=>/^base(line)?$/i.test(s2))||scens[0]))));
+      setSummaryScen(defaultScenarios(scens.filter(s=>s!==base)));
     });
   }, [region, simRun, outputDir]);
 
@@ -419,6 +419,9 @@ export default function ResultsRegionPage() {
     if (!region?.epm || !simRun || !scenarioList.length) return;
     setLoadingData(true);
     const { branch } = region.epm;
+    // When the run changes, this effect fires once with the new run and the old scenario
+    // list, then again with the new list: the first batch is stale and must not land.
+    let stale = false;
     Promise.all(scenarioList.map(async scen => {
       // Dispatch (pDispatchComplete) is huge -> loaded lazily per year (see effect below)
       const [tfR, yzR, prR, txR, plR, coR, ebR, npR] = await Promise.all([
@@ -446,12 +449,14 @@ export default function ResultsRegionPage() {
         npvSystem:    npR  ? processNpvSystem(npR)             : null,
       };
     })).then(results => {
+      if (stale) return;
       const rd = Object.fromEntries(results.map(r=>[r.scen, r]));
       setResultsData(rd);
       dispLoadedRef.current = new Set(); // dispatch cache is per-run
       const yrs = resultYears(results[0]?.techFuel||{});
       if (yrs.length) setRefYear(yrs[0]);
-    }).finally(()=>setLoadingData(false));
+    }).finally(()=>{ if (!stale) setLoadingData(false); });
+    return () => { stale = true; };
   }, [region, simRun, scenarioList]); // eslint-disable-line
 
   // The two files a run writes at its root rather than per scenario, both read once for
@@ -873,12 +878,12 @@ export default function ResultsRegionPage() {
 
   /** Net NPV benefit of a scenario against its OWN counterfactual — the crisis run is
    *  read against the crisis baseline, not the central one, or the price path would show
-   *  up as if the project had caused it. null when either side does not reconcile. */
+   *  up as if the project had caused it. null when either side has no NPV. The totals
+   *  always land on the model's own NPV (utils/npv), so a gap does not rule one out. */
   const benefitOf = useMemo(() => scen => {
     const refName = docIndex.counterfactualOf(scen);
     const a = npvData.byScen[refName], b = npvData.byScen[scen];
-    const ok = n => n && (n.residual == null || Math.abs(n.residual) <= 0.005*Math.abs(n.modelTotal||1));
-    if (!refName || !ok(a) || !ok(b)) return null;
+    if (!refName || !a || !b) return null;
     return { net: a.total - b.total, ref: refName };
   }, [docIndex, npvData]);
 
@@ -1957,15 +1962,14 @@ export default function ResultsRegionPage() {
           // utils/npv does the arithmetic; everything here is the shape of it. Costs are
           // discounted on the model's own year factors, so this is the number the study's
           // deck prints — not the undiscounted sum the physical table below carries.
-          // A scenario whose components do not add back to the model's own NPV is not
-          // comparable — a run that published no capex column for it would otherwise draw
-          // the whole missing capex as a saving. It is named under the tables instead.
-          const offBy  = n=>n&&n.residual!=null&&Math.abs(n.residual)>0.005*Math.abs(n.modelTotal||1);
-          const npvOk  = s=>{const n=npvData.byScen[s];return !!n&&!offBy(n);};
+          // Every scenario with a discounted cost block compares. A gap to the model's own
+          // NPV (a run that published no capex column, typically) is drawn as its own
+          // Unexplained component, so the totals stay the model's, and npvCheckNotes names
+          // it under the tables.
+          const npvOk  = s=>!!npvData.byScen[s];
           const nRef   = npvOk(ref)?npvData.byScen[ref]:null;
           const hasNpv = !!nRef;
           const nCols  = hasNpv?baseFirst(allSc.filter(s=>s!==ref&&summaryScen.has(s)&&npvOk(s))):[];
-          const nBad   = allSc.filter(s=>npvData.byScen[s]&&!npvOk(s));
           const byCty  = npvSplit==='country';
           const cties  = npvData.countries;
           const dScen  = Object.fromEntries(nCols.map(s=>[s,npvDelta(nRef.comps,npvData.byScen[s].comps)]));
@@ -1994,9 +1998,7 @@ export default function ResultsRegionPage() {
             hasNpv&&nCols.length
               ? `Every component is a discounted cost, so a difference is ${ref} minus the scenario: positive means the scenario spends less on that line, which is a benefit.`
               : null,
-            nBad.length
-              ? `Left out. Their components do not add back to the model's own NPV, usually because summary.csv carries no generation capex for them: ${nBad.map(s=>`${s} (${fmt(npvData.byScen[s].residual,0)} M$)`).join(', ')}.`
-              : null,
+            ...(hasNpv?npvCheckNotes(npvData.byScen,[ref,...nCols]):[]),
             hasNpv&&[ref,...nCols].some(s=>!npvData.byScen[s].hasCapex)
               ? 'Generation capex is missing for at least one scenario shown, so its bar and total are incomplete.' : null,
             hasNpv&&[ref,...nCols].every(s=>!npvData.byScen[s].hasExternal)
@@ -2097,7 +2099,7 @@ export default function ResultsRegionPage() {
                 </tr>
                 {!delta&&<tr>
                   <td style={{...ls,fontSize:'0.44rem',color:t.lblMuted}}>Model NPV (check)</td>
-                  {cols.map(s=><td key={s} style={{...cs,fontSize:'0.44rem',color:offBy(npvData.byScen[s])?'#FF3B30':t.lblMuted}}>{fmt(npvData.byScen[s].modelTotal,0)}</td>)}
+                  {cols.map(s=><td key={s} style={{...cs,fontSize:'0.44rem',color:npvData.byScen[s].reconciled?t.lblMuted:'#FF3B30'}}>{fmt(npvData.byScen[s].modelTotal,0)}</td>)}
                   <td/>
                 </tr>}
               </tbody>
@@ -2128,7 +2130,7 @@ export default function ResultsRegionPage() {
                       <div style={{fontSize:'0.78rem',fontWeight:700,color:col,lineHeight:1.25}}>{bn(d)}
                         <span style={{fontSize:'0.42rem',fontWeight:400,color:t.muted,marginLeft:3}}>bn$ benefit</span></div>
                       <div style={{fontSize:'0.4rem',color:t.lblMuted}}>cost NPV {fmt(nRef.total,0)} − {fmt(n.total,0)}</div>
-                      {(!n.hasCapex||offBy(n))&&<div style={{fontSize:'0.4rem',color:'#FF9500',marginTop:2}}>⚠ {!n.hasCapex?'capex missing':'off the model NPV'}</div>}
+                      {(!n.hasCapex||!n.reconciled)&&<div style={{fontSize:'0.4rem',color:'#FF9500',marginTop:2}}>⚠ {!n.hasCapex?'capex missing':'part unexplained'}</div>}
                     </div>;
                   })}
                 </div>}
@@ -2164,9 +2166,7 @@ export default function ResultsRegionPage() {
                 <SectionTitle t={t}>Net present cost by component  ·  levels, not benefits</SectionTitle>
                 {mkNpvTbl([ref,...nCols],false)}
               </>:<div style={{fontSize:'0.5rem',color:t.lblMuted,lineHeight:1.6}}>
-                {npvData.byScen[ref]
-                  ?`The decomposition of ${ref} does not add back to the model's own NPV, so it cannot serve as a reference. Pick another one.`
-                  :'This run carries no discounted cost block (DiscountedWeightedCostsCumulated in pCostsMerged.csv), so the NPV cannot be decomposed. The undiscounted totals below are all the page can say about cost.'}
+                {`${ref} carries no discounted cost block (DiscountedWeightedCostsCumulated in pCostsMerged.csv), so its NPV cannot be decomposed. The undiscounted totals below are all the page can say about cost.`}
               </div>}
               {npvNotes.length>0&&<div style={{fontSize:'0.42rem',color:t.lblMuted,lineHeight:1.6}}>
                 {npvNotes.map((n,i)=><div key={i}>· {n}</div>)}
