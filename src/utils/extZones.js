@@ -110,8 +110,10 @@ export function buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids, year = null)
   const extPolyFeatures = Object.entries(polyGeom).map(([z, geometry]) => ({
     type: 'Feature', properties: { z, links: links(z) }, geometry,
   }));
+  // A corridor with no capacity in the selected year is not drawn, as the internal ones
+  // are not: a line reading 0 MW is noise on the map. The node popup still lists it.
   const extLineFeatures = (extNtc || [])
-    .filter(r => zoneCentroids[r.z] && extNodeCoords[r.zext])
+    .filter(r => (r.years[extNtcYr] || 0) > 0 && zoneCentroids[r.z] && extNodeCoords[r.zext])
     .map(r => ({
       type: 'Feature',
       properties: { z: r.z, zext: r.zext, ntc_mw: r.years[extNtcYr] || 0, yr: extNtcYr },
