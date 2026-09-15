@@ -163,9 +163,10 @@ export function addExtZoneLayers(map, tv, data, { visible = true, mode = 'inputs
     layout: { visibility: vis },
     paint: { 'circle-radius': 4, 'circle-color': g.node,
       'circle-stroke-width': 1.5, 'circle-stroke-color': g.line } });
-  // No name under the node. Internal zones carry none on any map here, and writing one
-  // only on the external side made the neighbours the labelled half of the picture — the
-  // opposite of the point. Which zone it is stays one hover away.
+  // No name under the node. Writing one only on the external side made the neighbours the
+  // labelled half of the picture, the opposite of the point. Names come with the opt-in
+  // zone names of the results maps, which name both sides together (utils/zoneLabels.js);
+  // otherwise which zone it is stays one hover away.
   if (mode !== 'results') {
     map.addLayer({ id: 'ext-ntc-labels', type: 'symbol', source: 'ext-ntc-lines',
       layout: { visibility: vis, 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],

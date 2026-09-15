@@ -148,17 +148,18 @@ export function extraDelta(a, b) {
 }
 
 /** A Chart.js dataset for one extra series. Both kinds are segments of the scenario's
- *  own stack, sitting above the fuels — see seriesRank. */
+ *  own stack, sitting above the fuels — see seriesRank. `_extra` keeps them out of the
+ *  plant total the bar labels give (barTotals.js). */
 export function extraDataset(e, scen, multi) {
   const label = multi ? `${scen} — ${e.label}` : e.label;
   if (e.kind === 'capacity') {
     const col = GRID_COLOR[e.side];
     return { label, data: e.data, type: 'bar',
       backgroundColor: texturedFill(col, multi ? 0.55 : 0.85, GRID_TEXTURE[e.side]),
-      borderColor: col, borderWidth: multi ? 1 : 0, stack: scen };
+      borderColor: col, borderWidth: multi ? 1 : 0, stack: scen, _extra: true };
   }
   return { label, data: e.data, type: 'bar', backgroundColor: fillFor(e.label, multi ? 0.55 : 0.85),
-    borderColor: techColor(e.label), borderWidth: multi ? 1 : 0, stack: scen };
+    borderColor: techColor(e.label), borderWidth: multi ? 1 : 0, stack: scen, _extra: true };
 }
 
 /** Sorts a stack in place, and returns it: generation first, then what was traded or

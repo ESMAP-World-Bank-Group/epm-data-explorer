@@ -26,6 +26,8 @@ import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
 import { ttl } from '../utils/chartTitle';
+import { barTotalPlugin } from '../utils/barTotals';
+import { useZoneLabels, useZoneLabelMarkers } from '../utils/zoneLabels';
 import { rankPlants, plantDisplay, plantFmt } from '../utils/plantRank';
 import { netImportGWh } from '../utils/netImport';
 
@@ -53,6 +55,7 @@ export default function ResultsZonePage() {
   const [offgridGJ,    setOffgridGJ]    = useState(null);
   const [extNtcRaw,    setExtNtc]       = useState([]);
   const [showExtZones, setShowExtZones] = useState(true);
+  const [zoneLabels,   setZoneLabels]   = useZoneLabels();
   const showExtRef     = useRef(true);
   const [hoursData,    setHoursData]    = useState({});
   // Slice count comes from pHours: 24 for a chronological model, 6-7 for a load-block one.
@@ -253,8 +256,15 @@ export default function ResultsZonePage() {
     source(map, 'ntc-results').setData({type:'FeatureCollection',features});
   },[resultsData,refYear,scenario,zonesGJ,linestringGJ,zoneIdDecoded,mapLoadedCount]); // eslint-disable-line
 
+  // Zone names (opt-in). This zone keeps its own boxed name; nothing else sits on a
+  // centroid here, and an external node is a 4 px circle.
+  useZoneLabelMarkers(mapRef,{on:zoneLabels,zones:zcmapRows.map(r=>r.z).filter(z=>z!==zoneIdDecoded),zonesGJ,linestringGJ,
+    zonesExtGJ:showExtZones?zonesExtGJ:null,zoneOffset:2,extOffset:6,tv:t,ready:mapLoadedCount});
+
   if(!region)return<div style={{padding:40,color:t.text}}>Loading…</div>;
   const selectStyle={fontSize:'0.5rem',fontFamily:'inherit',padding:'2px 6px',borderRadius:3,border:`1px solid ${t.panelBorder}`,backgroundColor:t.panel,color:t.muted,cursor:'pointer'};
+  const mapToggleStyle=(on,top)=>({position:'absolute',top,right:10,zIndex:10,fontSize:'0.46rem',fontFamily:'inherit',padding:'4px 8px',borderRadius:5,cursor:'pointer',border:`1px solid ${on?'rgba(136,136,136,0.6)':t.panelBorder}`,backgroundColor:on?'rgba(136,136,136,0.16)':t.panel,color:on?t.lbl:t.lblMuted,fontWeight:on?700:400,boxShadow:'0 1px 4px rgba(0,0,0,.18)'});
+  const hasExt=!!zonesExtGJ||extNtc.length>0;
 
   // Builders
   const buildDispatch=()=>{
@@ -307,9 +317,10 @@ export default function ResultsZonePage() {
             <select value={refYear||''} onChange={e=>setRefYear(e.target.value)} style={selectStyle}>{allYears.map(y=><option key={y} value={y}>{y}</option>)}</select>
           </div>
         )}
-        {(zonesExtGJ||extNtc.length>0)&&(
-          <button onClick={()=>setShowExtZones(v=>!v)} style={{position:'absolute',top:44,right:10,zIndex:10,fontSize:'0.46rem',fontFamily:'inherit',padding:'4px 8px',borderRadius:5,cursor:'pointer',border:`1px solid ${showExtZones?'rgba(136,136,136,0.6)':t.panelBorder}`,backgroundColor:showExtZones?'rgba(136,136,136,0.16)':t.panel,color:showExtZones?t.lbl:t.lblMuted,fontWeight:showExtZones?700:400,boxShadow:'0 1px 4px rgba(0,0,0,.18)'}}>Ext. zones</button>
+        {hasExt&&(
+          <button onClick={()=>setShowExtZones(v=>!v)} style={mapToggleStyle(showExtZones,44)}>Ext. zones</button>
         )}
+        <button onClick={()=>setZoneLabels(v=>!v)} style={mapToggleStyle(zoneLabels,hasExt?72:44)}>Zone names</button>
       </div>
 
       <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
@@ -347,8 +358,9 @@ export default function ResultsZonePage() {
             </div>
             {tfs.length>0&&<><SectionTitle t={t}>Capacity by technology (MW)</SectionTitle>
               <CJChart name={ttl('Capacity mix (MW)',zoneIdDecoded,scenario,refYear)} type="bar" height={Math.min(tfs.length*22+24,200)} cacheKey={`ov-z|${scenario}|${refYear}|${theme}`}
+                plugins={[barTotalPlugin({axis:'x',color:t.lbl,unit:'MW',fmt:v=>fmt(v)})]}
                 data={{labels:tfs,datasets:[{data:tfs.map(tf=>Math.round(sd.techFuel[zoneIdDecoded]?.CapacityTechFuel?.[refYear]?.[tf]||0)),backgroundColor:tfs.map(tf=>techColor(tf)),borderWidth:0,barThickness:12}]}}
-                options={{...cjDefaults(t),indexAxis:'y',scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:9}}}}}}
+                options={{...cjDefaults(t),indexAxis:'y',layout:{padding:{right:62}},scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:9}}}}}}
               /></>}
           </div>;
         })()}
