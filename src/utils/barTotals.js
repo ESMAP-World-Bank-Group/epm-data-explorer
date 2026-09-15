@@ -115,7 +115,8 @@ export function visibleStackTotal(chart, dataIndex) {
  * A chart.js plugin that writes each stacked bar's total just past its end.
  *
  * @param axis     the value axis, 'x' for a horizontal bar chart (indexAxis 'y'), else 'y'
- * @param color    the text colour, normally the theme's label colour
+ * @param color    the text colour, normally the theme's muted colour, the one of the axis
+ *                 ticks: the label colour is near black and shouts over a light ground
  * @param fmt      how to render the number, unit excluded
  * @param unit     appended after the number, e.g. 'MW'; best left out where the axis says it
  * @param delta    a Δ chart: the total is a net and a gain is written with its '+'
@@ -124,10 +125,10 @@ export function visibleStackTotal(chart, dataIndex) {
  * A horizontal chart needs room on the value side from layout.padding instead: its labels
  * are as wide as their text and the axis has no say in the width of the canvas.
  */
-export function barTotalPlugin({ axis = 'x', color = '#333', fmt = DEFAULT_FMT, unit = '', size, pad = 4,
+export function barTotalPlugin({ axis = 'x', color = '#888', fmt = DEFAULT_FMT, unit = '', size, pad = 4,
   delta = false, headroom } = {}) {
   const px = size ?? (axis === 'x' ? 10 : 9);
-  const font = `600 ${px}px system-ui, -apple-system, sans-serif`;
+  const font = `500 ${px}px system-ui, -apple-system, sans-serif`;
   const stretch = headroom ?? axis === 'y';
   const indexAxis = axis === 'x' ? 'y' : 'x';
   const sign = v => (delta && v > 0 ? '+' : '');

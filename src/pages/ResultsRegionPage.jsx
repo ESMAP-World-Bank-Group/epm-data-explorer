@@ -1580,7 +1580,7 @@ export default function ResultsRegionPage() {
               <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart name={ttl('Capacity mix (MW)',ovMixMode==='zone'?'by zone':'by country',ovScenario,refYear)} type="bar" height={Math.min(overviewMix.labels.length*22+24,300)} cacheKey={`ov|${ovScenario}|${refYear}|${ovMixMode}|${theme}|${[...hiddenMap['ov-mix']||[]].join(',')}`} data={{...overviewMix,datasets:overviewMix.datasets.filter(d=>!isHidden('ov-mix',d.label))}}
-                    plugins={[barTotalPlugin({axis:'x',color:t.lbl,unit:'MW',fmt:v=>fmt(v)})]}
+                    plugins={[barTotalPlugin({axis:'x',color:t.muted,unit:'MW',fmt:v=>fmt(v)})]}
                     options={{...cjDefaults(t),indexAxis:'y',layout:{padding:{right:62}},scales:{x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{stacked:true,grid:{display:false},ticks:{color:t.muted,font:{size:9}}}},plugins:{...cjDefaults(t).plugins,tooltip:{...cjDefaults(t).plugins.tooltip,footerColor:t.lbl,footerFont:{size:10},callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.x)} MW`,footer:barTotalFooter({axis:'x',unit:'MW',fmt:v=>fmt(v),filtered:(hiddenMap['ov-mix']?.size||0)>0})}}}}}
                   />
                 </div>
@@ -1632,7 +1632,7 @@ export default function ResultsRegionPage() {
                 <div style={{flex:1,minWidth:0}}>
                   <CJChart name={ttl(snapData.ind?.label||'Snapshot',refYear,snapView==='country'?'by country':'by zone',snapCountry!=='all'?snapCountry:null,scenList(snapScenarios))} type="bar" height={220}
                     cacheKey={`snap|${snapIndicator}|${refYear}|${snapView}|${theme}|${[...snapScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
-                    plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[snapData.netPlugin,sp,snapData.ind?.source==='techFuel'&&barTotalPlugin({axis:'y',color:t.lbl})].filter(Boolean);})()}
+                    plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>snapScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[snapData.netPlugin,sp,snapData.ind?.source==='techFuel'&&barTotalPlugin({axis:'y',color:t.muted})].filter(Boolean);})()}
                     data={{labels:snapData.labels,datasets:snapData.datasets.filter(d=>{if(snapData.ind?.source==='trade')return!isHidden('snap-trade-p',d._partner||'');return!isHidden('snap-tf',tfLabel(d));})}}
                     options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{
                       x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxRotation:45,autoSkip:true,maxTicksLimit:20,padding:16}},
@@ -1665,7 +1665,7 @@ export default function ResultsRegionPage() {
                     <div style={{flex:1,minWidth:0}}>
                       <CJChart name={ttl(`Δ ${snapDeltaData.ind?.label||'Snapshot'} vs ${cmpRef}`,refYear,snapView==='country'?'by country':'by zone',snapCountry!=='all'?snapCountry:null,scenList(cmpScenarios))} type="bar" height={180}
                         cacheKey={`snap-d|${snapIndicator}|${refYear}|${snapView}|${theme}|${cmpRef}|${[...cmpScenarios].sort().join(',')}|${[...hiddenMap['snap-tf']||[]].join(',')}`}
-                        plugins={[snapDeltaData.netPlugin,snapDeltaData.ind?.source==='techFuel'&&barTotalPlugin({axis:'y',color:t.lbl,delta:true})].filter(Boolean)}
+                        plugins={[snapDeltaData.netPlugin,snapDeltaData.ind?.source==='techFuel'&&barTotalPlugin({axis:'y',color:t.muted,delta:true})].filter(Boolean)}
                         data={{labels:snapDeltaData.labels,datasets:snapDeltaData.datasets.filter(d=>{if(snapDeltaData.ind?.source==='trade')return!isHidden('snap-trade-p',d._partner||'');return!isHidden('snap-tf',tfLabel(d));})}}
                         options={{...cjDefaults(t),scales:{
                           x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:8},maxRotation:45,autoSkip:true,maxTicksLimit:20}},
@@ -1709,7 +1709,7 @@ export default function ResultsRegionPage() {
                       if(activeInd.source==='trade') return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');
                       return true;
                     })}}
-                    plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[sp,evStacked&&barTotalPlugin({axis:'y',color:t.lbl})].filter(Boolean);})()}
+                    plugins={(()=>{const aSc=baseFirst(scenarioList.filter(s=>evScenarios.has(s)&&resultsData[s]));const sp=makeScenPlugin(aSc,t.muted);return[sp,evStacked&&barTotalPlugin({axis:'y',color:t.muted})].filter(Boolean);})()}
                     options={{...cjDefaults(t),datasets:{bar:{barPercentage:0.72}},scales:{x:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10,padding:16}},y:{stacked:activeInd.source!=='yearlyZone',grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}}},plugins:{...cjDefaults(t).plugins,legend:activeInd.source==='yearlyZone'&&!evEach&&evScenarios.size>1?{display:true,labels:{color:t.muted,font:{size:9},boxWidth:8,boxHeight:6}}:{display:false},tooltip:{...cjDefaults(t).plugins.tooltip,footerColor:t.lbl,footerFont:{size:10},callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`,footer:evStacked?barTotalFooter({axis:'y',unit:activeInd.unit,filtered:anyHidden(activeInd.source==='costs'?'ev-cost':'ev-tf')}):undefined}}}}}
                   />
                 </div>
@@ -1742,7 +1742,7 @@ export default function ResultsRegionPage() {
                           if(activeInd.source==='trade') return d.type==='line'||!isHidden('ev-trade-p',d._partner||'');
                           return true;
                         })}}
-                        plugins={activeInd.source==='techFuel'||(evEach&&evAdditive)?[barTotalPlugin({axis:'y',color:t.lbl,delta:true})]:[]}
+                        plugins={activeInd.source==='techFuel'||(evEach&&evAdditive)?[barTotalPlugin({axis:'y',color:t.muted,delta:true})]:[]}
                         options={{...cjDefaults(t),scales:{
                           x:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},maxTicksLimit:10}},
                           y:{stacked:true,grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v},title:{display:true,text:activeInd.unit,color:t.muted,font:{size:8}}},
