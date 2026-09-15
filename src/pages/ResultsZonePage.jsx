@@ -358,7 +358,7 @@ export default function ResultsZonePage() {
             </div>
             {tfs.length>0&&<><SectionTitle t={t}>Capacity by technology (MW)</SectionTitle>
               <CJChart name={ttl('Capacity mix (MW)',zoneIdDecoded,scenario,refYear)} type="bar" height={Math.min(tfs.length*22+24,200)} cacheKey={`ov-z|${scenario}|${refYear}|${theme}`}
-                plugins={[barTotalPlugin({axis:'x',color:t.lbl,unit:'MW',fmt:v=>fmt(v)})]}
+                plugins={[barTotalPlugin({axis:'x',color:t.muted,unit:'MW',fmt:v=>fmt(v)})]}
                 data={{labels:tfs,datasets:[{data:tfs.map(tf=>Math.round(sd.techFuel[zoneIdDecoded]?.CapacityTechFuel?.[refYear]?.[tf]||0)),backgroundColor:tfs.map(tf=>techColor(tf)),borderWidth:0,barThickness:12}]}}
                 options={{...cjDefaults(t),indexAxis:'y',layout:{padding:{right:62}},scales:{x:{grid:{color:t.panelBorder},ticks:{color:t.muted,font:{size:9},callback:v=>v>=1000?`${(v/1000).toFixed(0)}k`:v}},y:{grid:{display:false},ticks:{color:t.muted,font:{size:9}}}}}}
               /></>}
