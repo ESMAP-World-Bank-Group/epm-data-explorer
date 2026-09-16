@@ -3,8 +3,9 @@
 // A data folder ships DATA_SOURCES.md next to its tables, written by EPM's
 // pre-analysis/catalog/generate_docs.py. It is the only place that says which
 // study, database or judgement stands behind a parameter, country by country.
-// The input workbook carries that along: a Sources sheet with one row per
-// parameter and country, and the source names beside each tab on Contents.
+// The input workbook carries that along: the sources country by country at the
+// head of each tab, their names on Contents, and a Sources sheet with one row per
+// parameter and country for the detail (method, confidence, date).
 //
 // The page is read as the generator writes it:
 //
@@ -60,7 +61,7 @@ export function parseDataSources(md) {
   const overview = [];             // { param, country, text }
   const entry = (param) => {
     const k = param.toLowerCase();
-    if (!byParam.has(k)) byParam.set(k, { param, category: '', item: '', description: '', names: [] });
+    if (!byParam.has(k)) byParam.set(k, { param, category: '', item: '', description: '', names: [], byCountry: [] });
     return byParam.get(k);
   };
 
@@ -120,12 +121,17 @@ export function parseDataSources(md) {
     const n = sourceName(md);
     const e = entry(param);
     if (n && !e.names.includes(n)) e.names.push(n);
+    return n;
+  };
+  // Per parameter, the source names country by country, for the head of each tab.
+  const addCountry = (param, country, names) => {
+    if (names.length) entry(param).byCountry.push({ country, names });
   };
   for (const b of detail) {
     if (!b.source && !b.also.length) continue;
     seen.add(`${b.param.toLowerCase()}|${b.country}`);
-    addName(b.param, b.source);
-    b.also.forEach(a => addName(b.param, a));
+    addCountry(b.param, b.country,
+      [addName(b.param, b.source), ...b.also.map(a => addName(b.param, a))].filter(Boolean));
     rows.push({
       param: b.param, country: b.country,
       source: plainSource(b.source),
@@ -138,7 +144,9 @@ export function parseDataSources(md) {
   for (const o of overview) {
     if (seen.has(`${o.param.toLowerCase()}|${o.country}`)) continue;
     // The overview cell joins its sources with ' + '. The names are shortened
-    // there, so they go on the row but not into the per-tab list.
+    // there, so they go on the row and the country line, not into the list of
+    // full names Contents shows.
+    addCountry(o.param, o.country, [sourceName(o.text)].filter(Boolean));
     rows.push({ param: o.param, country: o.country, source: plainSource(o.text),
       also: '', method: '', confidence: '', updated: '', review: 'from the overview table, names shortened' });
   }
@@ -161,13 +169,6 @@ export async function fetchDataSources(branch, folder) {
   } catch {
     return null;
   }
-}
-
-/** A link a person can open to read the page itself. GitHub serves raw HTML as
- *  text, so it goes through the same previewer the About tab uses. */
-export function dataSourcesPageUrl(branch, folder) {
-  const u = rawFileUrl(branch, `epm/input/${folder}/DATA_SOURCES.html`);
-  return u.startsWith('https://raw.githubusercontent.com/') ? `https://htmlpreview.github.io/?${u}` : u;
 }
 
 /** Source names for one tab, looked up by parameter and then by file name:

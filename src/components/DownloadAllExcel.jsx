@@ -42,10 +42,11 @@ export default function DownloadAllExcel({ t, items = [], meta = [], loadSources
 
   return (
     <button onClick={go} disabled={busy || !total}
-      title={'One sheet per file, with its unit, plus a Contents sheet saying what each holds and '
-        + 'where it came from'
-        + (loadSources ? ', and a Sources sheet with the data sources of each parameter by country. ' : '. ')
-        + 'A file too large for a workbook is listed there rather than included.'}
+      title={'One sheet per file. Each opens with what it holds, its unit'
+        + (loadSources ? ' and its data sources by country' : '')
+        + ', then the table. A Contents sheet lists them all'
+        + (loadSources ? ', and a Sources sheet gives the method and confidence of each source' : '')
+        + '. A file too large for a workbook is listed on Contents rather than included.'}
       style={{
         fontSize: '0.44rem', fontFamily: 'inherit', padding: '3px 8px', borderRadius: 3,
         border: `1px solid ${t.panelBorder}`, backgroundColor: t.panel, color: t.muted,

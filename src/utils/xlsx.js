@@ -139,12 +139,14 @@ function cellXml(value, ref, style) {
  *  sheet, further down on one that opens with a few lines of provenance. It is
  *  set bold and everything above it is frozen; an empty cell is left out of the
  *  XML rather than written empty. */
-function sheetXml(rows, head = 0) {
+function sheetXml(rows, head = 0, freeze = true) {
   const out = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     + '<sheetViews><sheetView workbookViewId="0">'
-    + '<pane ySplit="' + (head + 1) + '" topLeftCell="A' + (head + 2) + '"'
-    + ' activePane="bottomLeft" state="frozen"/>'
+    + (freeze
+      ? '<pane ySplit="' + (head + 1) + '" topLeftCell="A' + (head + 2) + '"'
+        + ' activePane="bottomLeft" state="frozen"/>'
+      : '')
     + '</sheetView></sheetViews><sheetData>'];
   for (let r = 0; r < rows.length && r < ROW_LIMIT; r++) {
     const row = rows[r] || [];
@@ -198,7 +200,9 @@ export function sheetName(raw, taken = new Set()) {
 export async function buildWorkbook(sheets) {
   const enc = new TextEncoder();
   const taken = new Set();
-  const named = sheets.map(s => ({ name: sheetName(s.name, taken), rows: s.rows || [], head: s.head || 0 }));
+  const named = sheets.map(s => ({
+    name: sheetName(s.name, taken), rows: s.rows || [], head: s.head || 0, freeze: s.freeze !== false,
+  }));
 
   const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -237,7 +241,7 @@ export async function buildWorkbook(sheets) {
     { name: 'xl/workbook.xml', text: workbook },
     { name: 'xl/_rels/workbook.xml.rels', text: workbookRels },
     { name: 'xl/styles.xml', text: STYLES },
-    ...named.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, text: sheetXml(s.rows, s.head) })),
+    ...named.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, text: sheetXml(s.rows, s.head, s.freeze) })),
   ];
 
   return zipBlob(parts.map(p => ({ name: p.name, data: enc.encode(p.text) })),

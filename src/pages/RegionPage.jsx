@@ -24,7 +24,7 @@ import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenario
 import RawDataTable from '../components/RawDataTable';
 import DownloadAllExcel from '../components/DownloadAllExcel';
 import { exportName, inputUnitFrom } from '../utils/xlsxExport';
-import { fetchDataSources, dataSourcesPageUrl } from '../utils/dataSources';
+import { fetchDataSources } from '../utils/dataSources';
 import { annotateCsv, inputLines } from '../utils/csvMeta';
 import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
@@ -1616,7 +1616,6 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
   const bookMeta = [
     ['EPM View', 'raw input export'],
     ['region', region?.name], ['branch', branch], ['data folder', activeFolder],
-    ['data sources page', dataSourcesPageUrl(branch, activeFolder)],
     ['downloaded', new Date().toISOString()],
   ];
   const loadSources = () => fetchDataSources(branch, activeFolder);
