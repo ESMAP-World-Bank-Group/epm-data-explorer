@@ -8,11 +8,12 @@
 //
 // Rows come out of the same csvRecords and unitResolver the table on screen and
 // the "Download CSV" button read, so the workbook cannot say something different
-// from either. What the CSV puts in a comment header -- where the file came
-// from, when, from which branch and run -- has nowhere to live inside a sheet,
-// so it goes on a Contents sheet in front, one line per tab, with the source URL
-// on each. Nothing is dropped in silence: a file skipped for its size or cut at
-// Excel's row limit says so there, next to its name.
+// from either. What the CSV puts in a comment header goes at the head of each
+// tab instead, above the table: what the parameter is, its unit, the file, where
+// the data came from country by country, so a tab copied out on its own still
+// says what it holds. A Contents sheet in front lists every tab. Nothing is
+// dropped in silence: a file skipped for its size or cut at Excel's row limit
+// says so there, next to its name.
 
 import { csvRecords, unitResolver } from './csvMeta';
 import { fetchFileSize } from './epmFetch';
@@ -73,7 +74,7 @@ export function inputUnitFrom(unit) {
 /** One CSV as sheet rows: the header, then every row, plus the unit column where
  *  the file earns one. Returns null for a file with nothing in it. `unitFrom`
  *  builds a per-row unit from the header, for callers that know the file's unit. */
-export function csvToRows(text, { filename = '', unitFor = null, unitFrom = null } = {}) {
+export function csvToRows(text, { filename = '', unitFor = null, unitFrom = null, reserve = 0 } = {}) {
   const body = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
   const recs = csvRecords(body).filter(r => !(r.fields.length === 1 && r.fields[0] === ''));
   if (!recs.length) return null;
@@ -84,15 +85,48 @@ export function csvToRows(text, { filename = '', unitFor = null, unitFrom = null
   });
   const rows = [addColumn ? [...header, 'unit'] : header];
   const total = recs.length - 1;
-  for (let i = 1; i <= total && rows.length <= SHEET_ROW_LIMIT; i++) {
+  // `reserve` rows of the sheet go to the head block above the table.
+  const limit = SHEET_ROW_LIMIT - reserve;
+  for (let i = 1; i <= total && rows.length <= limit; i++) {
     const fields = recs[i].fields;
     rows.push(addColumn ? [...fields, resolve(fields)] : fields);
   }
   return { rows, total, truncated: total > rows.length - 1, unitColumn: addColumn };
 }
 
+const UNIT_PER_ROW = 'varies by row, see the unit column';
+
+/** The lines above a tab's table, as [label, value] rows. Called once before the
+ *  file is read, to size the reserve, and once after, with what the read found;
+ *  the second call never returns more rows than the first. */
+function tabHead(item, { context, sources, found = null }) {
+  const unit = item.unit || (found?.unitColumn ? UNIT_PER_ROW : '');
+  const rows = [
+    ['Parameter', item.sheet],
+    ['Description', item.label],
+    ['Unit', found ? unit : 'x'],
+    ...context,
+    ['File', item.file],
+  ];
+  if (sources) {
+    const e = sourcesFor(sources, [item.sheet, item.file]);
+    const by = e?.byCountry || [];
+    if (!by.length) rows.push(['Source', 'not documented']);
+    // A parameter every country takes from the same place says it once.
+    else if (by.length > 1 && by.every(b => b.names.join('; ') === by[0].names.join('; '))) {
+      rows.push(['Source', by[0].names.join('; ')]);
+    } else {
+      for (const b of by) rows.push([`Source, ${b.country}`, b.names.join('; ')]);
+    }
+  }
+  rows.push(['Note', found ? found.note : 'x']);
+  return rows
+    .filter(([, v]) => v !== undefined && v !== null && String(v) !== '')
+    .map(([k, v]) => [k, String(v).slice(0, 32000)]);
+}
+
 /** Fetch one file and turn it into a sheet, or into the reason there is none. */
-async function oneSheet(item, budget) {
+async function oneSheet(item, budget, reserve) {
   const size = await fetchFileSize(item.url);
   if (size != null && size > MAX_BYTES) {
     return { note: `not included: ${fmtBytes(size)}, too large for a workbook` };
@@ -110,14 +144,16 @@ async function oneSheet(item, budget) {
     return { note: 'could not be read' };
   }
   budget.used += text.length;
-  const parsed = csvToRows(text, { filename: item.file, unitFor: item.unitFor, unitFrom: item.unitFrom });
+  const parsed = csvToRows(text, {
+    filename: item.file, unitFor: item.unitFor, unitFrom: item.unitFrom, reserve,
+  });
   if (!parsed) return { note: 'the file is empty' };
   return {
     rows: parsed.rows,
     count: parsed.total,
     unitColumn: parsed.unitColumn,
     note: parsed.truncated
-      ? `cut at ${SHEET_ROW_LIMIT.toLocaleString()} rows, the most a sheet holds -- download the CSV for all ${parsed.total.toLocaleString()}`
+      ? `cut at ${(parsed.rows.length - 1).toLocaleString()} rows, the most a sheet holds -- download the CSV for all ${parsed.total.toLocaleString()}`
       : '',
   };
 }
@@ -128,10 +164,12 @@ async function oneSheet(item, budget) {
  * @param items  [{ sheet, label, unit, file, url, unitFor }] -- `sheet` is the
  *               tab name asked for (the parameter), `file` the name the CSV has
  *               on disk, `label` what it holds in words.
- * @param meta   [[name, value]] provenance shown at the top of Contents.
+ * @param meta   [[name, value]] provenance shown at the top of Contents; all but
+ *               the first line, the branch and the date are repeated at the head
+ *               of each tab.
  * @param loadSources  optional () => Promise<parsed DATA_SOURCES | null>, see
- *               utils/dataSources. When it yields something, Contents gains a
- *               Data sources column and the workbook a Sources sheet.
+ *               utils/dataSources. When it yields something, each tab names its
+ *               sources, Contents lists them, and a Sources sheet holds the detail.
  * @param onProgress  called with (done, total) as the files come in.
  * @returns { blob, included, skipped }
  */
@@ -139,27 +177,28 @@ export async function buildDataWorkbook({ items, meta = [], loadSources = null, 
   const budget = { used: 0 };
   const results = new Array(items.length);
   let done = 0;
-  const sourcesP = loadSources ? loadSources().catch(() => null) : Promise.resolve(null);
+  // One small file, read first: the head of every tab depends on it.
+  const sources = loadSources ? await loadSources().catch(() => null) : null;
+  // The tab repeats what a reader needs to place the table; the branch and the
+  // download time stay on Contents.
+  const context = meta.slice(1).filter(([k, v]) => v && k !== 'downloaded' && k !== 'branch')
+    .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v]);
+  const reserveOf = (item) => tabHead(item, { context, sources }).length + 1;
 
   for (let i = 0; i < items.length; i += AT_ONCE) {
     const slice = items.slice(i, i + AT_ONCE);
     await Promise.all(slice.map(async (item, k) => {
-      results[i + k] = await oneSheet(item, budget);
+      results[i + k] = await oneSheet(item, budget, reserveOf(item));
       done += 1;
       if (onProgress) onProgress(done, items.length);
     }));
   }
-  const sources = await sourcesP;
 
-  const head = ['Sheet', 'What it holds', 'Unit', 'Rows', 'File', 'Note', 'File URL'];
+  const head = ['Sheet', 'What it holds', 'Unit', 'Rows', 'File', 'Note'];
   if (sources) head.push('Data sources');
   const index = [];
   for (const [name, value] of meta) if (value) index.push([name, String(value)]);
-  if (loadSources) {
-    index.push(['data sources', sources
-      ? 'Sources sheet, one row per parameter and country, from the folder\'s DATA_SOURCES page'
-      : 'this folder publishes no readable DATA_SOURCES page']);
-  }
+  if (sources) index.push(['sources', 'at the head of each tab, and by country on the Sources sheet']);
   index.push([]);
   const headRow = index.length;
   index.push(head);
@@ -174,14 +213,19 @@ export async function buildDataWorkbook({ items, meta = [], loadSources = null, 
     const r = results[i] || {};
     const has = !!r.rows;
     const name = has ? sheetName(item.sheet, taken) : '';
-    if (has) { sheets.push({ name, rows: r.rows }); included += 1; }
-    else skipped += 1;
+    if (has) {
+      const top = tabHead(item, { context, sources, found: r });
+      // A head too tall to freeze would pin half the screen; the table's own
+      // header is frozen only when the block above it is short.
+      sheets.push({ name, rows: [...top, [], ...r.rows], head: top.length + 1, freeze: top.length <= 8 });
+      included += 1;
+    } else skipped += 1;
     // A results file whose unit changes by row says so, rather than leaving the
     // column blank as if it had none.
-    const unit = item.unit || (r.unitColumn ? 'per row, see the unit column' : '');
+    const unit = item.unit || (r.unitColumn ? UNIT_PER_ROW : '');
     const row = [
       name, item.label || '', unit,
-      has ? r.count : '', item.file || '', r.note || '', item.url || '',
+      has ? r.count : '', item.file || '', r.note || '',
     ];
     if (sources) {
       const e = sourcesFor(sources, [item.sheet, item.file]);
