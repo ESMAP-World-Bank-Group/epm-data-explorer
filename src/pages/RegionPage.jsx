@@ -23,7 +23,8 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
 import RawDataTable from '../components/RawDataTable';
 import DownloadAllExcel from '../components/DownloadAllExcel';
-import { exportName } from '../utils/xlsxExport';
+import { exportName, inputUnitFrom } from '../utils/xlsxExport';
+import { fetchDataSources, dataSourcesPageUrl } from '../utils/dataSources';
 import { annotateCsv, inputLines } from '../utils/csvMeta';
 import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
@@ -1608,14 +1609,17 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
     sheet: p.param,
     label: plain(p.label),
     unit: p.unit || '',
+    unitFrom: inputUnitFrom(p.unit),
     file: (p.defaultFile || '').split('/').pop(),
     url: rawFileUrl(branch, `epm/input/${activeFolder}/${p.defaultFile}`),
   }));
   const bookMeta = [
     ['EPM View', 'raw input export'],
     ['region', region?.name], ['branch', branch], ['data folder', activeFolder],
+    ['data sources page', dataSourcesPageUrl(branch, activeFolder)],
     ['downloaded', new Date().toISOString()],
   ];
+  const loadSources = () => fetchDataSources(branch, activeFolder);
 
   const sel = { fontSize:'0.44rem', fontFamily:'inherit', padding:'3px 6px', borderRadius:3,
     border:`1px solid ${t.panelBorder}`, backgroundColor:t.panel, color:t.muted, cursor:'pointer' };
@@ -1665,7 +1669,8 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
           </select>
         </label>
 
-        <DownloadAllExcel t={t} items={all} meta={bookMeta} style={{ marginLeft: 'auto' }}
+        <DownloadAllExcel t={t} items={all} meta={bookMeta} loadSources={loadSources}
+          style={{ marginLeft: 'auto' }}
           filename={exportName([branch, activeFolder], '_inputs.xlsx')} />
       </div>
 
