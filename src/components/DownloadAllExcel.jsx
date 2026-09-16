@@ -12,9 +12,10 @@ import { saveBlob } from '../utils/xlsx';
  *
  * @param items     what to fetch, see buildDataWorkbook
  * @param meta      provenance rows for the Contents sheet
+ * @param loadSources  optional, fetches the folder's data sources on click
  * @param filename  what the download should be called
  */
-export default function DownloadAllExcel({ t, items = [], meta = [], filename, style = {} }) {
+export default function DownloadAllExcel({ t, items = [], meta = [], loadSources = null, filename, style = {} }) {
   const [busy, setBusy] = useState(false);
   const [at, setAt] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -24,7 +25,9 @@ export default function DownloadAllExcel({ t, items = [], meta = [], filename, s
     if (busy || !total) return;
     setBusy(true); setAt(0); setFailed(false);
     try {
-      const { blob } = await buildDataWorkbook({ items, meta, onProgress: (done) => setAt(done) });
+      const { blob } = await buildDataWorkbook({
+        items, meta, loadSources, onProgress: (done) => setAt(done),
+      });
       saveBlob(blob, filename);
     } catch {
       setFailed(true);
@@ -39,7 +42,9 @@ export default function DownloadAllExcel({ t, items = [], meta = [], filename, s
 
   return (
     <button onClick={go} disabled={busy || !total}
-      title={'One sheet per parameter, plus a Contents sheet saying where each came from. '
+      title={'One sheet per file, with its unit, plus a Contents sheet saying what each holds and '
+        + 'where it came from'
+        + (loadSources ? ', and a Sources sheet with the data sources of each parameter by country. ' : '. ')
         + 'A file too large for a workbook is listed there rather than included.'}
       style={{
         fontSize: '0.44rem', fontFamily: 'inherit', padding: '3px 8px', borderRadius: 3,
