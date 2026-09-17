@@ -96,6 +96,41 @@ export function csvToRows(text, { filename = '', unitFor = null, unitFrom = null
 
 const UNIT_PER_ROW = 'varies by row, see the unit column';
 
+/** The file a tab was read from, and, when a scenario was picked, whether that
+ *  scenario swapped it: the one thing the file name alone never says. */
+function fileLine(item) {
+  if (item.variant === undefined) return item.file;
+  return item.variant
+    ? `${item.file} (scenario variant, replaces ${item.baseFile})`
+    : `${item.file} (base file, not changed by this scenario)`;
+}
+
+/**
+ * The scenarios.csv matrix as a sheet: a row per scenario, a column per parameter
+ * some scenario swaps, the file it reads there, blank where it keeps the base.
+ * The first row gives the base files, so every blank has something to point at.
+ *
+ * @param scnMeta  utils/epmScenarios fetchScenarioConfig output
+ * @param docFor   optional (scenario) => { title, summary } from utils/scenarioDocs
+ */
+export function scenarioMatrixRows(scnMeta, docFor = null) {
+  const params = Object.keys(scnMeta?.overridesByParam || {});
+  const scenarios = scnMeta?.scenarios || [];
+  if (!params.length || !scenarios.length) return null;
+  const rows = [
+    ['Scenario', 'Title', 'Summary', 'Parameters changed', ...params],
+    ['(base files)', 'config.csv as it stands', 'What every scenario reads unless its row names another file', '',
+      ...params.map(p => scnMeta.paramMeta?.[p]?.defaultFile || '')],
+  ];
+  for (const sc of scenarios) {
+    const d = docFor ? docFor(sc) : null;
+    const files = params.map(p => scnMeta.overridesByParam[p][sc] || '');
+    rows.push([sc, d?.title || '', (d?.summary || '').slice(0, 32000),
+      String(files.filter(Boolean).length), ...files]);
+  }
+  return rows;
+}
+
 /** The lines above a tab's table, as [label, value] rows. Called once before the
  *  file is read, to size the reserve, and once after, with what the read found;
  *  the second call never returns more rows than the first. */
@@ -106,7 +141,7 @@ function tabHead(item, { context, sources, found = null }) {
     ['Description', item.label],
     ['Unit', found ? unit : 'x'],
     ...context,
-    ['File', item.file],
+    ['File', fileLine(item)],
   ];
   if (sources) {
     const e = sourcesFor(sources, [item.sheet, item.file]);
@@ -170,10 +205,16 @@ async function oneSheet(item, budget, reserve) {
  * @param loadSources  optional () => Promise<parsed DATA_SOURCES | null>, see
  *               utils/dataSources. When it yields something, each tab names its
  *               sources, Contents lists them, and a Sources sheet holds the detail.
+ * @param scenario  optional name of the scenario the files were resolved for; items
+ *               then carry `variant` (bool) and `baseFile`, and Contents says
+ *               which parameters the scenario changes.
+ * @param extraSheets  optional [{ name, rows, head }] appended after Sources.
  * @param onProgress  called with (done, total) as the files come in.
  * @returns { blob, included, skipped }
  */
-export async function buildDataWorkbook({ items, meta = [], loadSources = null, onProgress = null }) {
+export async function buildDataWorkbook({
+  items, meta = [], loadSources = null, scenario = '', extraSheets = [], onProgress = null,
+}) {
   const budget = { used: 0 };
   const results = new Array(items.length);
   let done = 0;
@@ -195,6 +236,7 @@ export async function buildDataWorkbook({ items, meta = [], loadSources = null, 
   }
 
   const head = ['Sheet', 'What it holds', 'Unit', 'Rows', 'File', 'Note'];
+  if (scenario) head.push('Changed by this scenario');
   if (sources) head.push('Data sources');
   const index = [];
   for (const [name, value] of meta) if (value) index.push([name, String(value)]);
@@ -206,7 +248,7 @@ export async function buildDataWorkbook({ items, meta = [], loadSources = null, 
   // Tab names are settled here rather than left to the writer, so the name on
   // the Contents sheet is the name on the tab -- including where Excel's 31
   // characters cut one short, or two parameters would have collided.
-  const taken = new Set(['contents', 'sources']);
+  const taken = new Set(['contents', 'sources', ...extraSheets.map(x => x.name.toLowerCase())]);
   const sheets = [];
   let included = 0, skipped = 0;
   items.forEach((item, i) => {
@@ -227,6 +269,7 @@ export async function buildDataWorkbook({ items, meta = [], loadSources = null, 
       name, item.label || '', unit,
       has ? r.count : '', item.file || '', r.note || '',
     ];
+    if (scenario) row.push(item.variant ? `yes, replaces ${item.baseFile}` : 'no');
     if (sources) {
       const e = sourcesFor(sources, [item.sheet, item.file]);
       row.push(e && e.names.length ? e.names.join('; ').slice(0, 32000) : 'not documented');
@@ -246,6 +289,7 @@ export async function buildDataWorkbook({ items, meta = [], loadSources = null, 
     book.push({ name: 'Sources', rows });
   }
 
+  for (const x of extraSheets) if (x?.rows?.length) book.push({ head: 0, ...x });
   const blob = await buildWorkbook([...book, ...sheets]);
   return { blob, included, skipped };
 }

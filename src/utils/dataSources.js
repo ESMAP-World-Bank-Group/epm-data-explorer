@@ -176,7 +176,7 @@ export async function fetchDataSources(branch, folder) {
 export function sourcesFor(sources, keys) {
   if (!sources) return null;
   for (const k of keys) {
-    const e = k && sources.byParam.get(String(k).replace(/\.csv$/i, '').toLowerCase());
+    const e = k && sources.byParam.get(String(k).replace(/^.*\//, '').replace(/\.csv$/i, '').toLowerCase());
     if (e) return e;
   }
   return null;
