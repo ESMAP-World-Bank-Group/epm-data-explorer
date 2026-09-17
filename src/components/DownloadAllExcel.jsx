@@ -13,9 +13,13 @@ import { saveBlob } from '../utils/xlsx';
  * @param items     what to fetch, see buildDataWorkbook
  * @param meta      provenance rows for the Contents sheet
  * @param loadSources  optional, fetches the folder's data sources on click
+ * @param scenario  the scenario the items were resolved for, '' for the base files
+ * @param extraSheets  sheets to add after Contents, see buildDataWorkbook
  * @param filename  what the download should be called
  */
-export default function DownloadAllExcel({ t, items = [], meta = [], loadSources = null, filename, style = {} }) {
+export default function DownloadAllExcel({
+  t, items = [], meta = [], loadSources = null, scenario = '', extraSheets = [], filename, style = {},
+}) {
   const [busy, setBusy] = useState(false);
   const [at, setAt] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -26,7 +30,7 @@ export default function DownloadAllExcel({ t, items = [], meta = [], loadSources
     setBusy(true); setAt(0); setFailed(false);
     try {
       const { blob } = await buildDataWorkbook({
-        items, meta, loadSources, onProgress: (done) => setAt(done),
+        items, meta, loadSources, scenario, extraSheets, onProgress: (done) => setAt(done),
       });
       saveBlob(blob, filename);
     } catch {
@@ -46,6 +50,8 @@ export default function DownloadAllExcel({ t, items = [], meta = [], loadSources
         + (loadSources ? ' and its data sources by country' : '')
         + ', then the table. A Contents sheet lists them all'
         + (loadSources ? ', and a Sources sheet gives the method and confidence of each source' : '')
+        + (scenario ? `. Files are those ${scenario} reads, and Contents marks the ones it changes` : '')
+        + (extraSheets.length ? `. Also: ${extraSheets.map(x => x.name).join(', ')}` : '')
         + '. A file too large for a workbook is listed on Contents rather than included.'}
       style={{
         fontSize: '0.44rem', fontFamily: 'inherit', padding: '3px 8px', borderRadius: 3,

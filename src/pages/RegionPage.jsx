@@ -23,7 +23,7 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
 import RawDataTable from '../components/RawDataTable';
 import DownloadAllExcel from '../components/DownloadAllExcel';
-import { exportName, inputUnitFrom } from '../utils/xlsxExport';
+import { exportName, inputUnitFrom, scenarioMatrixRows } from '../utils/xlsxExport';
 import { fetchDataSources } from '../utils/dataSources';
 import { annotateCsv, inputLines } from '../utils/csvMeta';
 import { zoneCentroidMap } from '../utils/centroids';
@@ -1553,7 +1553,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverride
 // Only parameters are listed. config.csv also names the solver options file and
 // the model type, which are settings rather than data, and a folder holds map
 // layers and stray zcmap variants that no one reads as a table.
-function RawInputsTab({ t, region, scnMeta, activeFolder }) {
+function RawInputsTab({ t, region, scnMeta, activeFolder, docs }) {
   const branch = region?.epm?.branch;
 
   const sections = useMemo(() => {
@@ -1573,6 +1573,7 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
   const [section, setSection] = useState('');
   const [param,   setParam]   = useState('');
   const [variant, setVariant] = useState('');
+  const [expScen, setExpScen] = useState('');
 
   const activeSection = sections.has(section) ? section : sectionNames[0] || '';
   const params        = sections.get(activeSection) || [];
@@ -1601,23 +1602,36 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
   // and repeating it inside the sentence just makes the dropdown wider.
   const plain = (label) => (label || '').replace(/\s*\(Unit:[^)]*\)\s*/gi, ' ').trim();
 
-  // Every parameter config.csv declares, in the order it declares them, each on
-  // its base file: what the folder is, said as the folder itself says it. The
-  // variants stay a per-parameter choice above -- a workbook holding both a base
-  // file and the scenario that replaces it could not say which is which on a tab.
-  const all = [...sections.values()].flat().map(p => ({
-    sheet: p.param,
-    label: plain(p.label),
-    unit: p.unit || '',
-    unitFrom: inputUnitFrom(p.unit),
-    file: (p.defaultFile || '').split('/').pop(),
-    url: rawFileUrl(branch, `epm/input/${activeFolder}/${p.defaultFile}`),
-  }));
+  // Every parameter config.csv declares, in the order it declares them. One
+  // workbook is one input set: the base files, or every file one scenario reads,
+  // its own variant where it swaps one and the base file where it does not. A
+  // workbook mixing variants of different scenarios could not say which is which.
+  const scenList = scnMeta?.scenarios || [];
+  const exportScen = scenList.includes(expScen) ? expScen : '';
+  const all = [...sections.values()].flat().map(p => {
+    const swapped = exportScen ? scnMeta.overridesByParam?.[p.param]?.[exportScen] : '';
+    const path = swapped || p.defaultFile || '';
+    return {
+      sheet: p.param,
+      label: plain(p.label),
+      unit: p.unit || '',
+      unitFrom: inputUnitFrom(p.unit),
+      file: path,
+      ...(exportScen ? { variant: !!swapped, baseFile: p.defaultFile || '' } : {}),
+      url: rawFileUrl(branch, `epm/input/${activeFolder}/${path}`),
+    };
+  });
+  const scenTitle = (sc) => docs?.docFor?.(sc)?.title || '';
   const bookMeta = [
     ['EPM View', 'raw input export'],
     ['region', region?.name], ['branch', branch], ['data folder', activeFolder],
+    ['scenario', exportScen
+      ? `${exportScen}${scenTitle(exportScen) ? ` (${scenTitle(exportScen)})` : ''}`
+      : 'none, the base files as config.csv declares them'],
     ['downloaded', new Date().toISOString()],
   ];
+  const matrix = scenarioMatrixRows(scnMeta, docs?.docFor);
+  const extraSheets = matrix ? [{ name: 'Scenarios', rows: matrix }] : [];
   const loadSources = () => fetchDataSources(branch, activeFolder);
 
   const sel = { fontSize:'0.44rem', fontFamily:'inherit', padding:'3px 6px', borderRadius:3,
@@ -1668,9 +1682,24 @@ function RawInputsTab({ t, region, scnMeta, activeFolder }) {
           </select>
         </label>
 
+        <label style={{ display:'flex', gap:5, alignItems:'center', color:t.lblMuted, marginLeft:'auto' }}
+          title="The input set the Excel download holds: the base files, or every file one scenario reads">
+          Export
+          <select value={exportScen} onChange={e => setExpScen(e.target.value)}
+            disabled={!scenList.length} style={{ ...sel, maxWidth:260 }}>
+            <option value="">Base files (config.csv)</option>
+            {scenList.map(sc => {
+              const n = scnMeta.diffByScenario?.[sc]?.length || 0;
+              return <option key={sc} value={sc}>
+                {sc}{scenTitle(sc) ? ` · ${scenTitle(sc)}` : ''} ({n} changed)
+              </option>;
+            })}
+          </select>
+        </label>
+
         <DownloadAllExcel t={t} items={all} meta={bookMeta} loadSources={loadSources}
-          style={{ marginLeft: 'auto' }}
-          filename={exportName([branch, activeFolder], '_inputs.xlsx')} />
+          scenario={exportScen} extraSheets={extraSheets}
+          filename={exportName([branch, activeFolder, exportScen], '_inputs.xlsx')} />
       </div>
 
       <RawDataTable
@@ -2685,7 +2714,8 @@ export default function RegionPage() {
         {activeTab === 'raw' && (
           !region.epm ? <NotAvailable t={t} /> :
           scnMeta === undefined ? <LoadingBox t={t} /> :
-          <RawInputsTab t={t} region={region} scnMeta={scnMeta} activeFolder={activeFolder} />
+          <RawInputsTab t={t} region={region} scnMeta={scnMeta} activeFolder={activeFolder}
+            docs={scenarioDocIndex(scnDocs, scnMeta?.scenarios || [])} />
         )}
         {activeTab === 'about' && (
           <AboutTab region={region} t={t} epmData={epmData} epmLoading={epmLoading}
