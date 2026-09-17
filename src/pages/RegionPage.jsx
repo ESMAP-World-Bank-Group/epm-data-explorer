@@ -15,7 +15,7 @@ import {
   processGenData, processDemand, processDemandData, processTransmissionResults,
   processNTC, processExtNTC, processDemandProfileFull, processVREProfile, processAvailability, processFuelPrice, processHours, processTimeSlices,
   availableYears, EPM_FUEL_COLORS, STATUS_LABEL,
-  normalizeFuel, rawFileUrl,
+  normalizeFuel, rawFileUrl, processNewTransmission, settingValue,
 } from '../utils/epmFetch';
 import { buildTimeAxis, buildSeasonAxis, blockLabels, axisTicks, bandingPlugin, dayWeights } from '../utils/timeAxis';
 import { buildExtZoneData, addExtZoneLayers, bindExtZoneHandlers, updateExtZoneData, setExtZonesVisible } from '../utils/extZones';
@@ -1416,6 +1416,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverride
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <VariantPicker t={t} scnMeta={scnMeta} param="pTransferLimit" value={varOverrides?.pTransferLimit} onChange={setVariant} />
+      <VariantPicker t={t} scnMeta={scnMeta} param="pNewTransmission" value={varOverrides?.pNewTransmission} onChange={setVariant} />
 
       {/* NTC Evolution chart */}
       <div>
@@ -1540,6 +1541,127 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverride
 }
 
 // ── About tab ─────────────────────────────────────────────────────────────────
+
+// --- Planned and candidate lines on the inputs map ---
+//
+// pNewTransmission says what the model may add on top of pTransferLimit: planned
+// (committed) lines it must build, candidates it may. Existing lines are solid
+// gold; planned ones share the gold, dashed; candidates are dotted blue.
+
+const NEW_TX_STYLE = {
+  planned:   { color: '#f0b030', text: '#b07800', dash: ['literal', [2.5, 1.5]], cap: 'butt' },
+  candidate: { color: '#4a8fcc', text: '#2f6aa3', dash: ['literal', [0.2, 1.8]], cap: 'round' },
+};
+
+const LINE_KIND_LAYERS = {
+  existing:  ['ntc-lines-layer', 'ntc-labels'],
+  planned:   ['newtx-planned', 'newtx-planned-labels'],
+  candidate: ['newtx-candidate', 'newtx-candidate-labels'],
+};
+
+const fmtMw = (v) => Math.round(v).toLocaleString('en-US');
+const pairKey = (a, b) => [a, b].sort().join('||');
+const hasCapacity = (r) => Object.values(r.years || {}).some(v => v > 0);
+
+/** GeoJSON for the lines pNewTransmission declares, none when pSettings turns
+ *  expansion off. A line on a corridor that already exists, or that is both planned
+ *  and candidate, is set off to one side so the solid line does not hide it. */
+function newTxFeatures(epmData, centroids) {
+  if (epmData.txExpansionOff) return [];
+  const rows = epmData.newTx || [];
+  const existing = new Set((epmData.ntc || []).filter(hasCapacity).map(r => pairKey(r.z, r.z2)));
+  const kindsOn = {};
+  for (const r of rows) (kindsOn[pairKey(r.z, r.z2)] ||= new Set()).add(r.kind);
+  return rows
+    .filter(r => centroids[r.z] && centroids[r.z2])
+    .map(r => {
+      const key = pairKey(r.z, r.z2);
+      // Every pair is drawn in one direction, so an offset always lands on the same side.
+      const [a, b] = [r.z, r.z2].sort();
+      const shared = existing.has(key) || kindsOn[key].size > 1;
+      const offset = !shared ? 0 : r.kind === 'planned' ? 3.5 : -3.5;
+      const label = r.kind === 'planned'
+        ? `+${fmtMw(r.capacity)} MW${r.entry ? ` · ${r.entry}` : ''}`
+        : `up to ${fmtMw(r.capacity)} MW${r.entry ? ` · ${r.entry}+` : ''}`;
+      return {
+        type: 'Feature',
+        properties: { kind: r.kind, z: r.z, z2: r.z2, mw: r.capacity, lines: r.lines,
+          perLine: r.perLine, entry: r.entry, cost: r.cost, life: r.life, offset, label },
+        geometry: { type: 'LineString', coordinates: [centroids[a], centroids[b]] },
+      };
+    });
+}
+
+function newTxPopup(p) {
+  const head = p.kind === 'planned'
+    ? 'Planned: built from its entry year'
+    : 'Candidate: built only if the model chooses it';
+  const rows = [
+    ['Lines', `${p.lines} × ${fmtMw(p.perLine)} MW = ${fmtMw(p.mw)} MW`],
+    p.entry ? ['Earliest entry', p.entry] : null,
+    p.cost ? ['Cost per line', `${fmtMw(p.cost)} M$`] : null,
+    p.life ? ['Life', `${p.life} years`] : null,
+  ].filter(Boolean);
+  return `<b>${p.z} ↔ ${p.z2}</b><br><span style="opacity:.75">${head}</span><br>`
+    + rows.map(([k, v]) => `<span style="opacity:.65">${k}:</span> ${v}`).join('<br>');
+}
+
+/** A small line sample for a toggle, drawn as the map draws it. */
+function LineSwatch({ kind }) {
+  const color = kind === 'candidate' ? NEW_TX_STYLE.candidate.color : NEW_TX_STYLE.planned.color;
+  const dash = kind === 'planned' ? '5 3' : kind === 'candidate' ? '0.5 3.5' : undefined;
+  return (
+    <svg width="18" height="6" style={{ flexShrink: 0 }}>
+      <line x1="2" y1="3" x2="16" y2="3" stroke={color} strokeWidth="2.4"
+        strokeDasharray={dash} strokeLinecap={kind === 'candidate' ? 'round' : 'butt'} />
+    </svg>
+  );
+}
+
+const LINE_KIND_INFO = {
+  existing:  ['Existing', 'Transfer limits in pTransferLimit'],
+  planned:   ['Planned', 'Committed lines in pNewTransmission (Status 2), built from their entry year'],
+  candidate: ['Candidate', 'Candidate lines in pNewTransmission, built only if the model chooses them'],
+};
+
+/** Show or hide each kind of line; each button is also its legend entry. A kind
+ *  the folder does not have gets no button. */
+function LineKindToggles({ t, epmData, value, onToggle }) {
+  const newTx = epmData.newTx || [];
+  const has = {
+    existing: (epmData.ntc || []).some(hasCapacity),
+    planned: newTx.some(r => r.kind === 'planned'),
+    candidate: newTx.some(r => r.kind === 'candidate'),
+  };
+  const off = epmData.txExpansionOff && (has.planned || has.candidate);
+  const kinds = Object.keys(LINE_KIND_INFO).filter(k => has[k] && (k === 'existing' || !off));
+  if (!kinds.length && !off) return null;
+  return (
+    <div style={{ display: 'flex', gap: 2, alignItems: 'center', backgroundColor: t.panel,
+      border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: 2 }}>
+      <span style={{ fontSize: '0.46rem', color: t.lblMuted, padding: '0 4px' }}>Lines</span>
+      {kinds.map(k => (
+        <button key={k} onClick={() => onToggle(k)} title={LINE_KIND_INFO[k][1]} style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          fontSize: '0.46rem', fontFamily: 'inherit', cursor: 'pointer',
+          padding: '2px 7px', borderRadius: 3, border: 'none',
+          backgroundColor: value[k] ? 'rgba(74,143,204,0.2)' : 'transparent',
+          color: value[k] ? t.lbl : t.lblMuted,
+          fontWeight: value[k] ? 700 : 400, opacity: value[k] ? 1 : 0.6,
+        }}>
+          <LineSwatch kind={k} />
+          {LINE_KIND_INFO[k][0]}
+        </button>
+      ))}
+      {off && (
+        <span title="fAllowTransferExpansion is 0 in pSettings: the model adds no line, so none is drawn"
+          style={{ fontSize: '0.44rem', color: t.lblMuted, padding: '0 5px', fontStyle: 'italic' }}>
+          no new lines (pSettings)
+        </span>
+      )}
+    </div>
+  );
+}
 
 // --- Raw data: the input files themselves, not a reading of them ---
 //
@@ -1860,6 +1982,8 @@ export default function RegionPage() {
   const [outputNtc,       setOutputNtc]       = useState([]);
   const [showExtZones,    setShowExtZones]    = useState(true);
   const showExtRef = useRef(true);
+  const [lineKinds,       setLineKinds]       = useState({ existing: true, planned: true, candidate: true });
+  const lineKindsRef = useRef({ existing: true, planned: true, candidate: true });
   const [mapLoaded,       setMapLoaded]       = useState(0);
   const [panelWidth,      setPanelWidth]      = useState(680);
   const { zoom, inc, dec, reset } = usePanelZoom();
@@ -1972,7 +2096,9 @@ export default function RegionPage() {
       fetchEpmCSV(branch, activeFolder, rf('pExtTransferLimit', 'trade/pExtTransferLimit.csv')),
       fetchEpmCSV(branch, activeFolder, rf('pDemandData', 'load/pDemandData.csv')),
       fetchZonesOffgridGeoJSON(branch, activeFolder),
-    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw, demandDataRaw, offgridGJ]) => {
+      fetchEpmCSV(branch, activeFolder, rf('pNewTransmission', 'trade/pNewTransmission.csv')),
+      fetchEpmCSV(branch, activeFolder, rf('pSettings', 'pSettings.csv')),
+    ]).then(([genRaw, demandRaw, ntcRaw, zcmapRaw, linestringGJ, profileRaw, zonesGJ, vreRaw, availRaw, fpRaw, hoursRaw, zonesExtGJ, extNtcRaw, demandDataRaw, offgridGJ, newTxRaw, settingsRaw]) => {
       // Folders that carry a full load table instead of a forecast (v7.9 style) fall back to pDemandData
       const demand = demandRaw?.length ? processDemand(demandRaw)
                                        : processDemandData(demandDataRaw, hoursRaw);
@@ -1999,6 +2125,11 @@ export default function RegionPage() {
         // 24 for a chronological model, 6-7 for a load-block one (see processTimeSlices)
         timeSlices:        hoursRaw  ? processTimeSlices(hoursRaw)         : {nT:24,isHourly:true,hours:{}},
         extNtc:            extNtcRaw ? processExtNTC(extNtcRaw)             : [],
+        // Lines the model may add. With fAllowTransferExpansion at 0 it adds none,
+        // whatever the file says; a pSettings that does not name the switch is
+        // left to the file.
+        newTx:             newTxRaw  ? processNewTransmission(newTxRaw)     : [],
+        txExpansionOff:    settingValue(settingsRaw, 'fAllowTransferExpansion') === 0,
         linestringGJ: (regionOrFolderChanged || zcmapChanged || !prev) ? linestringGJ : prev.linestringGJ,
         zonesGJ:      (regionOrFolderChanged || zcmapChanged || !prev) ? zonesGJ      : prev.zonesGJ,
         zonesExtGJ:   (regionOrFolderChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
@@ -2223,19 +2354,48 @@ export default function RegionPage() {
               });
           }
 
-          if (ntcFeatures.length > 0) {
+          {
             map.addSource('ntc-lines', { type: 'geojson',
               data: { type: 'FeatureCollection', features: ntcFeatures } });
             map.addLayer({ id: 'ntc-lines-layer', type: 'line', source: 'ntc-lines',
-              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              layout: { 'line-cap': 'round', 'line-join': 'round',
+                visibility: lineKindsRef.current.existing ? 'visible' : 'none' },
               paint: { 'line-color': '#f0b030',
                 'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3.5, 8000, 6],
                 'line-opacity': 0.88 } });
             map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
               layout: { 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
-                'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false },
+                'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false,
+                visibility: lineKindsRef.current.existing ? 'visible' : 'none' },
               paint: { 'text-color': '#b07800',
                 'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+          }
+
+          // Planned and candidate lines from pNewTransmission, drawn above the
+          // existing ones; the data comes in through an effect, which also follows
+          // a change of variant without rebuilding the map.
+          map.addSource('newtx-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+          for (const kind of Object.keys(NEW_TX_STYLE)) {
+            const st = NEW_TX_STYLE[kind];
+            const visibility = lineKindsRef.current[kind] ? 'visible' : 'none';
+            map.addLayer({ id: `newtx-${kind}`, type: 'line', source: 'newtx-lines',
+              filter: ['==', ['get', 'kind'], kind],
+              layout: { 'line-cap': st.cap, 'line-join': 'round', visibility },
+              paint: { 'line-color': st.color, 'line-opacity': 0.95,
+                'line-width': ['interpolate', ['linear'], ['get', 'mw'], 0, 1.5, 500, 2.2, 2000, 3.5, 8000, 5],
+                'line-dasharray': st.dash, 'line-offset': ['get', 'offset'] } });
+            map.addLayer({ id: `newtx-${kind}-labels`, type: 'symbol', source: 'newtx-lines',
+              filter: ['==', ['get', 'kind'], kind],
+              layout: { 'text-field': ['get', 'label'], 'text-size': 8, visibility,
+                'symbol-placement': 'line-center', 'text-allow-overlap': false,
+                'text-offset': [0, kind === 'planned' ? -0.9 : 0.9] },
+              paint: { 'text-color': st.text,
+                'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+            map.on('mousemove', `newtx-${kind}`, e => {
+              map.getCanvas().style.cursor = 'pointer';
+              popup.setLngLat(e.lngLat).setHTML(newTxPopup(e.features[0].properties)).addTo(map);
+            });
+            map.on('mouseleave', `newtx-${kind}`, () => { map.getCanvas().style.cursor = ''; popup.remove(); });
           }
         }
 
@@ -2399,6 +2559,27 @@ export default function RegionPage() {
     setExtZonesVisible(mapRef.current, showExtZones);
   }, [showExtZones, mapLoaded]);
 
+  // Planned and candidate lines. Year independent: the entry year is on the label,
+  // and a planned line stays dashed after it, since pTransferLimit never holds it.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !epmData || mapLoaded === 0 || !source(map, 'newtx-lines')) return;
+    source(map, 'newtx-lines').setData({ type: 'FeatureCollection',
+      features: newTxFeatures(epmData, zoneCentroidsRef.current) });
+  }, [mapLoaded, epmData]);
+
+  // Line toggles. The ref is what a rebuilt map reads, as for the external zones.
+  useEffect(() => {
+    lineKindsRef.current = lineKinds;
+    const map = mapRef.current;
+    if (!map) return;
+    for (const [kind, ids] of Object.entries(LINE_KIND_LAYERS)) {
+      for (const id of ids) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', lineKinds[kind] ? 'visible' : 'none');
+      }
+    }
+  }, [lineKinds, mapLoaded]);
+
   // Ext corridors carry a capacity per year, like the internal ones, so they follow the
   // year selector instead of staying frozen at the first year of the table.
   useEffect(() => {
@@ -2481,7 +2662,9 @@ export default function RegionPage() {
     const yr = epmYear
       || ntcYrs.find(y => epmData.ntc.some(r => (r.years[y] || 0) > 0))
       || ntcYrs[0] || '2024';
-    const inputKeys = new Set(epmData.ntc.map(r => [r.z, r.z2].sort().join('||')));
+    // Output-only corridors fill in lines a run built; a pair pNewTransmission
+    // declares is drawn as planned or candidate instead, never twice.
+    const inputKeys = new Set([...epmData.ntc, ...(epmData.newTx || [])].map(r => [r.z, r.z2].sort().join('||')));
     const allNtc = [...epmData.ntc, ...outputNtc.filter(r => !inputKeys.has([r.z, r.z2].sort().join('||')))];
     const seen = new Set();
     const features = allNtc
@@ -2589,6 +2772,8 @@ export default function RegionPage() {
                   </button>
                 ))}
               </div>
+              <LineKindToggles t={t} epmData={epmData} value={lineKinds}
+                onToggle={k => setLineKinds(v => ({ ...v, [k]: !v[k] }))} />
               {epmData.extNtc?.length > 0 && epmData.zonesExtGJ && (
                 <button onClick={() => setShowExtZones(v => !v)} style={{
                   fontSize: '0.46rem', fontFamily: 'inherit', cursor: 'pointer',
