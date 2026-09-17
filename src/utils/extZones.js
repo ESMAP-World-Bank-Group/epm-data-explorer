@@ -86,9 +86,45 @@ export function extNodeCoordMap(zonesExtGJ) {
   return out;
 }
 
+const fmtMw = (v) => Math.round(v).toLocaleString('en-US');
+
+/** The rises pExtTransferLimit already holds after `year`, as planned line features in
+ *  the shape of the inputs map's new lines (kind, mw, offset, label). EPM never builds
+ *  an external corridor: a later, higher limit is a commitment written in the data,
+ *  which is what a planned line is. `mw` is the rise over the capacity in force in
+ *  `year`; the popup lists the steps. */
+function extPlannedFeatures(extNtc, zoneCentroids, extNodeCoords, year) {
+  const out = [];
+  for (const r of extNtc || []) {
+    const from = zoneCentroids[r.z], to = extNodeCoords[r.zext];
+    if (!from || !to) continue;
+    const now = r.years[year] || 0;
+    const steps = [];
+    let prev = now;
+    for (const y of Object.keys(r.years).sort()) {
+      if (y <= year || !(r.years[y] > prev)) continue;
+      steps.push({ y, mw: r.years[y] });
+      prev = r.years[y];
+    }
+    if (!steps.length) continue;
+    const rise = prev - now;
+    out.push({
+      type: 'Feature',
+      properties: { kind: 'planned', ext: true, z: r.z, z2: r.zext, mw: rise, now, yr: year,
+        entry: steps[0].y, steps: JSON.stringify(steps),
+        // Beside the solid line when there is one, as for the internal corridors.
+        offset: now > 0 ? 3.5 : 0,
+        label: `+${fmtMw(rise)} MW · ${steps[0].y}` },
+      geometry: { type: 'LineString', coordinates: [from, to] },
+    });
+  }
+  return out;
+}
+
 // Node coords, polygon features, corridor lines and node features, from the raw
-// zones_ext geojson and the processed pExtTransferLimit rows.
-export function buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids, year = null) {
+// zones_ext geojson and the processed pExtTransferLimit rows. `off` (external exchange
+// switched off in pSettings) keeps the neighbours but draws none of their corridors.
+export function buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids, year = null, { off = false } = {}) {
   const extNodeCoords = extNodeCoordMap(zonesExtGJ);
   const polyGeom = {};
   for (const f of zonesExtGJ?.features || []) {
@@ -112,7 +148,7 @@ export function buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids, year = null)
   }));
   // A corridor with no capacity in the selected year is not drawn, as the internal ones
   // are not: a line reading 0 MW is noise on the map. The node popup still lists it.
-  const extLineFeatures = (extNtc || [])
+  const extLineFeatures = (off ? [] : extNtc || [])
     .filter(r => (r.years[extNtcYr] || 0) > 0 && zoneCentroids[r.z] && extNodeCoords[r.zext])
     .map(r => ({
       type: 'Feature',
@@ -122,7 +158,8 @@ export function buildExtZoneData(zonesExtGJ, extNtc, zoneCentroids, year = null)
   const extNodeFeatures = Object.entries(extNodeCoords).map(([z, coords]) => ({
     type: 'Feature', properties: { z, links: links(z) }, geometry: { type: 'Point', coordinates: coords },
   }));
-  return { extNodeCoords, extPolyFeatures, extLineFeatures, extNodeFeatures, extNtcYr };
+  const plannedFeatures = off ? [] : extPlannedFeatures(extNtc, zoneCentroids, extNodeCoords, extNtcYr);
+  return { extNodeCoords, extPolyFeatures, extLineFeatures, extNodeFeatures, extNtcYr, extPlannedFeatures: plannedFeatures };
 }
 
 // Add every external-zone source and layer to a loaded map. `visible` is applied at
