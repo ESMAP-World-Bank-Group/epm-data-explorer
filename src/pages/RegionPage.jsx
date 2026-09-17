@@ -1417,6 +1417,7 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverride
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <VariantPicker t={t} scnMeta={scnMeta} param="pTransferLimit" value={varOverrides?.pTransferLimit} onChange={setVariant} />
       <VariantPicker t={t} scnMeta={scnMeta} param="pNewTransmission" value={varOverrides?.pNewTransmission} onChange={setVariant} />
+      <VariantPicker t={t} scnMeta={scnMeta} param="pExtTransferLimit" value={varOverrides?.pExtTransferLimit} onChange={setVariant} />
 
       {/* NTC Evolution chart */}
       <div>
@@ -1540,13 +1541,13 @@ function TradeTab({ t, epmData, epmLoading, hasEpm, region, scnMeta, varOverride
   );
 }
 
-// ── About tab ─────────────────────────────────────────────────────────────────
-
 // --- Planned and candidate lines on the inputs map ---
 //
 // pNewTransmission says what the model may add on top of pTransferLimit: planned
 // (committed) lines it must build, candidates it may. Existing lines are solid
 // gold; planned ones share the gold, dashed; candidates are dotted blue.
+// External corridors are never built by the model, so a rise pExtTransferLimit
+// already holds for a later year is drawn as planned, and today's limit as existing.
 
 const NEW_TX_STYLE = {
   planned:   { color: '#f0b030', text: '#b07800', dash: ['literal', [2.5, 1.5]], cap: 'butt' },
@@ -1558,6 +1559,23 @@ const LINE_KIND_LAYERS = {
   planned:   ['newtx-planned', 'newtx-planned-labels'],
   candidate: ['newtx-candidate', 'newtx-candidate-labels'],
 };
+// External corridors also answer to the external zones toggle.
+const EXT_LINE_LAYERS = ['ext-ntc-lines-layer', 'ext-ntc-labels'];
+
+/** Line visibility from the toggles. Called after setExtZonesVisible, which shows
+ *  every external layer, so the existing toggle still holds on external lines. */
+function applyLineVisibility(map, kinds, showExt) {
+  if (!map) return;
+  const set = (id, on) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); };
+  for (const [kind, ids] of Object.entries(LINE_KIND_LAYERS)) for (const id of ids) set(id, kinds[kind]);
+  for (const id of EXT_LINE_LAYERS) set(id, showExt && kinds.existing);
+}
+
+/** Whether an external corridor's limit rises at some point of the table. */
+const extRises = (r) => {
+  const v = Object.keys(r.years || {}).sort().map(y => r.years[y] || 0);
+  return v.some((x, i) => i > 0 && x > Math.max(...v.slice(0, i)));
+};
 
 const fmtMw = (v) => Math.round(v).toLocaleString('en-US');
 const pairKey = (a, b) => [a, b].sort().join('||');
@@ -1567,8 +1585,7 @@ const hasCapacity = (r) => Object.values(r.years || {}).some(v => v > 0);
  *  expansion off. A line on a corridor that already exists, or that is both planned
  *  and candidate, is set off to one side so the solid line does not hide it. */
 function newTxFeatures(epmData, centroids) {
-  if (epmData.txExpansionOff) return [];
-  const rows = epmData.newTx || [];
+  const rows = epmData.txExpansionOff ? [] : epmData.newTx || [];
   const existing = new Set((epmData.ntc || []).filter(hasCapacity).map(r => pairKey(r.z, r.z2)));
   const kindsOn = {};
   for (const r of rows) (kindsOn[pairKey(r.z, r.z2)] ||= new Set()).add(r.kind);
@@ -1593,6 +1610,7 @@ function newTxFeatures(epmData, centroids) {
 }
 
 function newTxPopup(p) {
+  if (p.ext === true || p.ext === 'true') return extPlannedPopup(p);
   const head = p.kind === 'planned'
     ? 'Planned: built from its entry year'
     : 'Candidate: built only if the model chooses it';
@@ -1603,6 +1621,15 @@ function newTxPopup(p) {
     p.life ? ['Life', `${p.life} years`] : null,
   ].filter(Boolean);
   return `<b>${p.z} ↔ ${p.z2}</b><br><span style="opacity:.75">${head}</span><br>`
+    + rows.map(([k, v]) => `<span style="opacity:.65">${k}:</span> ${v}`).join('<br>');
+}
+
+function extPlannedPopup(p) {
+  let steps;
+  try { steps = JSON.parse(p.steps || '[]'); } catch { steps = []; }
+  const rows = [[`Limit in ${p.yr}`, `${fmtMw(p.now)} MW`], ...steps.map(s => [s.y, `${fmtMw(s.mw)} MW`])];
+  return `<b>${p.z} ↔ ${p.z2}</b> <span style="opacity:.55">· external</span><br>`
+    + '<span style="opacity:.75">Planned: rise already set in pExtTransferLimit</span><br>'
     + rows.map(([k, v]) => `<span style="opacity:.65">${k}:</span> ${v}`).join('<br>');
 }
 
@@ -1619,23 +1646,25 @@ function LineSwatch({ kind }) {
 }
 
 const LINE_KIND_INFO = {
-  existing:  ['Existing', 'Transfer limits in pTransferLimit'],
-  planned:   ['Planned', 'Committed lines in pNewTransmission (Status 2), built from their entry year'],
+  existing:  ['Existing', 'Transfer limits in the selected year, internal (pTransferLimit) and external (pExtTransferLimit)'],
+  planned:   ['Planned', 'Committed lines in pNewTransmission (Status 2), built from their entry year, and later rises of the external limits in pExtTransferLimit'],
   candidate: ['Candidate', 'Candidate lines in pNewTransmission, built only if the model chooses them'],
 };
 
 /** Show or hide each kind of line; each button is also its legend entry. A kind
  *  the folder does not have gets no button. */
 function LineKindToggles({ t, epmData, value, onToggle }) {
-  const newTx = epmData.newTx || [];
+  const newTx = epmData.txExpansionOff ? [] : epmData.newTx || [];
+  const ext = epmData.extExchangeOff || !epmData.zonesExtGJ ? [] : epmData.extNtc || [];
   const has = {
-    existing: (epmData.ntc || []).some(hasCapacity),
-    planned: newTx.some(r => r.kind === 'planned'),
+    existing: (epmData.ntc || []).some(hasCapacity) || ext.some(hasCapacity),
+    planned: newTx.some(r => r.kind === 'planned') || ext.some(extRises),
     candidate: newTx.some(r => r.kind === 'candidate'),
   };
-  const off = epmData.txExpansionOff && (has.planned || has.candidate);
-  const kinds = Object.keys(LINE_KIND_INFO).filter(k => has[k] && (k === 'existing' || !off));
-  if (!kinds.length && !off) return null;
+  const noNew = epmData.txExpansionOff && (epmData.newTx || []).length > 0;
+  const noExt = epmData.extExchangeOff && (epmData.extNtc || []).some(hasCapacity);
+  const kinds = Object.keys(LINE_KIND_INFO).filter(k => has[k]);
+  if (!kinds.length && !noNew && !noExt) return null;
   return (
     <div style={{ display: 'flex', gap: 2, alignItems: 'center', backgroundColor: t.panel,
       border: `1px solid ${t.panelBorder}`, borderRadius: 4, padding: 2 }}>
@@ -1653,15 +1682,23 @@ function LineKindToggles({ t, epmData, value, onToggle }) {
           {LINE_KIND_INFO[k][0]}
         </button>
       ))}
-      {off && (
+      {noNew && (
         <span title="fAllowTransferExpansion is 0 in pSettings: the model adds no line, so none is drawn"
           style={{ fontSize: '0.44rem', color: t.lblMuted, padding: '0 5px', fontStyle: 'italic' }}>
           no new lines (pSettings)
         </span>
       )}
+      {noExt && (
+        <span title="fEnableExternalExchange is 0 in pSettings: no external corridor is used, so none is drawn"
+          style={{ fontSize: '0.44rem', color: t.lblMuted, padding: '0 5px', fontStyle: 'italic' }}>
+          no external exchange (pSettings)
+        </span>
+      )}
     </div>
   );
 }
+
+// ── About tab ─────────────────────────────────────────────────────────────────
 
 // --- Raw data: the input files themselves, not a reading of them ---
 //
@@ -2130,6 +2167,7 @@ export default function RegionPage() {
         // left to the file.
         newTx:             newTxRaw  ? processNewTransmission(newTxRaw)     : [],
         txExpansionOff:    settingValue(settingsRaw, 'fAllowTransferExpansion') === 0,
+        extExchangeOff:    settingValue(settingsRaw, 'fEnableExternalExchange') === 0,
         linestringGJ: (regionOrFolderChanged || zcmapChanged || !prev) ? linestringGJ : prev.linestringGJ,
         zonesGJ:      (regionOrFolderChanged || zcmapChanged || !prev) ? zonesGJ      : prev.zonesGJ,
         zonesExtGJ:   (regionOrFolderChanged || !prev) ? zonesExtGJ   : prev.zonesExtGJ,
@@ -2400,9 +2438,11 @@ export default function RegionPage() {
         }
 
         // ── External zone layers (toggle-controlled) ─────────────────────
-        const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids, epmYear);
+        const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids, epmYear,
+          { off: epmData.extExchangeOff });
         addExtZoneLayers(map, tv, extData, { visible: showExtRef.current });
         bindExtZoneHandlers(map, popup);
+        applyLineVisibility(map, lineKindsRef.current, showExtRef.current);
 
         // ── Areas of the modelled countries that belong to no zone ──────
         addOffgridLayers(map, tv, epmData.offgridGJ);
@@ -2554,31 +2594,29 @@ export default function RegionPage() {
 
   // External zones toggle. The ref is what the map-load handler reads, so a rebuilt
   // map comes back at the visibility the user left it at.
+  // Line toggles live in the same effect, since showing the external zones shows
+  // their corridors too and the existing toggle has to be applied after it.
   useEffect(() => {
     showExtRef.current = showExtZones;
+    lineKindsRef.current = lineKinds;
     setExtZonesVisible(mapRef.current, showExtZones);
-  }, [showExtZones, mapLoaded]);
+    applyLineVisibility(mapRef.current, lineKinds, showExtZones);
+  }, [showExtZones, lineKinds, mapLoaded]);
 
-  // Planned and candidate lines. Year independent: the entry year is on the label,
-  // and a planned line stays dashed after it, since pTransferLimit never holds it.
+  // Planned and candidate lines. The internal ones are year independent: the entry
+  // year is on the label, and a planned line stays dashed after it, since
+  // pTransferLimit never holds it. The external rises are counted from the selected
+  // year, and leave with the external zones.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !epmData || mapLoaded === 0 || !source(map, 'newtx-lines')) return;
+    const ext = showExtZones && epmData.zonesExtGJ
+      ? buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroidsRef.current, epmYear,
+        { off: epmData.extExchangeOff }).extPlannedFeatures
+      : [];
     source(map, 'newtx-lines').setData({ type: 'FeatureCollection',
-      features: newTxFeatures(epmData, zoneCentroidsRef.current) });
-  }, [mapLoaded, epmData]);
-
-  // Line toggles. The ref is what a rebuilt map reads, as for the external zones.
-  useEffect(() => {
-    lineKindsRef.current = lineKinds;
-    const map = mapRef.current;
-    if (!map) return;
-    for (const [kind, ids] of Object.entries(LINE_KIND_LAYERS)) {
-      for (const id of ids) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', lineKinds[kind] ? 'visible' : 'none');
-      }
-    }
-  }, [lineKinds, mapLoaded]);
+      features: [...newTxFeatures(epmData, zoneCentroidsRef.current), ...ext] });
+  }, [mapLoaded, epmData, epmYear, showExtZones]);
 
   // Ext corridors carry a capacity per year, like the internal ones, so they follow the
   // year selector instead of staying frozen at the first year of the table.
@@ -2586,7 +2624,7 @@ export default function RegionPage() {
     const map = mapRef.current;
     if (!map || !epmData || mapLoaded === 0 || !source(map, 'ext-ntc-lines')) return;
     updateExtZoneData(map, buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [],
-      zoneCentroidsRef.current, epmYear));
+      zoneCentroidsRef.current, epmYear, { off: epmData.extExchangeOff }));
   }, [mapLoaded, epmData, epmYear]);
 
   // Basemap switcher
