@@ -719,6 +719,66 @@ export function processNTC(rows) {
   return Object.values(pairs);
 }
 
+/**
+ * pNewTransmission as one row per corridor the model may add.
+ *
+ * EPM reads it as (z, z2, header): studies write the pair as z/z2 or From/To, in
+ * any case, and not every study carries a Status column. The model's rules, from
+ * main.gms: Status 2 is committed, built in full from EarliestEntry; Status 3 is a
+ * candidate, built only if the optimisation wants it. A row with no status is
+ * never forced, so it reads as a candidate. A row with no line to build
+ * (MaximumNumOfLines or CapacityPerLine at 0) can add nothing and is dropped.
+ */
+export function processNewTransmission(rows) {
+  if (!rows?.length) return [];
+  const pick = (r, ...names) => {
+    for (const [k, v] of Object.entries(r)) {
+      if (names.includes(k.trim().toLowerCase()) && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+  };
+  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+  const out = [];
+  const seen = new Set();
+  for (const r of rows) {
+    const z  = pick(r, 'z', 'from');
+    const z2 = pick(r, 'z2', 'to');
+    if (!z || !z2 || z === z2) continue;
+    const lines = num(pick(r, 'maximumnumoflines'));
+    const perLine = num(pick(r, 'capacityperline'));
+    if (lines <= 0 || perLine <= 0) continue;
+    const st = pick(r, 'status').toLowerCase();
+    const kind = st === '2' || st === 'committed' ? 'planned' : 'candidate';
+    // GAMS takes the larger of the two directions; one row per pair and kind is
+    // what can be drawn.
+    const key = [z, z2].sort().join('||') + '||' + kind;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      z, z2, kind, lines, perLine, capacity: lines * perLine,
+      entry: pick(r, 'earliestentry'),
+      cost: num(pick(r, 'costperline')),
+      life: num(pick(r, 'life')),
+    });
+  }
+  return out;
+}
+
+/** A switch from pSettings, by its abbreviation, or null when the file does not
+ *  name it. Studies lay the file out differently (label, abbreviation, value, or
+ *  just abbreviation, value), so the value is the last filled cell after the name. */
+export function settingValue(rows, abbrev) {
+  const want = abbrev.toLowerCase();
+  for (const r of rows || []) {
+    const cells = Object.values(r).map(v => String(v).trim());
+    const i = cells.findIndex(c => c.toLowerCase() === want);
+    if (i === -1) continue;
+    const v = cells.slice(i + 1).filter(Boolean).at(-1);
+    return v === undefined ? null : parseFloat(v);
+  }
+  return null;
+}
+
 /** Aggregate gen data by fuel for a given status (or all statuses) */
 export function genByFuel(genRows, statuses = [1, 2, 3]) {
   const out = {};
