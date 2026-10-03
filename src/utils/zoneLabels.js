@@ -4,9 +4,8 @@
 // front, but a map shared in a deck or read next to a chart needs its zones named, and one
 // hover at a time does not do it. So the names are a toggle, off by default.
 //
-// The map style carries no glyphs, so MapLibre cannot write text itself: each name is a DOM
-// marker, like the donuts and the price dots it sits under, which also puts it in the PNG
-// MapDownload takes. It is small, muted and haloed in the map's background colour, so it
+// Each name is a DOM marker, like the donuts and the price dots it sits under, which also
+// puts it in the PNG MapDownload takes. It is small, muted and haloed in the map's background colour, so it
 // reads on any fill without competing with the data, and it never takes the pointer, so
 // the hover and the click on the zone underneath still work.
 //
@@ -39,7 +38,7 @@ export function useZoneLabels() {
 /** The element one name is drawn with. `tv` is the theme (constants.getT). */
 export function zoneLabelEl(text, tv) {
   const el = document.createElement('div');
-  el.style.cssText = `font-size:0.45rem;font-weight:600;font-family:system-ui,sans-serif;color:${tv.muted};`
+  el.style.cssText = `font-size:0.45rem;font-weight:600;font-family:"Open Sans", system-ui, sans-serif;color:${tv.muted};`
     + `white-space:nowrap;pointer-events:none;`
     + `text-shadow:0 0 2px ${tv.bg},0 0 2px ${tv.bg},0 0 3px ${tv.bg};`;
   el.textContent = text;
