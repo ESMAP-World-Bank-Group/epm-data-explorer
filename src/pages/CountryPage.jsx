@@ -4,14 +4,16 @@ import maplibregl from 'maplibre-gl';
 import MapDownload from '../components/MapDownload';
 import { ttl } from '../utils/chartTitle';
 import { useTheme } from '../App';
-import { getT, mapStyle, swapBasemap, toggleSatLabels, FUEL_COLORS, VOLTAGE_BRACKETS, plantRadiusExpr, lcRadiusExpr } from '../constants';
+import { getT, FUEL_COLORS, VOLTAGE_BRACKETS, plantRadiusExpr, lcRadiusExpr } from '../constants';
 import LayerPanel from '../components/LayerPanel';
 import CountryOverview from '../components/CountryOverview';
 import REResourcesTab from '../components/tabs/REResourcesTab';
 import LoadTab from '../components/tabs/LoadTab';
 import ZoningTab from '../components/tabs/ZoningTab';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { fetchGeo, fetchBboxes, boundsFor, addCountriesSource, raiseBoundaries } from '../utils/basemap';
+import { buildWbStyle, applyWbView, useWbStyleBase, DEFAULT_WB_VIEW, MAP_LABEL_FONT } from '../utils/wbStyle';
 import { source, layer } from '../utils/mapSource';
+import { dataPath } from '../utils/paths';
 
 function downloadBlob(content, filename, type = 'application/octet-stream') {
   const blob = new Blob([content], { type });
@@ -41,27 +43,13 @@ function pointInFeature(pt, feature) {
   return false;
 }
 
-function fitBoundsCountry(iso, countries) {
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
-  for (const f of countries.features) {
-    if (f.properties.ISO_A3 !== iso) continue;
-    const geom = f.geometry;
-    const rings = geom.type === 'Polygon'
-      ? geom.coordinates
-      : geom.coordinates.flatMap(p => p);
-    for (const ring of rings)
-      for (const [lon, lat] of ring) {
-        if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
-        if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
-      }
-  }
-  if (!isFinite(minLon)) return null;
-  return [[minLon - 0.8, minLat - 0.8], [maxLon + 0.8, maxLat + 0.8]];
-}
 
 export default function CountryPage() {
   const { iso }      = useParams();
   const { theme }    = useTheme();
+  const wbBase = useWbStyleBase();
+  const [wbView, setWbView] = useState(DEFAULT_WB_VIEW);
+  const wbViewRef = useRef(wbView);   // what a rebuilt map (theme change) starts from
   const t            = getT(theme);
 
   const containerRef = useRef(null);
@@ -86,8 +74,6 @@ export default function CountryPage() {
   const [filteredLinesData,  setFilteredLinesData]  = useState(null);
   const [countryCenter,      setCountryCenter]      = useState(null);
   const [activeTab,          setActiveTab]          = useState('overview');
-  const [basemap,            setBasemap]            = useState('minimal');
-  const [satLabels,          setSatLabels]          = useState(false);
   const [loadCentersOn,      setLoadCentersOn]      = useState(true);
   const [lcMinPop,           setLcMinPop]           = useState(300_000);
   const [lcCircleScale,      setLcCircleScale]      = useState(1.0);
@@ -101,19 +87,19 @@ export default function CountryPage() {
 
   // Static data — fetch once
   useEffect(() => {
-    fetch('/data/tariffs.json').then(r => r.json()).then(setTariffs).catch(() => {});
-    fetch('/data/access.json').then(r => r.json()).then(setAccess).catch(() => {});
-    fetch('/data/zones/index.json').then(r => r.json()).then(setZonesIndex).catch(() => setZonesIndex({}));
+    fetch(dataPath('tariffs.json')).then(r => r.json()).then(setTariffs).catch(() => {});
+    fetch(dataPath('access.json')).then(r => r.json()).then(setAccess).catch(() => {});
+    fetch(dataPath('zones/index.json')).then(r => r.json()).then(setZonesIndex).catch(() => setZonesIndex({}));
   }, []);
 
   useEffect(() => {
-    fetch('/data/regions.json').then(r => r.json()).then(d => {
+    fetch(dataPath('regions.json')).then(r => r.json()).then(d => {
       for (const region of (d.regions || [])) {
         const country = region.countries.find(c => c.iso === iso);
         if (country) {
           setInfo({ country, region });
           // Check GPPD availability for this region
-          fetch(`/data/cache/region_plants_${region.id}_gppd.geojson`, { method: 'HEAD' })
+          fetch(dataPath(`cache/region_plants_${region.id}_gppd.geojson`), { method: 'HEAD' })
             .then(r => setGppdAvailable(r.ok))
             .catch(() => setGppdAvailable(false));
           return;
@@ -130,17 +116,29 @@ export default function CountryPage() {
   }, [iso]);
 
   useEffect(() => {
-    if (!containerRef.current || !info) return;
+    if (!containerRef.current || !info || !wbBase) return;
     const { region } = info;
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: mapStyle(theme),
+      style: buildWbStyle(wbBase, getT(theme), wbViewRef.current),
       center: [0, 20], zoom: 2,
       minZoom: 1, maxZoom: 16,
       canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
+    // Frame the country as soon as the (small, cached) bbox file is in, not
+    // after the style and every data layer have loaded (see RegionPage).
+    let live = true;
+    fetchBboxes().then(bboxes => {
+      const bounds = boundsFor(bboxes, 'countries', iso, 0.8);
+      if (!live || !bounds) return;
+      map.fitBounds(bounds, { padding: 60, duration: 0, maxZoom: 9 });
+      setCountryCenter({
+        lon: (bounds[0][0] + bounds[1][0]) / 2,
+        lat: (bounds[0][1] + bounds[1][1]) / 2,
+      });
+    }).catch(err => console.error('bboxes', err));
 
     const popup = new maplibregl.Popup({
       closeButton: false, closeOnClick: false, offset: 10,
@@ -148,25 +146,15 @@ export default function CountryPage() {
     });
 
     map.on('load', async () => {
-      const [countries, boundaries, plantsGJ, linesGJ, subsGJ, lcGJ, admin1GJ] = await Promise.all([
-        fetchCountries('10m'),
-        fetchBoundaries('10m'),
-        fetch(`/data/cache/region_plants_${region.id}.geojson`).then(r => r.json()),
-        fetch(`/data/cache/region_lines_${region.id}.geojson`).then(r => r.json()),
-        fetch(`/data/cache/region_substations_${region.id}.geojson`).then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
-        fetch(`/data/region_load_centers_${region.id}.geojson`).then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
-        fetch(`/data/cache/region_admin1_${region.id}.geojson`).then(r => r.ok ? r.json() : { type: 'FeatureCollection', features: [] }).catch(() => ({ type: 'FeatureCollection', features: [] })),
+      const [countries, plantsGJ, linesGJ, subsGJ, lcGJ, admin1GJ] = await Promise.all([
+        fetchGeo('country', iso),
+        fetch(dataPath(`cache/region_plants_${region.id}.geojson`)).then(r => r.json()),
+        fetch(dataPath(`cache/region_lines_${region.id}.geojson`)).then(r => r.json()),
+        fetch(dataPath(`cache/region_substations_${region.id}.geojson`)).then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
+        fetch(dataPath(`region_load_centers_${region.id}.geojson`)).then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
+        fetch(dataPath(`cache/region_admin1_${region.id}.geojson`)).then(r => r.ok ? r.json() : { type: 'FeatureCollection', features: [] }).catch(() => ({ type: 'FeatureCollection', features: [] })),
       ]);
 
-
-      const bounds = fitBoundsCountry(iso, countries);
-      if (bounds) {
-        map.fitBounds(bounds, { padding: 60, duration: 0, maxZoom: 9 });
-        setCountryCenter({
-          lon: (bounds[0][0] + bounds[1][0]) / 2,
-          lat: (bounds[0][1] + bounds[1][1]) / 2,
-        });
-      }
 
       // Filter plants strictly inside the country polygon (point-in-polygon)
       // Lines filtered by bbox (segments cross borders by nature)
@@ -219,7 +207,6 @@ export default function CountryPage() {
 
       const tv = getT(theme);
 
-      addBaseLayers(map, tv, boundaries);
 
       // Transmission lines
       const kvFilters = {
@@ -343,7 +330,7 @@ export default function CountryPage() {
         id: 'zone-labels', type: 'symbol', source: 'zone-fills',
         layout: {
           visibility: 'none',
-          'text-field': ['get', 'zone_name'],
+          'text-font': MAP_LABEL_FONT, 'text-field': ['get', 'zone_name'],
           'text-size': 11,
           'text-anchor': 'center',
           'text-allow-overlap': true,
@@ -373,7 +360,7 @@ export default function CountryPage() {
         filter: ['!', ['in', ['get', 'status'], ['literal', ['planned', 'candidate', 'long_term']]]],
         layout: {
           visibility: 'none',
-          'text-field': ['get', 'label'],
+          'text-font': MAP_LABEL_FONT, 'text-field': ['get', 'label'],
           'text-size': 9,
           'symbol-placement': 'line-center',
           'text-allow-overlap': false,
@@ -419,7 +406,7 @@ export default function CountryPage() {
         id: 'load-centers-labels', type: 'symbol', source: 'load-centers',
         filter: ['>=', ['get', 'pop'], 300_000],
         layout: {
-          'text-field': ['get', 'name'],
+          'text-font': MAP_LABEL_FONT, 'text-field': ['get', 'name'],
           'text-size': 9,
           'text-offset': [0, 1.3],
           'text-anchor': 'top',
@@ -446,22 +433,14 @@ export default function CountryPage() {
       raiseBoundaries(map);
     });
 
-    return () => { mapReadyRef.current = false; popup.remove(); mapRef.current?.remove(); };
-  }, [info, theme]);
+    return () => { live = false; mapReadyRef.current = false; popup.remove(); mapRef.current?.remove(); };
+  }, [info, theme, wbBase]);
 
   // ── Basemap switcher ─────────────────────────────────────────────────────
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    swapBasemap(map, basemap, theme);
-    if (basemap !== 'satellite') toggleSatLabels(map, false, theme);
-  }, [basemap, theme]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || basemap !== 'satellite') return;
-    toggleSatLabels(map, satLabels, theme);
-  }, [satLabels, basemap, theme]);
+    wbViewRef.current = wbView;
+    applyWbView(mapRef.current, wbView);
+  }, [wbView]);
 
   // ── Layer toggle handlers ────────────────────────────────────────────────
 
@@ -622,10 +601,10 @@ export default function CountryPage() {
     const label = `${iso}_${nZones}z`;
 
     Promise.all([
-      fetch(`/data/zones/${label}_zones.geojson`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`/data/zones/${label}_topo.json`).then(r => r.ok ? r.json() : []).catch(() => []),
-      fetch(`/data/zones/${label}_inner.geojson`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`/data/zones/${label}_corridors.geojson`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(dataPath(`zones/${label}_zones.geojson`)).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(dataPath(`zones/${label}_topo.json`)).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(dataPath(`zones/${label}_inner.geojson`)).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(dataPath(`zones/${label}_corridors.geojson`)).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([zonesGJ, topo, innerGJ, corridorsGJ]) => {
       if (!zonesGJ || !source(map, 'zone-fills')) return;
       zonesGJ.features.forEach((f, i) => { f.properties.color = COLORS[i % COLORS.length]; });
@@ -688,7 +667,7 @@ export default function CountryPage() {
     const filename = plantSource === 'gppd'
       ? `region_plants_${info.region.id}_gppd.geojson`
       : `region_plants_${info.region.id}.geojson`;
-    fetch(`/data/cache/${filename}`)
+    fetch(dataPath(`cache/${filename}`))
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(data => {
         const cf = countryFeatureRef.current;
@@ -711,8 +690,8 @@ export default function CountryPage() {
     if (!info) return;
     setCapacity(null);
     const cf = plantSource === 'gppd'
-      ? `/data/cache/region_capacity_${info.region.id}_gppd.json`
-      : `/data/cache/region_capacity_${info.region.id}.json`;
+      ? dataPath(`cache/region_capacity_${info.region.id}_gppd.json`)
+      : dataPath(`cache/region_capacity_${info.region.id}.json`);
     fetch(cf).then(r => r.json()).then(setCapacity).catch(() => {});
   }, [info, plantSource]);
 
@@ -720,7 +699,7 @@ export default function CountryPage() {
   useEffect(() => {
     setFleetAge(null);
     if (!info || plantSource !== 'gppd') return;
-    fetch(`/data/cache/region_age_${info.region.id}_gppd.json`)
+    fetch(dataPath(`cache/region_age_${info.region.id}_gppd.json`))
       .then(r => r.ok ? r.json() : null)
       .then(setFleetAge)
       .catch(() => setFleetAge(null));
@@ -778,7 +757,7 @@ export default function CountryPage() {
         minMw={minMw} circleScale={circleScale}
         plantSource={plantSource} gppdAvailable={gppdAvailable}
         presentFuels={presentFuels}
-        basemap={basemap} onBasemap={setBasemap} satLabels={satLabels} onSatLabels={setSatLabels}
+        wbView={wbView} onWbView={setWbView}
         onToggleFuel={toggleFuel} onToggleKv={toggleKv}
         onToggleLines={toggleLines} onTogglePlants={togglePlants}
         onToggleSubs={toggleSubs}

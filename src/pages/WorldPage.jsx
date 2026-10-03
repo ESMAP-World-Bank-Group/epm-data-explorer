@@ -4,11 +4,14 @@ import maplibregl from 'maplibre-gl';
 import MapDownload from '../components/MapDownload';
 import { ttl } from '../utils/chartTitle';
 import { useTheme } from '../App';
-import { getT, mapStyle } from '../constants';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
+import { getT } from '../constants';
+import { fetchGeo, fetchBboxes, addCountriesSource, regionFilter, raiseBoundaries, isNamed, isItalicName, nameHtml } from '../utils/basemap';
+import { buildWbStyle, useWbStyleBase, DEFAULT_WB_VIEW } from '../utils/wbStyle';
+import { dataPath } from '../utils/paths';
 
 export default function WorldPage() {
   const { theme } = useTheme();
+  const wbBase = useWbStyleBase();
   const t = getT(theme);
   const navigate = useNavigate();
   const containerRef = useRef(null);
@@ -17,11 +20,12 @@ export default function WorldPage() {
   const [disambig, setDisambig] = useState(null); // {x, y, iso, regions[]}
 
   useEffect(() => {
-    fetch('/data/regions.json').then(r => r.json()).then(d => setRegions(d.regions));
+    fetchBboxes().catch(() => {}); // so a click frames the region at once
+    fetch(dataPath('regions.json')).then(r => r.json()).then(d => setRegions(d.regions));
   }, []);
 
   useEffect(() => {
-    if (!containerRef.current || !regions) return;
+    if (!containerRef.current || !regions || !wbBase) return;
 
     // Clickable = regions with EPM data; others are shown dimly but not interactive
     const isoToRegions = {};
@@ -50,7 +54,7 @@ export default function WorldPage() {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: mapStyle(theme),
+      style: buildWbStyle(wbBase, getT(theme), DEFAULT_WB_VIEW),
       center: [20, 15],
       zoom: 2.2,
       minZoom: 1.5,
@@ -63,11 +67,9 @@ export default function WorldPage() {
     map.on('movestart', () => setDisambig(null));
 
     map.on('load', async () => {
-      const countries = await fetchCountries('110m');
-      const boundaries = await fetchBoundaries('110m');
+      const countries = await fetchGeo('world');
 
       addCountriesSource(map, countries);
-      addBaseLayers(map, t, boundaries);
 
       // Non-EPM regions: no highlight, blend into background
 
@@ -103,15 +105,6 @@ export default function WorldPage() {
           filter: ['in', ['get', 'ISO_A3'], ['literal', clickableIsos]],
           paint: { 'line-color': colorExpr, 'line-width': 0.9, 'line-opacity': 0.7 },
         });
-
-        // The areas take the same outline, keyed on the only name they carry.
-        addRegionCoast(map, {
-          areas: clickableAreas,
-          color: ['match', ['get', 'NAME'],
-            ...clickableAreas.flatMap(a => [a, areaToRegions[a][0].color]),
-            'transparent'],
-          width: 0.9, opacity: 0.7,
-        });
       }
 
       let hoveredId = null;
@@ -128,13 +121,15 @@ export default function WorldPage() {
         map.setFeatureState({ source: 'countries', id: hoveredId }, { hover: true });
 
         const props = e.features[0].properties;
+        if (!isNamed(props)) { popup.remove(); return; }
         const rs = regionsFor(props);
-        const countryName = rs[0]?.countryName || props.WB_NAME || props.ISO_A3;
+        // The polygon's own Bank name, not regions.json's (EPM's model names).
+        const countryName = props.WB_NAME || rs[0]?.countryName || props.ISO_A3;
         const subtitle = rs.length > 1
           ? rs.map(r => r.name).join(' · ') + ' · click to choose'
           : (rs[0]?.name || '') + ' · click to explore';
         popup.setLngLat(e.lngLat)
-          .setHTML(`<b>${countryName}</b><br><span style="opacity:0.65">${subtitle}</span>`)
+          .setHTML(`<b>${nameHtml(countryName)}</b><br><span style="opacity:0.65">${subtitle}</span>`)
           .addTo(map);
       });
 
@@ -158,7 +153,8 @@ export default function WorldPage() {
           navigate(`/region/${rs[0].id}${suffix}`);
         } else {
           const pixel = map.project(e.lngLat);
-          setDisambig({ x: pixel.x, y: pixel.y, iso, regions: rs, suffix });
+          const name = isNamed(props) ? props.WB_NAME || rs[0]?.countryName : null;
+          setDisambig({ x: pixel.x, y: pixel.y, iso, name, regions: rs, suffix });
         }
       });
 
@@ -166,7 +162,7 @@ export default function WorldPage() {
     });
 
     return () => { mapRef.current?.remove(); setDisambig(null); };
-  }, [regions, theme]);
+  }, [regions, theme, wbBase]);
 
   return (
     <div style={{ height: 'calc(100vh - 46px)', position: 'relative', backgroundColor: t.bg }}>
@@ -196,7 +192,9 @@ export default function WorldPage() {
           }}>
             <div style={{ fontSize: '0.5rem', letterSpacing: '2px', fontWeight: 700,
               color: t.lblMuted, textTransform: 'uppercase', marginBottom: 8 }}>
-              {disambig.regions[0]?.countryName || disambig.iso} · Choose region
+              <span style={isItalicName(disambig.name) ? { fontStyle: 'italic' } : undefined}>
+                {disambig.name}
+              </span>{disambig.name ? ' · ' : ''}Choose region
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {disambig.regions.map(r => (

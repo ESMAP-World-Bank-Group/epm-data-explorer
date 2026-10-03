@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
 import { useTheme } from '../App';
-import { getT, mapStyle } from '../constants';
+import { getT } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
@@ -17,13 +17,15 @@ import { addOffgridLayers } from '../utils/offgridZones';
 import { fetchScenarioConfig, resolveFile, baseName } from '../utils/epmScenarios';
 import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { raiseBoundaries } from '../utils/basemap';
+import { buildWbStyle, useWbStyleBase, ZONE_MAP_VIEW, MAP_LABEL_FONT } from '../utils/wbStyle';
 import { source } from '../utils/mapSource';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
 import { ttl } from '../utils/chartTitle';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
+import { dataPath } from '../utils/paths';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -106,8 +108,8 @@ function makeDonutSVG(fuelMix, tv, size = 48) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
     <circle cx="${cx}" cy="${cy}" r="${r + sw/2 + 1}" fill="${bg}" stroke="rgba(0,0,0,0.18)" stroke-width="0.5"/>
     ${arcs.join('')}
-    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="8" font-weight="700" fill="${tc}" font-family="system-ui,sans-serif">${label}</text>
-    <text x="${cx}" y="${cy + 8}" text-anchor="middle" font-size="6.5" fill="${tc}" font-family="system-ui,sans-serif" opacity="0.65">${unit}</text>
+    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="8" font-weight="700" fill="${tc}" font-family="'Open Sans', system-ui, sans-serif">${label}</text>
+    <text x="${cx}" y="${cy + 8}" text-anchor="middle" font-size="6.5" fill="${tc}" font-family="'Open Sans', system-ui, sans-serif" opacity="0.65">${unit}</text>
   </svg>`;
 }
 
@@ -158,6 +160,7 @@ export default function EpmCountryPage() {
   const { regionId, countryName } = useParams();
   const countryNameDecoded = decodeURIComponent(countryName);
   const { theme } = useTheme();
+  const wbBase = useWbStyleBase();
   const t = getT(theme);
   const navigate = useNavigate();
 
@@ -228,7 +231,7 @@ export default function EpmCountryPage() {
   // ── Load region ─────────────────────────────────────────────────────────────
   useEffect(() => {
     track('country_view', { region: regionId, country: countryNameDecoded });
-    fetch('/data/regions.json').then(r => r.json()).then(d => {
+    fetch(dataPath('regions.json')).then(r => r.json()).then(d => {
       const r = (d.regions || []).find(r => r.id === regionId);
       setRegion(r || null);
     });
@@ -383,7 +386,7 @@ export default function EpmCountryPage() {
 
   // ── Map ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!containerRef.current || !region || !epmData) return;
+    if (!containerRef.current || !region || !epmData || !wbBase) return;
     const { linestringGJ, zonesGJ } = epmData;
     if (!linestringGJ && !zonesGJ) return;
 
@@ -410,10 +413,13 @@ export default function EpmCountryPage() {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: mapStyle(theme),
+      style: buildWbStyle(wbBase, getT(theme), ZONE_MAP_VIEW),
       center: [lons.length ? lons.reduce((a,b)=>a+b,0)/lons.length : 20,
                lats.length ? lats.reduce((a,b)=>a+b,0)/lats.length : 0],
-      zoom: 4, minZoom: 1, maxZoom: 14, canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
+      zoom: 4, minZoom: 1, maxZoom: 14,
+      // Open already framed, so the view doesn't jump once the style has loaded.
+      bounds: bounds || undefined, fitBoundsOptions: { padding: 60, maxZoom: 8 },
+      canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10,
@@ -421,12 +427,7 @@ export default function EpmCountryPage() {
 
     map.on('load', async () => {
       const tv = getT(theme);
-      if (bounds) map.fitBounds(bounds, { padding: 60, duration: 0, maxZoom: 8 });
 
-      const countries = await fetchCountries('10m');
-      const boundaries = await fetchBoundaries('10m');
-      addCountriesSource(map, countries);
-      addBaseLayers(map, tv, boundaries);
 
       if (zonesGJ) {
         const regionCountries = [...new Set(zcmapRows.map(r => r.c))].sort();
@@ -495,7 +496,7 @@ export default function EpmCountryPage() {
               'line-width':['interpolate',['linear'],['get','ntc_mw'],0,1,500,2,2000,3.5,8000,6],'line-opacity':0.9} });
           map.addLayer({ id:'ntc-labels', type:'symbol', source:'ntc-lines',
             filter:['==',['get','isCountry'],true],
-            layout:{'text-field':['concat',['to-string',['round',['get','ntc_mw']]],' MW'],
+            layout:{'text-font':MAP_LABEL_FONT,'text-field':['concat',['to-string',['round',['get','ntc_mw']]],' MW'],
               'text-size':8,'symbol-placement':'line-center','text-allow-overlap':false},
             paint:{'text-color':'#b07800','text-halo-color':'rgba(255,255,255,0.9)','text-halo-width':1.5} });
         }
@@ -522,7 +523,7 @@ export default function EpmCountryPage() {
       donutMarkersRef.current = [];
       mapRef.current?.remove();
     };
-  }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ, countryNameDecoded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ, countryNameDecoded, wbBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync selZone → map highlight (covers dropdown changes + map reloads)
   useEffect(() => {

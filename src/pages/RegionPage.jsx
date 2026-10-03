@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
 import { useTheme } from '../App';
 import {
-  getT, mapStyle, swapBasemap, toggleSatLabels, FUEL_COLORS, VOLTAGE_BRACKETS,
+  getT, FUEL_COLORS, VOLTAGE_BRACKETS,
   plantRadiusExpr, lcRadiusExpr, fuelColorExpr, PLANT_STATUSES, zoneColorExpr,
 } from '../constants';
 import CapacityChart from '../components/CapacityChart';
@@ -30,13 +30,15 @@ import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchScenarioDocs, scenarioDocIndex } from '../utils/scenarioDocs';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
+import { fetchGeo, fetchBboxes, boundsFor, addCountriesSource, regionFilter, raiseBoundaries } from '../utils/basemap';
+import { buildWbStyle, applyWbView, useWbStyleBase, ZONE_MAP_VIEW, MAP_LABEL_FONT } from '../utils/wbStyle';
 import { source } from '../utils/mapSource';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
 import { ttl } from '../utils/chartTitle';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
+import { dataPath } from '../utils/paths';
 
 // chart.js via CDN — no npm dep
 // Map zone fills — blues/teals/gold only
@@ -57,21 +59,6 @@ const ZONE_PALETTE = CHART_PALETTE; // legacy alias for chart code
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fitBounds(isos, countries) {
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
-  for (const f of countries.features) {
-    if (!isos.includes(f.properties.ISO_A3)) continue;
-    const geom = f.geometry;
-    const rings = geom.type === 'Polygon' ? geom.coordinates : geom.coordinates.flatMap(p => p);
-    for (const ring of rings)
-      for (const [lon, lat] of ring) {
-        if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
-        if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
-      }
-  }
-  if (!isFinite(minLon)) return null;
-  return [[minLon - 0.5, minLat - 0.5], [maxLon + 0.5, maxLat + 0.5]];
-}
 
 function makeLayerFilter(status, fuelsOff, minMw) {
   const clauses = [['==', ['get', 'status'], status], ['>=', ['get', 'mw'], minMw]];
@@ -131,8 +118,8 @@ function makeDonutSVG(fuelMix, tv, size = 54) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
     <circle cx="${cx}" cy="${cy}" r="${r + sw / 2 + 1}" fill="${bg}" stroke="rgba(0,0,0,0.18)" stroke-width="0.5"/>
     ${arcs.join('')}
-    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="7" font-weight="700" fill="${tc}" font-family="system-ui,sans-serif">${label}</text>
-    <text x="${cx}" y="${cy + 7.5}" text-anchor="middle" font-size="5.5" fill="${tc}" font-family="system-ui,sans-serif" opacity="0.65">${unit}</text>
+    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="7" font-weight="700" fill="${tc}" font-family="'Open Sans', system-ui, sans-serif">${label}</text>
+    <text x="${cx}" y="${cy + 7.5}" text-anchor="middle" font-size="5.5" fill="${tc}" font-family="'Open Sans', system-ui, sans-serif" opacity="0.65">${unit}</text>
   </svg>`;
 }
 
@@ -1963,6 +1950,9 @@ function AboutTab({ region, t, epmData, epmLoading, activeFolder }) {
 export default function RegionPage() {
   const { regionId } = useParams();
   const { theme }    = useTheme();
+  const wbBase = useWbStyleBase();
+  const [wbView, setWbView] = useState(ZONE_MAP_VIEW);
+  const wbViewRef = useRef(wbView);   // what a rebuilt map (theme change) starts from
   const t            = getT(theme);
   const navigate     = useNavigate();
 
@@ -1994,8 +1984,6 @@ export default function RegionPage() {
   const [activeTab,       setActiveTab]       = useState('overview');
   const [availZone,       setAvailZone]       = useState('all');
   const [resourceSection, setResourceSection] = useState('vre');
-  const [basemap,         setBasemap]         = useState('minimal');
-  const [satLabels,       setSatLabels]       = useState(false);
   const [epmDataRaw,         setEpmData]         = useState(null);
 
   // Zones this region asked to be shown as external, moved across the line before any
@@ -2029,31 +2017,31 @@ export default function RegionPage() {
 
   // Static data
   useEffect(() => {
-    fetch('/data/tariffs.json').then(r => r.json()).then(setTariffs).catch(() => {});
-    fetch('/data/access.json').then(r => r.json()).then(setAccess).catch(() => {});
+    fetch(dataPath('tariffs.json')).then(r => r.json()).then(setTariffs).catch(() => {});
+    fetch(dataPath('access.json')).then(r => r.json()).then(setAccess).catch(() => {});
   }, []);
 
   // Region metadata
   useEffect(() => {
     track('region_view', { region: regionId });
-    fetch('/data/regions.json').then(r => r.json()).then(d => {
+    fetch(dataPath('regions.json')).then(r => r.json()).then(d => {
       const r = (d.regions || []).find(r => r.id === regionId);
       setRegion(r || null);
     });
     setCapacity(null);
     // Written scenario descriptions, when the study has any (utils/scenarioDocs).
     fetchScenarioDocs(regionId).then(setScnDocs);
-    fetch(`/data/cache/region_capacity_${regionId}.json`).then(r => r.json()).then(setCapacity).catch(() => {});
+    fetch(dataPath(`cache/region_capacity_${regionId}.json`)).then(r => r.json()).then(setCapacity).catch(() => {});
     setFuelsOff(new Set()); setStatusOff(new Set()); setKvsOff(new Set());
     setLinesOn(true); setPlantsOn(true); setSubsOn(false);
     setLoadCentersOn(false); setLcMinPop(300_000); setLcCircleScale(1.0);
     setMinMw(100); setCircleScale(1.0);
     setPlantSource('osm'); setActiveTab('overview');
     setGppdAvailable(null);
-    fetch(`/data/cache/region_plants_${regionId}_gppd.geojson`, { method: 'HEAD' })
+    fetch(dataPath(`cache/region_plants_${regionId}_gppd.geojson`), { method: 'HEAD' })
       .then(r => setGppdAvailable(r.ok)).catch(() => setGppdAvailable(false));
     setGemAvailable(null);
-    fetch(`/data/cache/region_plants_${regionId}_gem.geojson`, { method: 'HEAD' })
+    fetch(dataPath(`cache/region_plants_${regionId}_gem.geojson`), { method: 'HEAD' })
       .then(r => setGemAvailable(r.ok)).catch(() => setGemAvailable(false));
   }, [regionId]);
 
@@ -2219,13 +2207,13 @@ export default function RegionPage() {
   // Fleet age — GPPD only
   useEffect(() => {
     if (plantSource !== 'gppd') return;
-    fetch(`/data/cache/region_age_${regionId}_gppd.json`)
+    fetch(dataPath(`cache/region_age_${regionId}_gppd.json`))
       .then(r => r.ok ? r.json() : null).catch(() => {});
   }, [plantSource, regionId]);
 
   // ── Map initialisation ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!containerRef.current || !region) return;
+    if (!containerRef.current || !region || !wbBase) return;
     // EPM region: wait for data; skip map if neither linestring nor zones available
     if (region.epm) {
       if (!epmData) return;
@@ -2237,11 +2225,19 @@ export default function RegionPage() {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: mapStyle(theme),
+      style: buildWbStyle(wbBase, getT(theme), wbViewRef.current),
       center: [0, 20], zoom: 2, minZoom: 1, maxZoom: 14,
       canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
+    // Frame the region as soon as the (small, cached) bbox file is in, not
+    // after the style and the region geometry have loaded -- otherwise the page
+    // sits on the zoom-2 world view for the whole download.
+    let live = true;
+    fetchBboxes().then(bboxes => {
+      const bounds = boundsFor(bboxes, 'regions', region.id, 0.5);
+      if (live && bounds) map.fitBounds(bounds, { padding: 40, duration: 0 });
+    }).catch(err => console.error('bboxes', err));
 
     const popup = new maplibregl.Popup({
       closeButton: false, closeOnClick: false, offset: 10,
@@ -2249,15 +2245,10 @@ export default function RegionPage() {
     });
 
     map.on('load', async () => {
-      const countries = await fetchCountries('10m');
-      const boundaries = await fetchBoundaries('10m');
-
-      const bounds = fitBounds(isos, countries);
-      if (bounds) map.fitBounds(bounds, { padding: 40, duration: 0 });
+      const countries = await fetchGeo('region', region.id);
 
       addCountriesSource(map, countries);
       const tv = getT(theme);
-      addBaseLayers(map, tv, boundaries);
 
       if (isEpm) {
         // ── EPM map: zone polygons + NTC lines + country donut markers ───────
@@ -2402,7 +2393,7 @@ export default function RegionPage() {
                 'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3.5, 8000, 6],
                 'line-opacity': 0.88 } });
             map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
-              layout: { 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
+              layout: { 'text-font': MAP_LABEL_FONT, 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
                 'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false,
                 visibility: lineKindsRef.current.existing ? 'visible' : 'none' },
               paint: { 'text-color': '#b07800',
@@ -2424,7 +2415,7 @@ export default function RegionPage() {
                 'line-dasharray': st.dash, 'line-offset': ['get', 'offset'] } });
             map.addLayer({ id: `newtx-${kind}-labels`, type: 'symbol', source: 'newtx-lines',
               filter: ['==', ['get', 'kind'], kind],
-              layout: { 'text-field': ['get', 'label'], 'text-size': 8, visibility,
+              layout: { 'text-font': MAP_LABEL_FONT, 'text-field': ['get', 'label'], 'text-size': 8, visibility,
                 'symbol-placement': 'line-center', 'text-allow-overlap': false,
                 'text-offset': [0, kind === 'planned' ? -0.9 : 0.9] },
               paint: { 'text-color': st.text,
@@ -2453,11 +2444,11 @@ export default function RegionPage() {
       } else {
         // ── OSM map ──────────────────────────────────────────────────────────
         const [plantsGJ, linesGJ, subsGJ, lcGJ] = await Promise.all([
-          fetch(`/data/cache/region_plants_${regionId}.geojson`).then(r => r.json()),
-          fetch(`/data/cache/region_lines_${regionId}.geojson`).then(r => r.json()),
-          fetch(`/data/cache/region_substations_${regionId}.geojson`)
+          fetch(dataPath(`cache/region_plants_${regionId}.geojson`)).then(r => r.json()),
+          fetch(dataPath(`cache/region_lines_${regionId}.geojson`)).then(r => r.json()),
+          fetch(dataPath(`cache/region_substations_${regionId}.geojson`))
             .then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
-          fetch(`/data/region_load_centers_${regionId}.geojson`)
+          fetch(dataPath(`region_load_centers_${regionId}.geojson`))
             .then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
         ]);
 
@@ -2488,8 +2479,6 @@ export default function RegionPage() {
         map.addLayer({ id: 'region-border', type: 'line', source: 'countries',
           filter: ['in', ['get', 'ISO_A3'], ['literal', isos]],
           paint: { 'line-color': hl.border, 'line-width': hl.borderW, 'line-opacity': 0.9 } });
-        addRegionCoast(map, { areas: region.non_determined, color: hl.border,
-          width: hl.borderW, opacity: 0.9 });
 
         const fuels = new Set();
         for (const f of plantsGJ.features) {
@@ -2558,7 +2547,7 @@ export default function RegionPage() {
             'circle-stroke-width': 1.2, 'circle-stroke-color': 'rgba(255,255,255,0.65)' } });
         map.addLayer({ id: 'load-centers-labels', type: 'symbol', source: 'load-centers',
           filter: ['>=', ['get', 'pop'], 300_000], layout: { visibility: 'none',
-            'text-field': ['get', 'name'], 'text-size': 9, 'text-offset': [0, 1.3], 'text-anchor': 'top' },
+            'text-font': MAP_LABEL_FONT, 'text-field': ['get', 'name'], 'text-size': 9, 'text-offset': [0, 1.3], 'text-anchor': 'top' },
           paint: { 'text-color': '#1a237e', 'text-halo-color': 'rgba(255,255,255,0.88)', 'text-halo-width': 1.5 } });
 
         let hoveredId = null;
@@ -2585,12 +2574,13 @@ export default function RegionPage() {
     });
 
     return () => {
+      live = false;
       popup.remove();
       donutMarkersRef.current.forEach(m => m.remove());
       donutMarkersRef.current = [];
       mapRef.current?.remove();
     };
-  }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ, wbBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // External zones toggle. The ref is what the map-load handler reads, so a rebuilt
   // map comes back at the visibility the user left it at.
@@ -2629,17 +2619,9 @@ export default function RegionPage() {
 
   // Basemap switcher
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    swapBasemap(map, basemap, theme);
-    if (basemap !== 'satellite') toggleSatLabels(map, false, theme);
-  }, [basemap, theme]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || basemap !== 'satellite') return;
-    toggleSatLabels(map, satLabels, theme);
-  }, [satLabels, basemap, theme]);
+    wbViewRef.current = wbView;
+    applyWbView(mapRef.current, wbView);
+  }, [wbView]);
 
   // Pie donut markers — re-render on pieMode toggle or after map loads
   useEffect(() => {
@@ -2728,13 +2710,13 @@ export default function RegionPage() {
     const suffix = plantSource === 'gppd' ? '_gppd' : plantSource === 'gem' ? '_gem' : '';
     const f  = `region_plants_${regionId}${suffix}.geojson`;
     const cf = `region_capacity_${regionId}${suffix}.json`;
-    fetch(`/data/cache/${f}`)
+    fetch(dataPath(`cache/${f}`))
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(data => {
         source(map, 'plants').setData(data);
         const fuels = new Set(data.features.map(f => f.properties.fuel).filter(f => FUEL_COLORS[f]));
         setPresentFuels(fuels);
-        return fetch(`/data/cache/${cf}`).then(r => r.json());
+        return fetch(dataPath(`cache/${cf}`)).then(r => r.json());
       })
       .then(setCapacity)
       .catch(() => {
@@ -2765,11 +2747,11 @@ export default function RegionPage() {
 
           {/* Basemap controls */}
           <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, display: 'flex', gap: 4, alignItems: 'center' }}>
-            {[{ id: 'minimal', label: 'Map' }, { id: 'labeled', label: 'Labels' }, { id: 'satellite', label: 'Sat' }]
+            {[{ id: 'clean', label: 'Clean' }, { id: 'detailed', label: 'Detailed' }, { id: 'satellite', label: 'Sat' }]
               .map(({ id, label }) => {
-                const active = (basemap || 'minimal') === id;
+                const active = wbView.canvas === id;
                 return (
-                  <button key={id} onClick={() => setBasemap(id)} style={{
+                  <button key={id} onClick={() => setWbView(v => ({ ...v, canvas: id }))} style={{
                     fontSize: '0.52rem', letterSpacing: '0.5px', fontFamily: 'inherit',
                     padding: '4px 8px', borderRadius: 5, cursor: 'pointer',
                     border: `1px solid ${active ? 'rgba(74,143,204,0.6)' : t.panelBorder}`,
