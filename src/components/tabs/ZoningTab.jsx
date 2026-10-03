@@ -1,24 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { FUEL_COLORS, FUEL_LABELS, getT } from '../../constants';
+import { dataPath } from '../../utils/paths';
+import { pointInFeature } from '../../utils/pointInFeature';
+import { fetchData } from '../../utils/dataCache';
 
 const ZONE_COLORS = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac'];
 
-function pointInRing(pt, ring) {
-  let inside = false;
-  const [x, y] = pt;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i], [xj, yj] = ring[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
-      inside = !inside;
-  }
-  return inside;
-}
-function pointInFeature(pt, feature) {
-  const g = feature.geometry;
-  if (g.type === 'Polygon') return g.coordinates.some(ring => pointInRing(pt, ring));
-  if (g.type === 'MultiPolygon') return g.coordinates.some(poly => poly.some(ring => pointInRing(pt, ring)));
-  return false;
-}
 
 function fmtMw(mw) {
   if (mw >= 1000) return `${(mw / 1000).toFixed(1)} GW`;
@@ -60,7 +47,7 @@ export default function ZoningTab({ iso, theme, regionId }) {
 
   // Load zones index
   useEffect(() => {
-    fetch('/data/zones/index.json').then(r => r.json())
+    fetchData(dataPath('zones/index.json'))
       .then(d => {
         setIndex(d);
         if (d[iso]?.length) setNZones(d[iso][0]);
@@ -71,9 +58,9 @@ export default function ZoningTab({ iso, theme, regionId }) {
   // Load region plants + substations once
   useEffect(() => {
     if (!regionId) return;
-    fetch(`/data/cache/region_plants_${regionId}.geojson`).then(r => r.json()).then(setPlants).catch(() => setPlants(null));
-    fetch(`/data/cache/region_substations_${regionId}.geojson`).then(r => r.json()).then(setSubs).catch(() => setSubs(null));
-    fetch(`/data/cache/region_lines_${regionId}.geojson`).then(r => r.json()).then(setLines).catch(() => setLines(null));
+    fetchData(dataPath(`cache/region_plants_${regionId}.geojson`)).then(setPlants).catch(() => setPlants(null));
+    fetchData(dataPath(`cache/region_substations_${regionId}.geojson`)).then(setSubs).catch(() => setSubs(null));
+    fetchData(dataPath(`cache/region_lines_${regionId}.geojson`)).then(setLines).catch(() => setLines(null));
   }, [regionId]);
 
   // Load zone GeoJSON + topo when config changes
@@ -82,8 +69,8 @@ export default function ZoningTab({ iso, theme, regionId }) {
     setLoading(true);
     const label = `${iso}_${nZones}z`;
     Promise.all([
-      fetch(`/data/zones/${label}_zones.geojson`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`/data/zones/${label}_topo.json`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetchData(dataPath(`zones/${label}_zones.geojson`)).catch(() => null),
+      fetchData(dataPath(`zones/${label}_topo.json`)).catch(() => []),
     ]).then(([gj, tp]) => {
       setZonesGJ(gj);
       setTopo(tp || []);
