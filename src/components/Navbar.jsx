@@ -3,8 +3,10 @@ import { useTheme } from '../App';
 import { getT, THEME_LIST, THEMES } from '../constants';
 import { useEffect, useState, useMemo } from 'react';
 import { track } from '../analytics';
+import { dataPath } from '../utils/paths';
+import { fetchData } from '../utils/dataCache';
 
-const REGIONAL_EXPLORER_URL = 'https://regional-power-explorer.vercel.app';
+const REGIONAL_EXPLORER_URL = 'https://designstudio.worldbank.org/regional-power-explorer/';
 
 function useBreadcrumb() {
   const location = useLocation();
@@ -14,16 +16,14 @@ function useBreadcrumb() {
     const parts = location.pathname.split('/').filter(Boolean);
     if (parts.length === 0) { setLabel(''); return; }
     if (parts[0] === 'region' && parts[1]) {
-      fetch('/data/regions.json')
-        .then(r => r.json())
+      fetchData(dataPath('regions.json'))
         .then(d => {
           const r = (d.regions || []).find(r => r.id === parts[1]);
           setLabel(r ? r.name : parts[1]);
         })
         .catch(() => setLabel(parts[1]));
     } else if (parts[0] === 'country' && parts[1]) {
-      fetch('/data/regions.json')
-        .then(r => r.json())
+      fetchData(dataPath('regions.json'))
         .then(d => {
           for (const r of (d.regions || [])) {
             const c = r.countries.find(c => c.iso === parts[1]);
@@ -56,8 +56,7 @@ export default function Navbar() {
         ? decodeURIComponent(p[4])
         : null;
     if (!nameInUrl) { setCountryIso(null); return; }
-    fetch('/data/regions.json')
-      .then(r => r.json())
+    fetchData(dataPath('regions.json'))
       .then(d => {
         for (const r of (d.regions || [])) {
           const c = (r.countries || []).find(c => c.name === nameInUrl);
@@ -99,13 +98,14 @@ export default function Navbar() {
 
   const dashboardUrl = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean);
-    const suffix = `?theme=${theme}`;
-    if (parts[0] === 'country' && parts[1]) return `${REGIONAL_EXPLORER_URL}/country/${parts[1]}${suffix}`;
+    // The explorer uses hash routes and reads ?theme= from before the hash.
+    const at = route => `${REGIONAL_EXPLORER_URL}?theme=${theme}#${route}`;
+    if (parts[0] === 'country' && parts[1]) return at(`/country/${parts[1]}`);
     if (parts[0] === 'region' && parts[1]) {
-      if (countryIso) return `${REGIONAL_EXPLORER_URL}/country/${countryIso}${suffix}`;
-      return `${REGIONAL_EXPLORER_URL}/region/${parts[1]}${suffix}`;
+      if (countryIso) return at(`/country/${countryIso}`);
+      return at(`/region/${parts[1]}`);
     }
-    return `${REGIONAL_EXPLORER_URL}${suffix}`;
+    return at('/');
   }, [location.pathname, theme, countryIso]);
 
   const navBtn = (active = false) => ({
@@ -136,7 +136,7 @@ export default function Navbar() {
           fontSize: '0.7rem', fontWeight: 700, letterSpacing: '2px',
           color: t.muted, textTransform: 'uppercase',
           display: 'flex', alignItems: 'center', gap: 8,
-          fontFamily: "'Segoe UI', system-ui, sans-serif",
+          fontFamily: "'Open Sans', system-ui, sans-serif",
         }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
