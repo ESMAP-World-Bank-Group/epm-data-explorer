@@ -1,18 +1,13 @@
-import { createContext, useContext, useState, Component } from 'react';
+import { createContext, useContext, useState, Component, Suspense } from 'react';
 import { THEME_LIST } from './constants';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import { Analytics } from '@vercel/analytics/react';
 import Navbar from './components/Navbar';
 import WorldPage from './pages/WorldPage';
-import RegionPage from './pages/RegionPage';
-import CountryPage from './pages/CountryPage';
-import EpmCountryPage from './pages/EpmCountryPage';
-import EpmZonePage from './pages/EpmZonePage';
-import ResultsRegionPage from './pages/ResultsRegionPage';
-import ResultsCountryPage from './pages/ResultsCountryPage';
-import ResultsZonePage from './pages/ResultsZonePage';
-import AboutPage from './pages/AboutPage';
-import ContactPage from './pages/ContactPage';
+import {
+  RegionPage, CountryPage, EpmCountryPage, EpmZonePage,
+  ResultsRegionPage, ResultsCountryPage, ResultsZonePage, AboutPage, ContactPage,
+} from './pages/lazyPages';
 import { getT } from './constants';
 
 export const ThemeCtx = createContext({ theme: 'paper', setTheme: () => {} });
@@ -39,7 +34,9 @@ class ErrorBoundary extends Component {
 
 export default function App() {
   const [theme, setTheme] = useState(() => {
-    const p = new URLSearchParams(window.location.search).get('theme');
+    // ?theme= may sit before the hash (…/?theme=x#/region/y) or inside it (…/#/region/y?theme=x).
+    const p = new URLSearchParams(window.location.search).get('theme')
+      ?? new URLSearchParams(window.location.hash.split('?')[1] || '').get('theme');
     return (p && THEME_LIST.includes(p)) ? p : 'paper';
   });
   const t = getT(theme);
@@ -47,13 +44,16 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ThemeCtx.Provider value={{ theme, setTheme }}>
-        <BrowserRouter>
+        {/* Hash routes: the Design Studio gateway redirects any path that has no file,
+            so page paths live after the #. */}
+        <HashRouter>
           <div style={{
             display: 'flex', flexDirection: 'column', height: '100vh',
             overflow: 'hidden', backgroundColor: t.bg,
           }}>
             <Navbar />
             <div style={{ flex: 1, overflow: 'hidden', height: 'calc(100vh - 46px)' }}>
+              <Suspense fallback={null}>
               <Routes>
                 <Route path="/"                    element={<WorldPage />} />
                 <Route path="/region/:regionId"                                          element={<RegionPage />} />
@@ -66,10 +66,12 @@ export default function App() {
                 <Route path="/about"               element={<AboutPage />} />
                 <Route path="/contact"             element={<ContactPage />} />
               </Routes>
+              </Suspense>
             </div>
           </div>
-          <Analytics />
-        </BrowserRouter>
+          {/* Vercel's insights endpoint only exists on Vercel, which serves from the root. */}
+          {import.meta.env.BASE_URL === '/' && <Analytics />}
+        </HashRouter>
       </ThemeCtx.Provider>
     </ErrorBoundary>
   );

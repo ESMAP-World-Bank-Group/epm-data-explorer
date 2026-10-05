@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
 import { useTheme } from '../App';
 import {
-  getT, mapStyle, swapBasemap, toggleSatLabels, FUEL_COLORS, VOLTAGE_BRACKETS,
+  getT, FUEL_COLORS, VOLTAGE_BRACKETS,
   plantRadiusExpr, lcRadiusExpr, fuelColorExpr, PLANT_STATUSES, zoneColorExpr,
 } from '../constants';
 import CapacityChart from '../components/CapacityChart';
@@ -30,13 +30,17 @@ import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
 import { fetchScenarioDocs, scenarioDocIndex } from '../utils/scenarioDocs';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, regionFilter, addRegionCoast, raiseBoundaries } from '../utils/basemap';
+import { fetchGeo, prefetchGeo, fetchBboxes, boundsFor, addCountriesSource, regionFilter, raiseBoundaries } from '../utils/basemap';
+import { buildWbStyle, applyWbView, useWbStyleBase, ZONE_MAP_VIEW, MAP_LABEL_FONT } from '../utils/wbStyle';
 import { source } from '../utils/mapSource';
+import { drawLayers } from '../utils/mapLayers';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
 import { ttl } from '../utils/chartTitle';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
+import { dataPath } from '../utils/paths';
+import { fetchData } from '../utils/dataCache';
 
 // chart.js via CDN — no npm dep
 // Map zone fills — blues/teals/gold only
@@ -57,21 +61,6 @@ const ZONE_PALETTE = CHART_PALETTE; // legacy alias for chart code
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fitBounds(isos, countries) {
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
-  for (const f of countries.features) {
-    if (!isos.includes(f.properties.ISO_A3)) continue;
-    const geom = f.geometry;
-    const rings = geom.type === 'Polygon' ? geom.coordinates : geom.coordinates.flatMap(p => p);
-    for (const ring of rings)
-      for (const [lon, lat] of ring) {
-        if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
-        if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
-      }
-  }
-  if (!isFinite(minLon)) return null;
-  return [[minLon - 0.5, minLat - 0.5], [maxLon + 0.5, maxLat + 0.5]];
-}
 
 function makeLayerFilter(status, fuelsOff, minMw) {
   const clauses = [['==', ['get', 'status'], status], ['>=', ['get', 'mw'], minMw]];
@@ -131,8 +120,8 @@ function makeDonutSVG(fuelMix, tv, size = 54) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
     <circle cx="${cx}" cy="${cy}" r="${r + sw / 2 + 1}" fill="${bg}" stroke="rgba(0,0,0,0.18)" stroke-width="0.5"/>
     ${arcs.join('')}
-    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="7" font-weight="700" fill="${tc}" font-family="system-ui,sans-serif">${label}</text>
-    <text x="${cx}" y="${cy + 7.5}" text-anchor="middle" font-size="5.5" fill="${tc}" font-family="system-ui,sans-serif" opacity="0.65">${unit}</text>
+    <text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="7" font-weight="700" fill="${tc}" font-family="'Open Sans', system-ui, sans-serif">${label}</text>
+    <text x="${cx}" y="${cy + 7.5}" text-anchor="middle" font-size="5.5" fill="${tc}" font-family="'Open Sans', system-ui, sans-serif" opacity="0.65">${unit}</text>
   </svg>`;
 }
 
@@ -1958,11 +1947,20 @@ function AboutTab({ region, t, epmData, epmLoading, activeFolder }) {
   );
 }
 
+/** The plain region highlight, shown until the EPM zones cover it. */
+function setRegionHighlight(map, visible) {
+  for (const id of ['region-fill', 'region-border'])
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RegionPage() {
   const { regionId } = useParams();
   const { theme }    = useTheme();
+  const wbBase = useWbStyleBase();
+  const [wbView, setWbView] = useState(ZONE_MAP_VIEW);
+  const wbViewRef = useRef(wbView);   // what a rebuilt map (theme change) starts from
   const t            = getT(theme);
   const navigate     = useNavigate();
 
@@ -1994,8 +1992,6 @@ export default function RegionPage() {
   const [activeTab,       setActiveTab]       = useState('overview');
   const [availZone,       setAvailZone]       = useState('all');
   const [resourceSection, setResourceSection] = useState('vre');
-  const [basemap,         setBasemap]         = useState('minimal');
-  const [satLabels,       setSatLabels]       = useState(false);
   const [epmDataRaw,         setEpmData]         = useState(null);
 
   // Zones this region asked to be shown as external, moved across the line before any
@@ -2022,6 +2018,9 @@ export default function RegionPage() {
   const [lineKinds,       setLineKinds]       = useState({ existing: true, planned: true, candidate: true });
   const lineKindsRef = useRef({ existing: true, planned: true, candidate: true });
   const [mapLoaded,       setMapLoaded]       = useState(0);
+  // The map once its region's countries are drawn; the EPM layers go on it then.
+  const [baseMap,         setBaseMap]         = useState(null);
+  const popupRef = useRef(null);
   const [panelWidth,      setPanelWidth]      = useState(680);
   const { zoom, inc, dec, reset } = usePanelZoom();
   const [autoFolders,     setAutoFolders]     = useState(null);
@@ -2029,31 +2028,34 @@ export default function RegionPage() {
 
   // Static data
   useEffect(() => {
-    fetch('/data/tariffs.json').then(r => r.json()).then(setTariffs).catch(() => {});
-    fetch('/data/access.json').then(r => r.json()).then(setAccess).catch(() => {});
+    fetchData(dataPath('tariffs.json')).then(setTariffs).catch(() => {});
+    fetchData(dataPath('access.json')).then(setAccess).catch(() => {});
   }, []);
 
   // Region metadata
   useEffect(() => {
     track('region_view', { region: regionId });
-    fetch('/data/regions.json').then(r => r.json()).then(d => {
+    // The map waits for the region's EPM data before it is built; its geometry
+    // downloads meanwhile, so it is in hand when the map wants it.
+    prefetchGeo('region', regionId);
+    fetchData(dataPath('regions.json')).then(d => {
       const r = (d.regions || []).find(r => r.id === regionId);
       setRegion(r || null);
     });
     setCapacity(null);
     // Written scenario descriptions, when the study has any (utils/scenarioDocs).
     fetchScenarioDocs(regionId).then(setScnDocs);
-    fetch(`/data/cache/region_capacity_${regionId}.json`).then(r => r.json()).then(setCapacity).catch(() => {});
+    fetchData(dataPath(`cache/region_capacity_${regionId}.json`)).then(setCapacity).catch(() => {});
     setFuelsOff(new Set()); setStatusOff(new Set()); setKvsOff(new Set());
     setLinesOn(true); setPlantsOn(true); setSubsOn(false);
     setLoadCentersOn(false); setLcMinPop(300_000); setLcCircleScale(1.0);
     setMinMw(100); setCircleScale(1.0);
     setPlantSource('osm'); setActiveTab('overview');
     setGppdAvailable(null);
-    fetch(`/data/cache/region_plants_${regionId}_gppd.geojson`, { method: 'HEAD' })
+    fetch(dataPath(`cache/region_plants_${regionId}_gppd.geojson`), { method: 'HEAD' })
       .then(r => setGppdAvailable(r.ok)).catch(() => setGppdAvailable(false));
     setGemAvailable(null);
-    fetch(`/data/cache/region_plants_${regionId}_gem.geojson`, { method: 'HEAD' })
+    fetch(dataPath(`cache/region_plants_${regionId}_gem.geojson`), { method: 'HEAD' })
       .then(r => setGemAvailable(r.ok)).catch(() => setGemAvailable(false));
   }, [regionId]);
 
@@ -2219,247 +2221,68 @@ export default function RegionPage() {
   // Fleet age — GPPD only
   useEffect(() => {
     if (plantSource !== 'gppd') return;
-    fetch(`/data/cache/region_age_${regionId}_gppd.json`)
-      .then(r => r.ok ? r.json() : null).catch(() => {});
+    fetchData(dataPath(`cache/region_age_${regionId}_gppd.json`)).catch(() => null).catch(() => {});
   }, [plantSource, regionId]);
 
   // ── Map initialisation ────────────────────────────────────────────────────
+  // The map is built from the region alone, so its countries go on as soon as the
+  // style and the region geometry are in. An EPM region's own layers come from
+  // GitHub, often later; the next effect draws them on top, and swaps them when the
+  // folder or zone map changes, without rebuilding the map.
   useEffect(() => {
-    if (!containerRef.current || !region) return;
-    // EPM region: wait for data; skip map if neither linestring nor zones available
-    if (region.epm) {
-      if (!epmData) return;
-      if (!epmData.linestringGJ && !epmData.zonesGJ) return;
-    }
+    if (!containerRef.current || !region || !wbBase) return;
 
     const isos = region.countries.map(c => c.iso);
-    const isEpm = !!(region.epm && epmData && (epmData.linestringGJ || epmData.zonesGJ));
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: mapStyle(theme),
+      style: buildWbStyle(wbBase, getT(theme), wbViewRef.current),
       center: [0, 20], zoom: 2, minZoom: 1, maxZoom: 14,
       canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
     });
     mapRef.current = map;
+    // Frame the region as soon as the (small, cached) bbox file is in, not
+    // after the style and the region geometry have loaded -- otherwise the page
+    // sits on the zoom-2 world view for the whole download.
+    let live = true;
+    fetchBboxes().then(bboxes => {
+      const bounds = boundsFor(bboxes, 'regions', region.id, 0.5);
+      if (live && bounds) map.fitBounds(bounds, { padding: 40, duration: 0 });
+    }).catch(err => console.error('bboxes', err));
 
     const popup = new maplibregl.Popup({
       closeButton: false, closeOnClick: false, offset: 10,
       className: `popup-${theme}`,
     });
+    popupRef.current = popup;
 
-    map.on('load', async () => {
-      const countries = await fetchCountries('10m');
-      const boundaries = await fetchBoundaries('10m');
-
-      const bounds = fitBounds(isos, countries);
-      if (bounds) map.fitBounds(bounds, { padding: 40, duration: 0 });
+    // On the style, not 'load': 'load' waits for every basemap tile and font to
+    // arrive and draw, and the zones and corridors have no reason to wait for them.
+    map.once('style.load', async () => {
+      const countries = await fetchGeo('region', region.id);
+      if (!live) return;
 
       addCountriesSource(map, countries);
       const tv = getT(theme);
-      addBaseLayers(map, tv, boundaries);
 
-      if (isEpm) {
-        // ── EPM map: zone polygons + NTC lines + country donut markers ───────
-        const lsgj = epmData.linestringGJ;
-        const zonesGJ = epmData.zonesGJ;
-        const zcmapRows = epmData.zcmap;  // [{z, c}]
-        const zoneToCountry = Object.fromEntries(zcmapRows.map(r => [r.z, r.c]));
-
-        // Unique countries → colors
-        const regionCountries = [...new Set(zcmapRows.map(r => r.c))].sort();
-        const countryColorMap = {};
-        regionCountries.forEach((c, i) => { countryColorMap[c] = MAP_PALETTE[i % MAP_PALETTE.length]; });
-
-        // Zone centroids — linestring endpoints are canonical (match the drawn lines);
-        // polygon centroids fill in zones that appear in zonesGJ but not in any linestring.
-        const zoneCentroids = zoneCentroidMap(zonesGJ, lsgj);
-
-        // Country centroids = average of zone centroids per country
-        const countryCentroids = {};
-        for (const { z, c } of zcmapRows) {
-          const coord = zoneCentroids[z];
-          if (!coord) continue;
-          if (!countryCentroids[c]) countryCentroids[c] = { sum: [0, 0], n: 0 };
-          countryCentroids[c].sum[0] += coord[0];
-          countryCentroids[c].sum[1] += coord[1];
-          countryCentroids[c].n++;
-        }
-        for (const c of Object.keys(countryCentroids)) {
-          const d = countryCentroids[c];
-          countryCentroids[c] = [d.sum[0] / d.n, d.sum[1] / d.n];
-        }
-
-        // Store centroids in refs for pieMode effect
-        zoneCentroidsRef.current = zoneCentroids;
-        countryCentroidsRef.current = countryCentroids;
-
-        // Zone polygon fill layer using zones.geojson
-        if (zonesGJ) {
-          const isoToCountry = {};
-          for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3] = f.properties.c;
-          const countryToFirstZone = {};
-          for (const { z, c } of zcmapRows) { if (!countryToFirstZone[c]) countryToFirstZone[c] = z; }
-          const uniqueIsos = [...new Set(zonesGJ.features.map(f => f.properties.ISO_A3))];
-          const fillExpr = ['match', ['get', 'ISO_A3'],
-            ...uniqueIsos.flatMap(iso => [iso, countryColorMap[isoToCountry[iso]] || '#888']),
-            'transparent',
-          ];
-          map.addSource('zones', { type: 'geojson', data: zonesGJ, generateId: true });
-          map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones',
-            paint: { 'fill-color': fillExpr, 'fill-opacity': 0.25 } });
-          map.addLayer({ id: 'zone-hover', type: 'fill', source: 'zones',
-            filter: ['==', ['get', 'ISO_A3'], ''],
-            paint: { 'fill-color': fillExpr, 'fill-opacity': 0.55 } });
-          map.addLayer({ id: 'zone-border', type: 'line', source: 'zones',
-            paint: { 'line-color': fillExpr, 'line-width': 1.2, 'line-opacity': 0.75 } });
-
-          let hovIso = null;
-          map.on('mousemove', 'zone-fill', e => {
-            map.getCanvas().style.cursor = 'pointer';
-            const iso = e.features[0].properties.ISO_A3;
-            const c = isoToCountry[iso] || iso;
-            if (iso !== hovIso) { hovIso = iso; map.setFilter('zone-hover', ['==', ['get', 'ISO_A3'], iso]); }
-            popup.setLngLat(e.lngLat).setHTML(`<b>${c}</b><br><span style="opacity:.65;font-size:0.7em">click for VRE profile</span>`).addTo(map);
-          });
-          map.on('mouseleave', 'zone-fill', () => {
-            map.getCanvas().style.cursor = '';
-            hovIso = null; map.setFilter('zone-hover', ['==', ['get', 'ISO_A3'], '']); popup.remove();
-          });
-          map.on('click', 'zone-fill', e => {
-            const iso = e.features[0].properties.ISO_A3;
-            const c = isoToCountry[iso] || iso;
-            navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`);
-          });
-        } else if (lsgj) {
-          // Fallback: country fill from world source (no zones.geojson)
-          const isoColorPairs = [];
-          for (const { z, c } of zcmapRows) {
-            const f = lsgj.features.find(ft => ft.properties.z === z);
-            const iso = f?.properties.ISO_A3;
-            if (iso && iso !== '-99') isoColorPairs.push([iso, countryColorMap[c] || '#888']);
-          }
-          const fbIsos = [...new Set(isoColorPairs.map(([iso]) => iso))];
-          const fbExpr = ['match', ['get', 'ISO_A3'], ...isoColorPairs.flat(), 'transparent'];
-          map.addLayer({ id: 'zone-fill', type: 'fill', source: 'countries',
-            filter: ['in', ['get', 'ISO_A3'], ['literal', fbIsos]],
-            paint: { 'fill-color': fbExpr, 'fill-opacity': 0.28 } });
-          map.addLayer({ id: 'zone-border', type: 'line', source: 'countries',
-            filter: ['in', ['get', 'ISO_A3'], ['literal', fbIsos]],
-            paint: { 'line-color': fbExpr, 'line-width': 1.2, 'line-opacity': 0.75 } });
-        }
-
-        // NTC transmission lines
-        {
-          const ntcYrs = availableYears(epmData.ntc);
-          const ntcYr  = ntcYrs.find(y => epmData.ntc.some(r => (r.years[y] || 0) > 0))
-                         || ntcYrs[0] || '2024';
-          const seenPairs = new Set();
-          let ntcFeatures = [];
-
-          if (Object.keys(zoneCentroids).length > 0) {
-            // Build NTC lines from computed zone centroids + pTransferLimit data
-            ntcFeatures = epmData.ntc
-              .filter(r => {
-                const key = [r.z, r.z2].sort().join('||');
-                if (seenPairs.has(key)) return false;
-                seenPairs.add(key);
-                return (r.years[ntcYr] || 0) > 0 && zoneCentroids[r.z] && zoneCentroids[r.z2];
-              })
-              .map(r => ({
-                type: 'Feature',
-                properties: { z: r.z, z_other: r.z2, ntc_mw: r.years[ntcYr] || 0 },
-                geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], zoneCentroids[r.z2]] },
-              }));
-          } else if (lsgj) {
-            // Fallback: original linestring-based NTC (for regions without zonesGJ)
-            ntcFeatures = lsgj.features
-              .filter(f => {
-                const { z, z_other } = f.properties;
-                if (!z || !z_other) return false;
-                const key = [z, z_other].sort().join('||');
-                if (seenPairs.has(key)) return false;
-                seenPairs.add(key);
-                const entry = epmData.ntc.find(r =>
-                  (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
-                return (entry?.years[ntcYr] || 0) > 0;
-              })
-              .map(f => {
-                const { z, z_other } = f.properties;
-                const entry = epmData.ntc.find(r =>
-                  (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
-                return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0 } };
-              });
-          }
-
-          {
-            map.addSource('ntc-lines', { type: 'geojson',
-              data: { type: 'FeatureCollection', features: ntcFeatures } });
-            map.addLayer({ id: 'ntc-lines-layer', type: 'line', source: 'ntc-lines',
-              layout: { 'line-cap': 'round', 'line-join': 'round',
-                visibility: lineKindsRef.current.existing ? 'visible' : 'none' },
-              paint: { 'line-color': '#f0b030',
-                'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3.5, 8000, 6],
-                'line-opacity': 0.88 } });
-            map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
-              layout: { 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
-                'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false,
-                visibility: lineKindsRef.current.existing ? 'visible' : 'none' },
-              paint: { 'text-color': '#b07800',
-                'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
-          }
-
-          // Planned and candidate lines from pNewTransmission, drawn above the
-          // existing ones; the data comes in through an effect, which also follows
-          // a change of variant without rebuilding the map.
-          map.addSource('newtx-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-          for (const kind of Object.keys(NEW_TX_STYLE)) {
-            const st = NEW_TX_STYLE[kind];
-            const visibility = lineKindsRef.current[kind] ? 'visible' : 'none';
-            map.addLayer({ id: `newtx-${kind}`, type: 'line', source: 'newtx-lines',
-              filter: ['==', ['get', 'kind'], kind],
-              layout: { 'line-cap': st.cap, 'line-join': 'round', visibility },
-              paint: { 'line-color': st.color, 'line-opacity': 0.95,
-                'line-width': ['interpolate', ['linear'], ['get', 'mw'], 0, 1.5, 500, 2.2, 2000, 3.5, 8000, 5],
-                'line-dasharray': st.dash, 'line-offset': ['get', 'offset'] } });
-            map.addLayer({ id: `newtx-${kind}-labels`, type: 'symbol', source: 'newtx-lines',
-              filter: ['==', ['get', 'kind'], kind],
-              layout: { 'text-field': ['get', 'label'], 'text-size': 8, visibility,
-                'symbol-placement': 'line-center', 'text-allow-overlap': false,
-                'text-offset': [0, kind === 'planned' ? -0.9 : 0.9] },
-              paint: { 'text-color': st.text,
-                'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
-            map.on('mousemove', `newtx-${kind}`, e => {
-              map.getCanvas().style.cursor = 'pointer';
-              popup.setLngLat(e.lngLat).setHTML(newTxPopup(e.features[0].properties)).addTo(map);
-            });
-            map.on('mouseleave', `newtx-${kind}`, () => { map.getCanvas().style.cursor = ''; popup.remove(); });
-          }
-        }
-
-        // ── External zone layers (toggle-controlled) ─────────────────────
-        const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids, epmYear,
-          { off: epmData.extExchangeOff });
-        addExtZoneLayers(map, tv, extData, { visible: showExtRef.current });
-        bindExtZoneHandlers(map, popup);
-        applyLineVisibility(map, lineKindsRef.current, showExtRef.current);
-
-        // ── Areas of the modelled countries that belong to no zone ──────
-        addOffgridLayers(map, tv, epmData.offgridGJ);
-
-        // Trigger donut rendering via pieMode effect
-        setMapLoaded(n => n + 1);
-
+      if (region.epm) {
+        // The region's countries, until its EPM zones are drawn (and if they never are).
+        const hl = tv.highlight;
+        map.addLayer({ id: 'region-fill', type: 'fill', source: 'countries',
+          filter: regionFilter(isos, region.non_determined),
+          paint: { 'fill-color': hl.fill, 'fill-opacity': 0.08 } });
+        map.addLayer({ id: 'region-border', type: 'line', source: 'countries',
+          filter: ['in', ['get', 'ISO_A3'], ['literal', isos]],
+          paint: { 'line-color': hl.border, 'line-width': hl.borderW, 'line-opacity': 0.9 } });
       } else {
         // ── OSM map ──────────────────────────────────────────────────────────
         const [plantsGJ, linesGJ, subsGJ, lcGJ] = await Promise.all([
-          fetch(`/data/cache/region_plants_${regionId}.geojson`).then(r => r.json()),
-          fetch(`/data/cache/region_lines_${regionId}.geojson`).then(r => r.json()),
-          fetch(`/data/cache/region_substations_${regionId}.geojson`)
-            .then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
-          fetch(`/data/region_load_centers_${regionId}.geojson`)
-            .then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
+          fetchData(dataPath(`cache/region_plants_${regionId}.geojson`)),
+          fetchData(dataPath(`cache/region_lines_${regionId}.geojson`)),
+          fetchData(dataPath(`cache/region_substations_${regionId}.geojson`)).catch(() => ({ type: 'FeatureCollection', features: [] })),
+          fetchData(dataPath(`region_load_centers_${regionId}.geojson`)).catch(() => ({ type: 'FeatureCollection', features: [] })),
         ]);
+        if (!live) return;
 
         map.addSource('plants',       { type: 'geojson', data: plantsGJ });
         map.addSource('lines',        { type: 'geojson', data: linesGJ  });
@@ -2488,8 +2311,6 @@ export default function RegionPage() {
         map.addLayer({ id: 'region-border', type: 'line', source: 'countries',
           filter: ['in', ['get', 'ISO_A3'], ['literal', isos]],
           paint: { 'line-color': hl.border, 'line-width': hl.borderW, 'line-opacity': 0.9 } });
-        addRegionCoast(map, { areas: region.non_determined, color: hl.border,
-          width: hl.borderW, opacity: 0.9 });
 
         const fuels = new Set();
         for (const f of plantsGJ.features) {
@@ -2558,7 +2379,7 @@ export default function RegionPage() {
             'circle-stroke-width': 1.2, 'circle-stroke-color': 'rgba(255,255,255,0.65)' } });
         map.addLayer({ id: 'load-centers-labels', type: 'symbol', source: 'load-centers',
           filter: ['>=', ['get', 'pop'], 300_000], layout: { visibility: 'none',
-            'text-field': ['get', 'name'], 'text-size': 9, 'text-offset': [0, 1.3], 'text-anchor': 'top' },
+            'text-font': MAP_LABEL_FONT, 'text-field': ['get', 'name'], 'text-size': 9, 'text-offset': [0, 1.3], 'text-anchor': 'top' },
           paint: { 'text-color': '#1a237e', 'text-halo-color': 'rgba(255,255,255,0.88)', 'text-halo-width': 1.5 } });
 
         let hoveredId = null;
@@ -2582,15 +2403,239 @@ export default function RegionPage() {
       }
 
       raiseBoundaries(map);
+      if (region.epm) setBaseMap(map);
     });
 
     return () => {
+      live = false;
+      setBaseMap(null);
       popup.remove();
       donutMarkersRef.current.forEach(m => m.remove());
       donutMarkersRef.current = [];
       mapRef.current?.remove();
     };
-  }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [region, theme, wbBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── EPM layers ────────────────────────────────────────────────────────────
+  // Zones, corridors, planned lines, external and off-grid zones, drawn on the
+  // map the effect above built once it has its countries. When the zones or lines
+  // change (another folder or zone map) the cleanup takes off exactly what was
+  // added -- layers, sources and the handlers bound to them -- and this draws the
+  // new ones; the map, and where the user left it, stay.
+  useEffect(() => {
+    const map = baseMap;
+    if (!map || map !== mapRef.current) return;
+    if (!(region?.epm && epmData && (epmData.linestringGJ || epmData.zonesGJ))) return;
+    const popup = popupRef.current;
+    const tv = getT(theme);
+
+    const undraw = drawLayers(map, () => {
+      // ── EPM map: zone polygons + NTC lines + country donut markers ───────
+      const lsgj = epmData.linestringGJ;
+      const zonesGJ = epmData.zonesGJ;
+      const zcmapRows = epmData.zcmap;  // [{z, c}]
+      const zoneToCountry = Object.fromEntries(zcmapRows.map(r => [r.z, r.c]));
+
+      // Unique countries → colors
+      const regionCountries = [...new Set(zcmapRows.map(r => r.c))].sort();
+      const countryColorMap = {};
+      regionCountries.forEach((c, i) => { countryColorMap[c] = MAP_PALETTE[i % MAP_PALETTE.length]; });
+
+      // Zone centroids — linestring endpoints are canonical (match the drawn lines);
+      // polygon centroids fill in zones that appear in zonesGJ but not in any linestring.
+      const zoneCentroids = zoneCentroidMap(zonesGJ, lsgj);
+
+      // Country centroids = average of zone centroids per country
+      const countryCentroids = {};
+      for (const { z, c } of zcmapRows) {
+        const coord = zoneCentroids[z];
+        if (!coord) continue;
+        if (!countryCentroids[c]) countryCentroids[c] = { sum: [0, 0], n: 0 };
+        countryCentroids[c].sum[0] += coord[0];
+        countryCentroids[c].sum[1] += coord[1];
+        countryCentroids[c].n++;
+      }
+      for (const c of Object.keys(countryCentroids)) {
+        const d = countryCentroids[c];
+        countryCentroids[c] = [d.sum[0] / d.n, d.sum[1] / d.n];
+      }
+
+      // Store centroids in refs for pieMode effect
+      zoneCentroidsRef.current = zoneCentroids;
+      countryCentroidsRef.current = countryCentroids;
+
+      // Zone polygon fill layer using zones.geojson
+      if (zonesGJ) {
+        const isoToCountry = {};
+        for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3] = f.properties.c;
+        const countryToFirstZone = {};
+        for (const { z, c } of zcmapRows) { if (!countryToFirstZone[c]) countryToFirstZone[c] = z; }
+        const uniqueIsos = [...new Set(zonesGJ.features.map(f => f.properties.ISO_A3))];
+        const fillExpr = ['match', ['get', 'ISO_A3'],
+          ...uniqueIsos.flatMap(iso => [iso, countryColorMap[isoToCountry[iso]] || '#888']),
+          'transparent',
+        ];
+        map.addSource('zones', { type: 'geojson', data: zonesGJ, generateId: true });
+        map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones',
+          paint: { 'fill-color': fillExpr, 'fill-opacity': 0.25 } });
+        map.addLayer({ id: 'zone-hover', type: 'fill', source: 'zones',
+          filter: ['==', ['get', 'ISO_A3'], ''],
+          paint: { 'fill-color': fillExpr, 'fill-opacity': 0.55 } });
+        map.addLayer({ id: 'zone-border', type: 'line', source: 'zones',
+          paint: { 'line-color': fillExpr, 'line-width': 1.2, 'line-opacity': 0.75 } });
+
+        let hovIso = null;
+        map.on('mousemove', 'zone-fill', e => {
+          map.getCanvas().style.cursor = 'pointer';
+          const iso = e.features[0].properties.ISO_A3;
+          const c = isoToCountry[iso] || iso;
+          if (iso !== hovIso) { hovIso = iso; map.setFilter('zone-hover', ['==', ['get', 'ISO_A3'], iso]); }
+          popup.setLngLat(e.lngLat).setHTML(`<b>${c}</b><br><span style="opacity:.65;font-size:0.7em">click for VRE profile</span>`).addTo(map);
+        });
+        map.on('mouseleave', 'zone-fill', () => {
+          map.getCanvas().style.cursor = '';
+          hovIso = null; map.setFilter('zone-hover', ['==', ['get', 'ISO_A3'], '']); popup.remove();
+        });
+        map.on('click', 'zone-fill', e => {
+          const iso = e.features[0].properties.ISO_A3;
+          const c = isoToCountry[iso] || iso;
+          navigate(`/region/${regionId}/country/${encodeURIComponent(c)}`);
+        });
+      } else if (lsgj) {
+        // Fallback: country fill from world source (no zones.geojson)
+        const isoColorPairs = [];
+        for (const { z, c } of zcmapRows) {
+          const f = lsgj.features.find(ft => ft.properties.z === z);
+          const iso = f?.properties.ISO_A3;
+          if (iso && iso !== '-99') isoColorPairs.push([iso, countryColorMap[c] || '#888']);
+        }
+        // A model whose zones carry no country code (São Tomé's) has nothing to
+        // colour, and a 'match' with no pairs is rejected as an invalid expression.
+        if (isoColorPairs.length) {
+          const fbIsos = [...new Set(isoColorPairs.map(([iso]) => iso))];
+          const fbExpr = ['match', ['get', 'ISO_A3'], ...isoColorPairs.flat(), 'transparent'];
+          map.addLayer({ id: 'zone-fill', type: 'fill', source: 'countries',
+            filter: ['in', ['get', 'ISO_A3'], ['literal', fbIsos]],
+            paint: { 'fill-color': fbExpr, 'fill-opacity': 0.28 } });
+          map.addLayer({ id: 'zone-border', type: 'line', source: 'countries',
+            filter: ['in', ['get', 'ISO_A3'], ['literal', fbIsos]],
+            paint: { 'line-color': fbExpr, 'line-width': 1.2, 'line-opacity': 0.75 } });
+        }
+      }
+
+      // NTC transmission lines
+      {
+        const ntcYrs = availableYears(epmData.ntc);
+        const ntcYr  = ntcYrs.find(y => epmData.ntc.some(r => (r.years[y] || 0) > 0))
+                       || ntcYrs[0] || '2024';
+        const seenPairs = new Set();
+        let ntcFeatures = [];
+
+        if (Object.keys(zoneCentroids).length > 0) {
+          // Build NTC lines from computed zone centroids + pTransferLimit data
+          ntcFeatures = epmData.ntc
+            .filter(r => {
+              const key = [r.z, r.z2].sort().join('||');
+              if (seenPairs.has(key)) return false;
+              seenPairs.add(key);
+              return (r.years[ntcYr] || 0) > 0 && zoneCentroids[r.z] && zoneCentroids[r.z2];
+            })
+            .map(r => ({
+              type: 'Feature',
+              properties: { z: r.z, z_other: r.z2, ntc_mw: r.years[ntcYr] || 0 },
+              geometry: { type: 'LineString', coordinates: [zoneCentroids[r.z], zoneCentroids[r.z2]] },
+            }));
+        } else if (lsgj) {
+          // Fallback: original linestring-based NTC (for regions without zonesGJ)
+          ntcFeatures = lsgj.features
+            .filter(f => {
+              const { z, z_other } = f.properties;
+              if (!z || !z_other) return false;
+              const key = [z, z_other].sort().join('||');
+              if (seenPairs.has(key)) return false;
+              seenPairs.add(key);
+              const entry = epmData.ntc.find(r =>
+                (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+              return (entry?.years[ntcYr] || 0) > 0;
+            })
+            .map(f => {
+              const { z, z_other } = f.properties;
+              const entry = epmData.ntc.find(r =>
+                (r.z === z && r.z2 === z_other) || (r.z === z_other && r.z2 === z));
+              return { ...f, properties: { ...f.properties, ntc_mw: entry?.years[ntcYr] || 0 } };
+            });
+        }
+
+        {
+          map.addSource('ntc-lines', { type: 'geojson',
+            data: { type: 'FeatureCollection', features: ntcFeatures } });
+          map.addLayer({ id: 'ntc-lines-layer', type: 'line', source: 'ntc-lines',
+            layout: { 'line-cap': 'round', 'line-join': 'round',
+              visibility: lineKindsRef.current.existing ? 'visible' : 'none' },
+            paint: { 'line-color': '#f0b030',
+              'line-width': ['interpolate', ['linear'], ['get', 'ntc_mw'], 0, 1, 500, 2, 2000, 3.5, 8000, 6],
+              'line-opacity': 0.88 } });
+          map.addLayer({ id: 'ntc-labels', type: 'symbol', source: 'ntc-lines',
+            layout: { 'text-font': MAP_LABEL_FONT, 'text-field': ['concat', ['to-string', ['round', ['get', 'ntc_mw']]], ' MW'],
+              'text-size': 8, 'symbol-placement': 'line-center', 'text-allow-overlap': false,
+              visibility: lineKindsRef.current.existing ? 'visible' : 'none' },
+            paint: { 'text-color': '#b07800',
+              'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+        }
+
+        // Planned and candidate lines from pNewTransmission, drawn above the
+        // existing ones; the data comes in through an effect, which also follows
+        // a change of variant without rebuilding the map.
+        map.addSource('newtx-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        for (const kind of Object.keys(NEW_TX_STYLE)) {
+          const st = NEW_TX_STYLE[kind];
+          const visibility = lineKindsRef.current[kind] ? 'visible' : 'none';
+          map.addLayer({ id: `newtx-${kind}`, type: 'line', source: 'newtx-lines',
+            filter: ['==', ['get', 'kind'], kind],
+            layout: { 'line-cap': st.cap, 'line-join': 'round', visibility },
+            paint: { 'line-color': st.color, 'line-opacity': 0.95,
+              'line-width': ['interpolate', ['linear'], ['get', 'mw'], 0, 1.5, 500, 2.2, 2000, 3.5, 8000, 5],
+              'line-dasharray': st.dash, 'line-offset': ['get', 'offset'] } });
+          map.addLayer({ id: `newtx-${kind}-labels`, type: 'symbol', source: 'newtx-lines',
+            filter: ['==', ['get', 'kind'], kind],
+            layout: { 'text-font': MAP_LABEL_FONT, 'text-field': ['get', 'label'], 'text-size': 8, visibility,
+              'symbol-placement': 'line-center', 'text-allow-overlap': false,
+              'text-offset': [0, kind === 'planned' ? -0.9 : 0.9] },
+            paint: { 'text-color': st.text,
+              'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.5 } });
+          map.on('mousemove', `newtx-${kind}`, e => {
+            map.getCanvas().style.cursor = 'pointer';
+            popup.setLngLat(e.lngLat).setHTML(newTxPopup(e.features[0].properties)).addTo(map);
+          });
+          map.on('mouseleave', `newtx-${kind}`, () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+        }
+      }
+
+      // ── External zone layers (toggle-controlled) ─────────────────────
+      const extData = buildExtZoneData(epmData.zonesExtGJ, epmData.extNtc || [], zoneCentroids, epmYear,
+        { off: epmData.extExchangeOff });
+      addExtZoneLayers(map, tv, extData, { visible: showExtRef.current });
+      bindExtZoneHandlers(map, popup);
+      applyLineVisibility(map, lineKindsRef.current, showExtRef.current);
+
+      // ── Areas of the modelled countries that belong to no zone ──────
+      addOffgridLayers(map, tv, epmData.offgridGJ);
+    });
+    setRegionHighlight(map, !map.getLayer('zone-fill')); // kept where no zones were drawn
+    raiseBoundaries(map);
+
+    // Trigger donut rendering via pieMode effect
+    setMapLoaded(n => n + 1);
+
+    return () => {
+      donutMarkersRef.current.forEach(m => m.remove());
+      donutMarkersRef.current = [];
+      if (mapRef.current !== map) return; // rebuilt: the old map took its layers with it
+      undraw();
+      popup.remove();
+      setRegionHighlight(map, true);
+    };
+  }, [baseMap, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // External zones toggle. The ref is what the map-load handler reads, so a rebuilt
   // map comes back at the visibility the user left it at.
@@ -2629,17 +2674,9 @@ export default function RegionPage() {
 
   // Basemap switcher
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    swapBasemap(map, basemap, theme);
-    if (basemap !== 'satellite') toggleSatLabels(map, false, theme);
-  }, [basemap, theme]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || basemap !== 'satellite') return;
-    toggleSatLabels(map, satLabels, theme);
-  }, [satLabels, basemap, theme]);
+    wbViewRef.current = wbView;
+    applyWbView(mapRef.current, wbView);
+  }, [wbView]);
 
   // Pie donut markers — re-render on pieMode toggle or after map loads
   useEffect(() => {
@@ -2728,13 +2765,12 @@ export default function RegionPage() {
     const suffix = plantSource === 'gppd' ? '_gppd' : plantSource === 'gem' ? '_gem' : '';
     const f  = `region_plants_${regionId}${suffix}.geojson`;
     const cf = `region_capacity_${regionId}${suffix}.json`;
-    fetch(`/data/cache/${f}`)
-      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+    fetchData(dataPath(`cache/${f}`))
       .then(data => {
         source(map, 'plants').setData(data);
         const fuels = new Set(data.features.map(f => f.properties.fuel).filter(f => FUEL_COLORS[f]));
         setPresentFuels(fuels);
-        return fetch(`/data/cache/${cf}`).then(r => r.json());
+        return fetchData(dataPath(`cache/${cf}`));
       })
       .then(setCapacity)
       .catch(() => {
@@ -2748,7 +2784,6 @@ export default function RegionPage() {
   if (!region) return <div style={{ padding: 40, color: t.text }}>Loading…</div>;
 
   const isEpmMode = !!(region.epm && epmData && (epmData.linestringGJ || epmData.zonesGJ));
-  const showMap   = !region.epm || isEpmMode;
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 46px)' }}
@@ -2756,20 +2791,19 @@ export default function RegionPage() {
       onMouseUp={()=>{isDrRef.current=false;}} onMouseLeave={()=>{isDrRef.current=false;}}
     >
 
-      {/* Map */}
-      {showMap && (
-        <div style={{ position: 'relative', flex: 1 }}>
+      {/* Map: shown from the start, with the region's countries until the EPM layers arrive */}
+      <div style={{ position: 'relative', flex: 1 }}>
           <div ref={containerRef}
             style={{ width: '100%', height: 'calc(100vh - 46px)', backgroundColor: t.bg }} />
             <MapDownload mapRef={mapRef} t={t} name={()=>ttl(`${region?.name||'Region'} map`,epmYear)}/>
 
           {/* Basemap controls */}
           <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, display: 'flex', gap: 4, alignItems: 'center' }}>
-            {[{ id: 'minimal', label: 'Map' }, { id: 'labeled', label: 'Labels' }, { id: 'satellite', label: 'Sat' }]
+            {[{ id: 'clean', label: 'Clean' }, { id: 'detailed', label: 'Detailed' }, { id: 'satellite', label: 'Sat' }]
               .map(({ id, label }) => {
-                const active = (basemap || 'minimal') === id;
+                const active = wbView.canvas === id;
                 return (
-                  <button key={id} onClick={() => setBasemap(id)} style={{
+                  <button key={id} onClick={() => setWbView(v => ({ ...v, canvas: id }))} style={{
                     fontSize: '0.52rem', letterSpacing: '0.5px', fontFamily: 'inherit',
                     padding: '4px 8px', borderRadius: 5, cursor: 'pointer',
                     border: `1px solid ${active ? 'rgba(74,143,204,0.6)' : t.panelBorder}`,
@@ -2842,20 +2876,19 @@ export default function RegionPage() {
             </div>
           )}
         </div>
-      )}
 
       {/* Drag handle */}
-      {showMap && <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>}
+      <div style={{width:5,flexShrink:0,cursor:'col-resize'}} onMouseDown={e=>{isDrRef.current=true;drStartX.current=e.clientX;drStartW.current=panelWidth;e.preventDefault();}}/>
 
       {/* Right panel */}
       <div style={{
         zoom,
-        width: unzoom(showMap ? panelWidth : '100%', zoom),
-        maxWidth: unzoom(showMap ? panelWidth : 800, zoom),
-        margin: showMap ? 0 : '0 auto',
+        width: unzoom(panelWidth, zoom),
+        maxWidth: unzoom(panelWidth, zoom),
+        margin: 0,
         height: unzoom('calc(100vh - 46px)', zoom), overflowY: 'auto',
         padding: '18px 16px',
-        backgroundColor: t.panel, borderLeft: showMap ? `1px solid ${t.panelBorder}` : 'none',
+        backgroundColor: t.panel, borderLeft: `1px solid ${t.panelBorder}`,
         flexShrink: 0,
       }}>
         <PanelZoomControl t={t} zoom={zoom} inc={inc} dec={dec} reset={reset}/>

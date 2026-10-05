@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
 import { useTheme } from '../App';
-import { getT, mapStyle } from '../constants';
+import { getT } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, fetchRunRootCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear, resultCsvUrl,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
@@ -26,11 +26,13 @@ import {
   extNodeCoordMap, buildExtFlowFeatures, bindExtFlowHandlers, addExtPriceDots,
 } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { raiseBoundaries } from '../utils/basemap';
+import { useWbStyleBase, ZONE_MAP_VIEW } from '../utils/wbStyle';
 import { baseFirst, baseScenario, defaultScenarios } from '../utils/scenarioOrder';
 import { physicalStats } from '../utils/summaryStats';
 import ScenarioPicker, { ScenarioKey } from '../components/ScenarioPicker';
 import { alive, source, markStyleReady, styleReady } from '../utils/mapSource';
+import { useBaseMap, frameOnce } from '../utils/mapLayers';
 import { zoneCentroidMap } from '../utils/centroids';
 import { priceDotEl } from '../utils/priceDot';
 import { fetchScenarioConfig, resolveFile, overridesFor } from '../utils/epmScenarios';
@@ -45,6 +47,8 @@ import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom'
 import { ttl, scenList } from '../utils/chartTitle';
 import { barTotalPlugin, barTotalFooter } from '../utils/barTotals';
 import { useZoneLabels, useZoneLabelMarkers } from '../utils/zoneLabels';
+import { dataPath } from '../utils/paths';
+import { fetchData } from '../utils/dataCache';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -77,7 +81,7 @@ const MAIN_COST_CATS = ['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Inv
   'Import costs with external zones: $m','Export revenues with external zones: $m',
   'Spinning reserve costs: $m','Unmet country spinning reserve costs: $m'];
 function costColor(cat) { return COST_COLORS[cat] || '#888888'; }
-function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
+function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px "Open Sans", system-ui, sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
 
 // The country selector's third regime: draw the countries side by side instead of
 // summing them. Only the yearlyZone indicators can take it, they are the ones drawn as
@@ -188,10 +192,10 @@ function OverviewPie({ tfs, data, total, unitDiv, unitLbl, t }) {
     ctx.fillStyle = t.isDark ? 'rgba(15,20,30,0.88)' : 'rgba(245,248,252,0.92)'; ctx.fill();
     const v = (total/unitDiv); const vs = v>=10 ? v.toFixed(0) : v.toFixed(1);
     ctx.fillStyle = t.isDark ? 'rgba(255,255,255,0.95)' : 'rgba(15,30,60,0.9)';
-    ctx.font = 'bold 10px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 10px "Open Sans", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(vs, cx, cy-4);
     ctx.fillStyle = t.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(60,80,120,0.6)';
-    ctx.font = '7.5px system-ui,sans-serif'; ctx.fillText(unitLbl, cx, cy+7);
+    ctx.font = '7.5px "Open Sans", system-ui, sans-serif'; ctx.fillText(unitLbl, cx, cy+7);
   }, [tfs, data, total, unitDiv, unitLbl, t]); // eslint-disable-line
   return <canvas ref={ref} style={{ display:'block', flexShrink:0 }} />;
 }
@@ -201,6 +205,7 @@ function OverviewPie({ tfs, data, total, unitDiv, unitLbl, t }) {
 export default function ResultsRegionPage() {
   const { regionId } = useParams();
   const { theme }    = useTheme();
+  const wbBase = useWbStyleBase();
   const t            = getT(theme);
   const navigate     = useNavigate();
 
@@ -317,7 +322,7 @@ export default function ResultsRegionPage() {
   // ── Load region + geo ──────────────────────────────────────────────────────
   useEffect(() => {
     track('results_view', { type: 'region', region: regionId });
-    fetch('/data/regions.json').then(r=>r.json()).then(d => {
+    fetchData(dataPath('regions.json')).then(d => {
       const r=(d.regions||[]).find(r=>r.id===regionId); setRegion(r||null);
     });
     // Written scenario descriptions, when the study has any (utils/scenarioDocs).
@@ -376,6 +381,9 @@ export default function ResultsRegionPage() {
   useEffect(() => {
     if (!region?.epm) return;
     setLoadingRuns(true); setRunsResolved(false);
+    // The previous region's run and scenarios mean nothing here: asked for under
+    // this branch they only fail, and a late failure could wipe this region's list.
+    setSimRun(null); setScenarioList([]);
     const { branch, outputDir: fixedDir, simRuns: fixedRuns } = region.epm;
     if (fixedDir) {
       // regions.json overrides outputDir (e.g. R2 branches that skip GitHub API)
@@ -395,6 +403,9 @@ export default function ResultsRegionPage() {
   useEffect(() => {
     if (!region?.epm || !simRun) return;
     const { branch } = region.epm;
+    // A listing for a run the page has moved on from must not land: the fallback
+    // below can answer after the current run's listing and replace it.
+    let stale = false;
     // Try GitHub dir listing first; fall back to input_scenarios.csv (for R2 branches)
     fetchGitHubDir(branch, `${outputDir}/${simRun}`).then(async items => {
       let scens = (items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();
@@ -402,6 +413,7 @@ export default function ResultsRegionPage() {
         const fromCsv = await fetchInputScenarios(branch, outputDir, simRun);
         scens = (fromCsv || []).sort();
       }
+      if (stale) return;
       setScenarioList(scens); setEvScenarios(defaultScenarios(scens));
       const base = baseScenario(scens);
       if (scens.length) {
@@ -416,6 +428,7 @@ export default function ResultsRegionPage() {
       // the columns: pick the first few of the rest.
       setSummaryScen(defaultScenarios(scens.filter(s=>s!==base)));
     });
+    return () => { stale = true; };
   }, [region, simRun, outputDir]);
 
   useEffect(() => {
@@ -533,8 +546,27 @@ export default function ResultsRegionPage() {
   }, []);
 
   // ── Map ────────────────────────────────────────────────────────────────────
+  // Built before the zones are in (utils/mapLayers), framed on the region, so the
+  // page has its map at once. The zones are drawn on it when they arrive. Other
+  // effects below add their own layers and handlers to the map, so new zones
+  // (another run) build a new map rather than redrawing this one, as before.
+  // The zone-to-country table, by content: it is read again on every scenario
+  // change, and the same table should not build a new map.
+  const zcKey = useMemo(() => zcmapRows.map(r => `${r.z}\t${r.c}`).join('\n'), [zcmapRows]);
+  const [mapGen, setMapGen] = useState(0);
+  const drawnRef = useRef(null); // { map, zones, zcmap } the map was drawn with (zcmap by zcKey)
+  const baseMap = useBaseMap(containerRef, mapRef, { wbBase, theme, view: ZONE_MAP_VIEW,
+    scope: region ? `${region.id}:${mapGen}` : null, frame: region ? { kind: 'regions', id: region.id } : null });
+
   useEffect(() => {
-    if (!containerRef.current || !region || !zonesGJ) return;
+    const map = baseMap;
+    if (!map || map !== mapRef.current || !region || !zonesGJ) return;
+    const drawn = drawnRef.current;
+    if (drawn?.map === map) {
+      if (drawn.zones !== zonesGJ || drawn.zcmap !== zcKey) setMapGen(g => g + 1);
+      return;
+    }
+    drawnRef.current = { map, zones: zonesGJ, zcmap: zcKey };
 
     const zcMap = Object.fromEntries(zcmapRows.map(r=>[r.z, r.c]));
     const regionCountries = [...new Set(zcmapRows.map(r=>r.c))].sort();
@@ -549,17 +581,14 @@ export default function ResultsRegionPage() {
     // one has to be pushed again.
     ntcRef.current.applied = null; extFlowRef.current.applied = null;
 
-    const map = new maplibregl.Map({
-      container:containerRef.current, style:mapStyle(theme),
-      center:[lons.length?lons.reduce((a,b)=>a+b,0)/lons.length:20, lats.length?lats.reduce((a,b)=>a+b,0)/lats.length:0],
-      zoom:4, minZoom:1, maxZoom:14, canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl:false,
+    frameOnce(map, 'zones', m => {
+      if (!bounds) return false;
+      m.fitBounds(bounds, { padding:60, maxZoom:8, duration:0 });
     });
-    mapRef.current = map;
     const popup = new maplibregl.Popup({ closeButton:false, closeOnClick:false, offset:10, className:`popup-${theme}` });
 
-    map.on('load', async () => {
+    {
       const tv = getT(theme);
-      if (bounds) map.fitBounds(bounds, { padding:60, duration:0, maxZoom:8 });
 
       // SDF arrow image (white triangle = inside, supports icon-color)
       const aW=14, aH=12;
@@ -570,21 +599,6 @@ export default function ResultsRegionPage() {
       }
       if (!map.hasImage('ntc-arrow')) map.addImage('ntc-arrow', { width:aW, height:aH, data:aData }, { sdf:true });
 
-      // The basemap is the backdrop. Everything that matters is added after it, so a
-      // file that fails to arrive, or a map removed while these were in flight, must
-      // not take the zone and corridor layers down with it.
-      let countries = null, boundaries = null;
-      try {
-        countries = await fetchCountries('10m');
-        boundaries = await fetchBoundaries('10m');
-      } catch (err) {
-        console.warn('basemap unavailable, drawing zones only', err);
-      }
-      if (!alive(map)) return;
-      if (countries) {
-        addCountriesSource(map, countries);
-        addBaseLayers(map, tv, boundaries || { type:'FeatureCollection', features:[] });
-      }
 
       const isoToCountry = {};
       for (const f of zonesGJ.features) isoToCountry[f.properties.ISO_A3]=f.properties.c;
@@ -675,10 +689,13 @@ export default function ResultsRegionPage() {
       // on the map, so the style chatter of a hover filter costs nothing.
       applyCorridors();
       map.on('styledata', applyCorridors);
-    });
+    }
 
-    return () => { popup.remove(); dotMarkersRef.current.forEach(m=>m.remove()); dotMarkersRef.current=[]; pieMarkersRef.current.forEach(m=>m.remove()); pieMarkersRef.current=[]; mapRef.current?.remove(); };
-  }, [region, theme, zonesGJ, zcmapRows]); // eslint-disable-line
+    // Until the map goes: the map, not new data, ends what was drawn here. The
+    // markers belong to their own effects, which may already be placing them on
+    // the next map; the old ones went with the old map.
+    return () => { if (mapRef.current !== map) popup.remove(); };
+  }, [baseMap, zonesGJ, zcmapRows]); // eslint-disable-line
 
   // ── External zone layers (added once map + ext data ready) ──────────────────
   useEffect(() => {
@@ -821,9 +838,9 @@ export default function ResultsRegionPage() {
       const mutedC=lightBg?'rgba(60,80,120,0.65)':'rgba(255,255,255,0.55)';
       ctx.beginPath();ctx.arc(cx,cy,iR-0.5,0,2*Math.PI);ctx.fillStyle=centerBg;ctx.fill();
       const val=total/unitDiv; const valStr=val>=10?val.toFixed(0):val.toFixed(1);
-      ctx.fillStyle=textC; ctx.font='bold 8px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle=textC; ctx.font='bold 8px "Open Sans", system-ui, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.fillText(valStr,cx,cy-2.5);
-      ctx.fillStyle=mutedC; ctx.font='6px system-ui,sans-serif'; ctx.fillText(unitLbl,cx,cy+6);
+      ctx.fillStyle=mutedC; ctx.font='6px "Open Sans", system-ui, sans-serif'; ctx.fillText(unitLbl,cx,cy+6);
       canvas.title=`${z}: ${(total/unitDiv).toFixed(1)} ${unitLbl}`;
       pieMarkersRef.current.push(new maplibregl.Marker({element:canvas,anchor:'center'}).setLngLat(coord).addTo(map));
     }

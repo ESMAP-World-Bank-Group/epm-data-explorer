@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
 import { useTheme } from '../App';
-import { getT, mapStyle } from '../constants';
+import { getT } from '../constants';
 import {
   fetchEpmCSV, fetchLinestringGeoJSON, fetchZonesGeoJSON, fetchZonesOffgridGeoJSON, fetchZcmapList, fetchDataFolderList,
   fetchRunList, fetchGitHubDir, fetchResultCSV, resolveOutputDir,
@@ -17,13 +17,17 @@ import { fetchScenarioConfig, resolveFile } from '../utils/epmScenarios';
 import { zoneCentroidMap } from '../utils/centroids';
 import VariantPicker from '../components/VariantPicker';
 import ScenarioTab from '../components/ScenarioTab';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { raiseBoundaries } from '../utils/basemap';
+import { useWbStyleBase, ZONE_MAP_VIEW, MAP_LABEL_FONT } from '../utils/wbStyle';
 import { source, layer } from '../utils/mapSource';
+import { useBaseMap, drawLayers, frameOnce } from '../utils/mapLayers';
 import { usePromotedEpmData } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
 import MapDownload from '../components/MapDownload';
 import { ttl } from '../utils/chartTitle';
 import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom';
+import { dataPath } from '../utils/paths';
+import { fetchData } from '../utils/dataCache';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -112,6 +116,7 @@ export default function EpmZonePage() {
   const { regionId, zoneId } = useParams();
   const zoneIdDecoded = decodeURIComponent(zoneId);
   const { theme } = useTheme();
+  const wbBase = useWbStyleBase();
   const t = getT(theme);
   const navigate = useNavigate();
 
@@ -172,7 +177,7 @@ export default function EpmZonePage() {
   // Region (+ its EPM data) only depends on the region, NOT the zone — so switching
   // zone within a region doesn't reload everything / rebuild the map (no black flash).
   useEffect(() => {
-    fetch('/data/regions.json').then(r => r.json()).then(d => {
+    fetchData(dataPath('regions.json')).then(d => {
       const r = (d.regions || []).find(r => r.id === regionId);
       setRegion(r || null);
     });
@@ -317,33 +322,36 @@ export default function EpmZonePage() {
     return zoneCentroidMap(epmData?.zonesGJ, epmData?.linestringGJ);
   }, [epmData]);
 
-  // Build the map ONCE per region / data / theme — NOT per zone.
+  // Built before the EPM data (utils/mapLayers), framed on the region -- which
+  // country a zone is in is only known from the data -- so the page has its map
+  // at once. Built ONCE per region / theme — NOT per zone.
+  const baseMap = useBaseMap(containerRef, mapRef, { wbBase, theme, view: ZONE_MAP_VIEW, scope: region?.id,
+    frame: region ? { kind: 'regions', id: region.id } : null });
+
+  // The EPM layers, drawn when the data is in and swapped when it changes,
+  // without rebuilding the map.
   useEffect(() => {
-    if (!containerRef.current || !region || !epmData) return;
+    const map = baseMap;
+    if (!map || map !== mapRef.current || !region || !epmData) return;
     const { linestringGJ, zonesGJ } = epmData;
     if (!linestringGJ && !zonesGJ) return;
 
     const zcmapRows     = epmData.zcmap;
     const zoneToCountry = Object.fromEntries(zcmapRows.map(r => [r.z, r.c]));
 
-    const center = zoneCentroids[zoneIdDecoded] || [35, 39];
-
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: mapStyle(theme),
-      center, zoom: 5, minZoom: 1, maxZoom: 14, canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl: false,
+    // Centred on the zone the first time the layers are drawn; a later zone is
+    // centred by the zone-switch effect below.
+    frameOnce(map, zoneIdDecoded, m => {
+      const center = zoneCentroids[zoneIdDecoded];
+      if (!center) return false;
+      m.jumpTo({ center, zoom: 5 });
     });
-    mapRef.current = map;
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10,
       className: `popup-${theme}` });
 
-    map.on('load', async () => {
+    const undraw = drawLayers(map, () => {
       const tv = getT(theme);
 
-      const countries = await fetchCountries('10m');
-      const boundaries = await fetchBoundaries('10m');
-      addCountriesSource(map, countries);
-      addBaseLayers(map, tv, boundaries);
 
       if (zonesGJ) {
         const regionCountries = [...new Set(zcmapRows.map(r => r.c))].sort();
@@ -402,28 +410,28 @@ export default function EpmZonePage() {
           map.addLayer({ id:'ntc-lines-active', type:'line', source:'ntc-lines', filter:zoneNtcFilter, layout:{'line-cap':'round'},
             paint:{'line-color':'#f0b030','line-width':['interpolate',['linear'],['get','ntc_mw'],0,1,500,2,2000,3.5,8000,6],'line-opacity':0.95} });
           map.addLayer({ id:'ntc-labels', type:'symbol', source:'ntc-lines', filter:zoneNtcFilter,
-            layout:{'text-field':['concat',['to-string',['round',['get','ntc_mw']]],' MW'],'text-size':8,'symbol-placement':'line-center','text-allow-overlap':false},
+            layout:{'text-font':MAP_LABEL_FONT,'text-field':['concat',['to-string',['round',['get','ntc_mw']]],' MW'],'text-size':8,'symbol-placement':'line-center','text-allow-overlap':false},
             paint:{'text-color':'#b07800','text-halo-color':'rgba(255,255,255,0.9)','text-halo-width':1.5} });
         }
       }
 
       if (zoneCentroids[zoneIdDecoded]) {
         const el = document.createElement('div');
-        el.style.cssText = `font-size:0.55rem;font-weight:700;font-family:system-ui,sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;
+        el.style.cssText = `font-size:0.55rem;font-weight:700;font-family:"Open Sans", system-ui, sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;
         el.textContent = zoneIdDecoded;
         markerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -4] })
           .setLngLat(zoneCentroids[zoneIdDecoded]).addTo(map);
       }
-      raiseBoundaries(map);
     });
+    raiseBoundaries(map);
 
     return () => {
       popup.remove();
       markerRef.current?.remove();
       markerRef.current = null;
-      mapRef.current?.remove();
+      if (mapRef.current === map) undraw(); // else the map was rebuilt and took them with it
     };
-  }, [region, theme, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [baseMap, epmData?.linestringGJ, epmData?.zonesGJ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Zone switch: update highlight + marker + recenter WITHOUT rebuilding the map ──
   useEffect(() => {
@@ -442,7 +450,7 @@ export default function EpmZonePage() {
     if (center) {
       const tv = getT(theme);
       const el = document.createElement('div');
-      el.style.cssText = `font-size:0.55rem;font-weight:700;font-family:system-ui,sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;
+      el.style.cssText = `font-size:0.55rem;font-weight:700;font-family:"Open Sans", system-ui, sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;
       el.textContent = zoneIdDecoded;
       markerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -4] })
         .setLngLat(center).addTo(map);

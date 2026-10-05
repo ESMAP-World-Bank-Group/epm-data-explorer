@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
 import { useTheme } from '../App';
-import { getT, mapStyle } from '../constants';
+import { getT } from '../constants';
 import {
   fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
@@ -18,8 +18,10 @@ import {
   extNodeCoordMap, buildExtFlowFeatures, updateExtFlows, bindExtFlowHandlers,
 } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { raiseBoundaries } from '../utils/basemap';
+import { useWbStyleBase, ZONE_MAP_VIEW } from '../utils/wbStyle';
 import { source, markStyleReady, styleReady } from '../utils/mapSource';
+import { useBaseMap, frameOnce } from '../utils/mapLayers';
 import { zoneCentroidMap } from '../utils/centroids';
 import { usePromotedZones } from '../utils/usePromotedZones';
 import CJChart from '../components/CJChart';
@@ -30,6 +32,8 @@ import { barTotalPlugin } from '../utils/barTotals';
 import { useZoneLabels, useZoneLabelMarkers } from '../utils/zoneLabels';
 import { rankPlants, plantDisplay, plantFmt } from '../utils/plantRank';
 import { netImportGWh } from '../utils/netImport';
+import { dataPath } from '../utils/paths';
+import { fetchData } from '../utils/dataCache';
 
 const MAP_PALETTE = ['#1B6CA8','#36B5B5','#E8C547','#4DA6FF','#4169E1','#85C1E9','#2E9EC8','#5EBCBA','#1A5276','#7EC8E3','#14A094','#4CAFE8','#EDD770','#AED6F1','#1F618D','#0A6B70'];
 function fmt(n,d=0){if(n==null||isNaN(n))return'—';return n.toLocaleString('en-US',{maximumFractionDigits:d});}
@@ -43,6 +47,7 @@ export default function ResultsZonePage() {
   const { regionId, zoneId } = useParams();
   const zoneIdDecoded = decodeURIComponent(zoneId);
   const { theme } = useTheme(); const t = getT(theme); const navigate = useNavigate();
+  const wbBase = useWbStyleBase();
 
   const containerRef = useRef(null); const mapRef = useRef(null); const markerRef = useRef(null);
   const hoursDataRef = useRef({});
@@ -102,7 +107,7 @@ export default function ResultsZonePage() {
   const isDrRef = useRef(false); const drStartX = useRef(0); const drStartW = useRef(0);
   useEffect(()=>{hoursDataRef.current=hoursData;},[hoursData]);
 
-  useEffect(()=>{track('results_view',{type:'zone',region:regionId,zone:zoneIdDecoded});fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,zoneIdDecoded]);
+  useEffect(()=>{track('results_view',{type:'zone',region:regionId,zone:zoneIdDecoded});fetchData(dataPath('regions.json')).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,zoneIdDecoded]);
   // The border capacities belong to the scenario, not to the folder: LC_BSSC is the run
   // where Georgia-Romania exists at all. config.csv says where the base files live and
   // scenarios.csv which ones this scenario swaps, so both are asked before fetching.
@@ -124,8 +129,10 @@ export default function ResultsZonePage() {
     Promise.all([fetchZonesGeoJSON(branch,dataFolder,null,run),fetchLinestringGeoJSON(branch,dataFolder,null,run)])
       .then(([zGJ,lGJ])=>{setZonesGJ(zGJ);setLinestringGJ(lGJ);});
   },[region,outputDir,simRun,runsResolved]);
-  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);const{branch,outputDir:fixedDir,simRuns:fixedRuns}=region.epm;if(fixedDir){setOutputDir(fixedDir);const runs=(fixedRuns||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);setLoadingRuns(false);setRunsResolved(true);}else{resolveOutputDir(branch).then(dir=>{setOutputDir(dir);return fetchRunList(branch,dir);}).then(names=>{setRunsUnreachable(names===null);const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});}},[region]);
-  useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}setScenarioList(s);if(s.length)setScenario(s[0]);});},[region,simRun,outputDir]);
+  // A new region clears the last one's run and scenarios, and a scenario listing for a run
+  // the page has moved on from is dropped: a late one could replace the current list.
+  useEffect(()=>{if(!region?.epm)return;setLoadingRuns(true);setRunsResolved(false);setSimRun(null);setScenarioList([]);const{branch,outputDir:fixedDir,simRuns:fixedRuns}=region.epm;if(fixedDir){setOutputDir(fixedDir);const runs=(fixedRuns||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);setLoadingRuns(false);setRunsResolved(true);}else{resolveOutputDir(branch).then(dir=>{setOutputDir(dir);return fetchRunList(branch,dir);}).then(names=>{setRunsUnreachable(names===null);const runs=(names||[]).slice().sort().reverse();setRunList(runs);if(runs.length)setSimRun(runs[0]);}).finally(()=>{setLoadingRuns(false);setRunsResolved(true);});}},[region]);
+  useEffect(()=>{if(!region?.epm||!simRun)return;const{branch}=region.epm;let stale=false;fetchGitHubDir(branch,`${outputDir}/${simRun}`).then(async items=>{let s=(items||[]).filter(i=>i.type==='dir').map(i=>i.name).sort();if(!s.length){const fromCsv=await fetchInputScenarios(branch,outputDir,simRun);s=(fromCsv||[]).sort();}if(stale)return;setScenarioList(s);if(s.length)setScenario(s[0]);});return()=>{stale=true;};},[region,simRun,outputDir]);
   useEffect(()=>{
     if(!region?.epm||!simRun||!scenarioList.length)return;
     setLoadingData(true);const{branch}=region.epm;
@@ -160,22 +167,34 @@ export default function ResultsZonePage() {
   const dispSeasons = useMemo(()=>{const qs=new Set();for(const yr of Object.values(firstDisp[zoneIdDecoded]||{}))for(const q of Object.keys(yr))qs.add(q);return[...qs].sort();},[firstDisp,zoneIdDecoded]);
   const dispDays = useMemo(()=>{const ds=new Set();for(const yr of Object.values(firstDisp[zoneIdDecoded]||{}))for(const q of Object.values(yr))for(const d of Object.keys(q))ds.add(d);return[...ds].sort();},[firstDisp,zoneIdDecoded]);
 
-  // Map
+  // Map: built before the zones are in (utils/mapLayers), framed on the region --
+  // which country a zone is in is only known from the data -- and drawn when they
+  // arrive. Other effects add their own layers and handlers to the map, so new
+  // zones or another zone build a new map rather than redrawing this one, as before.
+  // The zone-to-country table, by content: it is read again on every scenario
+  // change, and the same table should not build a new map.
+  const zcKey=useMemo(()=>zcmapRows.map(r=>`${r.z}\t${r.c}`).join('\n'),[zcmapRows]);
+  const [mapGen,setMapGen]=useState(0);
+  const drawnRef=useRef(null); // what the map was drawn with
+  const baseMap=useBaseMap(containerRef,mapRef,{wbBase,theme,view:ZONE_MAP_VIEW,
+    scope:region?`${region.id}:${mapGen}`:null,frame:region?{kind:'regions',id:region.id}:null});
   useEffect(()=>{
-    if(!containerRef.current||!region||!zonesGJ)return;
+    const map=baseMap;
+    if(!map||map!==mapRef.current||!region||!zonesGJ)return;
+    const drawnWith=[zonesGJ,linestringGJ,zcKey,zoneIdDecoded];
+    const drawn=drawnRef.current;
+    if(drawn?.map===map){
+      if(drawn.with.some((v,k)=>v!==drawnWith[k]))setMapGen(g=>g+1);
+      return;
+    }
+    drawnRef.current={map,with:drawnWith};
     const regionCountries=[...new Set(zcmapRows.map(r=>r.c))].sort();const colorMap={};regionCountries.forEach((c,i)=>{colorMap[c]=MAP_PALETTE[i%MAP_PALETTE.length];});
     const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
-    const center=zoneCentroids[zoneIdDecoded]||[35,39];
-    const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center,zoom:5,minZoom:1,maxZoom:14,canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl:false});
-    mapRef.current=map;
+    frameOnce(map,'zones',m=>{const center=zoneCentroids[zoneIdDecoded];if(!center)return false;m.jumpTo({center,zoom:5});});
     const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
     const ntcClickPopup=new maplibregl.Popup({closeButton:true,closeOnClick:true,offset:10,className:`popup-${theme}`});
-    map.on('load',async()=>{
+    {
       const tv=getT(theme);
-      const countries=await fetchCountries('10m');
-      const boundaries=await fetchBoundaries('10m');
-      addCountriesSource(map,countries);
-      addBaseLayers(map,tv,boundaries);
       const isoToC={};for(const f of zonesGJ.features)isoToC[f.properties.ISO_A3]=f.properties.c;
       const uIsos=[...new Set(zonesGJ.features.map(f=>f.properties.ISO_A3))];
       const fillExpr=['match',['get','ISO_A3'],...uIsos.flatMap(iso=>[iso,colorMap[isoToC[iso]]||'#888']),'transparent'];
@@ -195,13 +214,14 @@ export default function ResultsZonePage() {
       map.on('mousemove','zone-fill-dim',e=>{map.getCanvas().style.cursor='pointer';const z=e.features[0].properties.z||'';popup.setLngLat(e.lngLat).setHTML(`<b>${z}</b><br><span style="opacity:.6;font-size:0.7em">click to explore zone</span>`).addTo(map);});
       map.on('mouseleave','zone-fill-dim',()=>{map.getCanvas().style.cursor='';popup.remove();});
       map.on('click','zone-fill-dim',e=>{navigate(`/region/${regionId}/results/zone/${encodeURIComponent(e.features[0].properties.z||'')}`);});
-      if(zoneCentroids[zoneIdDecoded]){const el=document.createElement('div');el.style.cssText=`font-size:0.55rem;font-weight:700;font-family:system-ui,sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;el.textContent=zoneIdDecoded;markerRef.current=new maplibregl.Marker({element:el,anchor:'bottom',offset:[0,-4]}).setLngLat(zoneCentroids[zoneIdDecoded]).addTo(map);}
+      if(zoneCentroids[zoneIdDecoded]){const el=document.createElement('div');el.style.cssText=`font-size:0.55rem;font-weight:700;font-family:"Open Sans", system-ui, sans-serif;color:${tv.lbl};background:${tv.panel};border:1.5px solid ${tv.panelBorder};border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.22);`;el.textContent=zoneIdDecoded;markerRef.current=new maplibregl.Marker({element:el,anchor:'bottom',offset:[0,-4]}).setLngLat(zoneCentroids[zoneIdDecoded]).addTo(map);}
       markStyleReady(map);
       setMapLoadedCount(c=>c+1);
       raiseBoundaries(map);
-    });
-    return()=>{popup.remove();markerRef.current?.remove();markerRef.current=null;mapRef.current?.remove();};
-  },[region,theme,zonesGJ,linestringGJ,zcmapRows,zoneIdDecoded]); // eslint-disable-line
+    }
+    // Until the map goes: the map, not new data, ends what was drawn here.
+    return()=>{if(mapRef.current===map)return;popup.remove();markerRef.current?.remove();markerRef.current=null;};
+  },[baseMap,zonesGJ,linestringGJ,zcmapRows,zoneIdDecoded]); // eslint-disable-line
 
   // External zone layers (added once map + ext data ready)
   useEffect(()=>{
