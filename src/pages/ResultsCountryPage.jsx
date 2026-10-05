@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import { track } from '../analytics';
 import { useTheme } from '../App';
-import { getT, mapStyle } from '../constants';
+import { getT } from '../constants';
 import {
   fetchEpmCSV, fetchZonesGeoJSON, fetchLinestringGeoJSON, fetchZonesExtGeoJSON, fetchZonesOffgridGeoJSON, fetchGitHubDir, fetchResultCSV, resolveOutputDir, fetchRunList, fetchInputScenarios, fetchDispatchYear, fetchRunRootCSV,
   processTechFuel, processYearlyZone, processDispatchResults, processHourlyPrice,
@@ -19,7 +19,8 @@ import {
   extNodeCoordMap, buildExtFlowFeatures, updateExtFlows, bindExtFlowHandlers, addExtPriceDots,
 } from '../utils/extZones';
 import { addOffgridLayers } from '../utils/offgridZones';
-import { fetchCountries, fetchBoundaries, addCountriesSource, addBaseLayers, raiseBoundaries } from '../utils/basemap';
+import { raiseBoundaries } from '../utils/basemap';
+import { buildWbStyle, useWbStyleBase, ZONE_MAP_VIEW } from '../utils/wbStyle';
 import { baseFirst, baseScenario, defaultScenarios } from '../utils/scenarioOrder';
 import { physicalStats } from '../utils/summaryStats';
 import { yzAgg } from '../utils/zoneAgg';
@@ -42,6 +43,8 @@ import PanelZoomControl, { usePanelZoom, unzoom } from '../components/PanelZoom'
 import { ttl, scenList } from '../utils/chartTitle';
 import { barTotalPlugin, barTotalFooter } from '../utils/barTotals';
 import { useZoneLabels, useZoneLabelMarkers } from '../utils/zoneLabels';
+import { dataPath } from '../utils/paths';
+import { fetchData } from '../utils/dataCache';
 
 // ── Constants / helpers (shared with RegionPage) ──────────────────────────────
 
@@ -75,7 +78,7 @@ const MAIN_COST_CATS=['Fuel costs: $m','Fixed O&M: $m','Variable O&M: $m','Inves
   'Spinning reserve costs: $m','Unmet country spinning reserve costs: $m',
   NET_TRADE_LINE];
 function costColor(cat){return COST_COLORS[cat]||'#888888';}
-function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
+function makeScenPlugin(activeSc,color){if(!activeSc||activeSc.length<2)return null;return{id:'scenLabels',afterDraw(chart){const{ctx,chartArea:ca}=chart;if(!ca)return;ctx.save();ctx.font='8px "Open Sans", system-ui, sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle=color||'rgba(128,128,128,0.7)';activeSc.forEach((scen,si)=>{const dsIdx=chart.data.datasets.findIndex(d=>d.stack===scen);if(dsIdx<0)return;const meta=chart.getDatasetMeta(dsIdx);const nX=chart.data.labels.length;for(let xi=0;xi<nX;xi++){const bar=meta.data[xi];if(!bar)continue;ctx.fillText(`S${si+1}`,bar.x,ca.bottom+12);}});ctx.restore();}};}
 
 const INDICATORS=[
   {key:'CapacityTechFuel',label:'Capacity (MW)',source:'techFuel',unit:'MW'},
@@ -102,6 +105,7 @@ export default function ResultsCountryPage() {
   const { regionId, countryName } = useParams();
   const countryDecoded = decodeURIComponent(countryName);
   const { theme } = useTheme(); const t = getT(theme); const navigate = useNavigate();
+  const wbBase = useWbStyleBase();
 
   const containerRef = useRef(null); const mapRef = useRef(null); const dotMarkersRef = useRef([]);
   const resultsDataRef = useRef({}); const refYearRef = useRef(null);
@@ -194,7 +198,7 @@ export default function ResultsCountryPage() {
   useEffect(()=>{ovScenarioRef.current=ovScenario;},[ovScenario]);
   useEffect(()=>{hoursDataRef.current=hoursData;},[hoursData]);
 
-  useEffect(()=>{track('results_view',{type:'country',region:regionId,country:countryDecoded});fetch('/data/regions.json').then(r=>r.json()).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,countryDecoded]);
+  useEffect(()=>{track('results_view',{type:'country',region:regionId,country:countryDecoded});fetchData(dataPath('regions.json')).then(d=>{const r=(d.regions||[]).find(r=>r.id===regionId);setRegion(r||null);});},[regionId,countryDecoded]);
 
   // The inputs a results map still needs: the zoning, the hour weights, and the two
   // things that describe the border — how much can cross it and what it costs there.
@@ -360,24 +364,19 @@ export default function ResultsCountryPage() {
 
   // ── Map ───────────────────────────────────────────────────────────────────────
   useEffect(()=>{
-    if(!containerRef.current||!region||!zonesGJ)return;
+    if(!containerRef.current||!region||!zonesGJ||!wbBase)return;
     const regionCountries=[...new Set(zcmapRows.map(r=>r.c))].sort();
     const colorMap={};regionCountries.forEach((c,i)=>{colorMap[c]=MAP_PALETTE[i%MAP_PALETTE.length];});
     const zoneCentroids = zoneCentroidMap(zonesGJ, linestringGJ);
     const cCoords=countryZoneIds.flatMap(z=>zoneCentroids[z]?[zoneCentroids[z]]:[]);
     const lons=cCoords.map(c=>c[0]),lats=cCoords.map(c=>c[1]);
     const bounds=lons.length?[[Math.min(...lons)-1.5,Math.min(...lats)-1.5],[Math.max(...lons)+1.5,Math.max(...lats)+1.5]]:null;
-    const map=new maplibregl.Map({container:containerRef.current,style:mapStyle(theme),center:[lons.length?lons.reduce((a,b)=>a+b,0)/lons.length:20,lats.length?lats.reduce((a,b)=>a+b,0)/lats.length:0],zoom:4,minZoom:1,maxZoom:14,canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl:false});
+    const map=new maplibregl.Map({container:containerRef.current,style:buildWbStyle(wbBase, getT(theme), ZONE_MAP_VIEW),center:[lons.length?lons.reduce((a,b)=>a+b,0)/lons.length:20,lats.length?lats.reduce((a,b)=>a+b,0)/lats.length:0],zoom:4,minZoom:1,maxZoom:14,bounds:bounds||undefined,fitBoundsOptions:{padding:60,maxZoom:7},canvasContextAttributes: { preserveDrawingBuffer: true }, attributionControl:false});
     mapRef.current=map;
     const popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:10,className:`popup-${theme}`});
     const ntcClickPopup=new maplibregl.Popup({closeButton:true,closeOnClick:true,offset:10,className:`popup-${theme}`});
     map.on('load',async()=>{
       const tv=getT(theme);
-      if(bounds)map.fitBounds(bounds,{padding:60,duration:0,maxZoom:7});
-      const countries=await fetchCountries('10m');
-      const boundaries=await fetchBoundaries('10m');
-      addCountriesSource(map,countries);
-      addBaseLayers(map,tv,boundaries);
       const isoToC={};for(const f of zonesGJ.features)isoToC[f.properties.ISO_A3]=f.properties.c;
       const uIsos=[...new Set(zonesGJ.features.map(f=>f.properties.ISO_A3))];
       const fillExpr=['match',['get','ISO_A3'],...uIsos.flatMap(iso=>[iso,colorMap[isoToC[iso]]||'#888']),'transparent'];
@@ -414,7 +413,7 @@ export default function ResultsCountryPage() {
       raiseBoundaries(map);
     });
     return()=>{popup.remove();dotMarkersRef.current.forEach(m=>m.remove());dotMarkersRef.current=[];pieMarkersRef.current.forEach(m=>m.remove());pieMarkersRef.current=[];mapRef.current?.remove();};
-  },[region,theme,zonesGJ,zcmapRows,countryZoneIds,countryIsos]); // eslint-disable-line
+  },[region,theme,zonesGJ,zcmapRows,countryZoneIds,countryIsos,wbBase]); // eslint-disable-line
 
   // External zone layers (added once map + ext data ready)
   useEffect(()=>{
@@ -524,8 +523,8 @@ export default function ResultsCountryPage() {
       const mutedC=lightBg?'rgba(60,80,120,0.65)':'rgba(255,255,255,0.55)';
       ctx.beginPath();ctx.arc(cx,cy,iR-0.5,0,2*Math.PI);ctx.fillStyle=centerBg;ctx.fill();
       const val=total/unitDiv;const valStr=val>=10?val.toFixed(0):val.toFixed(1);
-      ctx.fillStyle=textC;ctx.font='bold 8px system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillText(valStr,cx,cy-2.5);ctx.fillStyle=mutedC;ctx.font='6px system-ui,sans-serif';ctx.fillText(unitLbl,cx,cy+6);
+      ctx.fillStyle=textC;ctx.font='bold 8px "Open Sans", system-ui, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(valStr,cx,cy-2.5);ctx.fillStyle=mutedC;ctx.font='6px "Open Sans", system-ui, sans-serif';ctx.fillText(unitLbl,cx,cy+6);
       canvas.title=`${z}: ${(total/unitDiv).toFixed(1)} ${unitLbl}`;
       pieMarkersRef.current.push(new maplibregl.Marker({element:canvas,anchor:'center'}).setLngLat(coord).addTo(map));
     }
